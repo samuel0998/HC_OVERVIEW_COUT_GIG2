@@ -23,12 +23,6 @@
             <option value="">Turno</option>
             {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
         </select>
-        <select name="status">
-            {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-        </select>
-        <label class="check"><input type="checkbox" name="previsao_afastamento"> Previsão de afastamento?</label>
-        <input type="date" name="data_afastamento">
-        <input type="text" name="causa_afastamento" placeholder="Causa / Descrição do afastamento">
         <div class="form-actions">
             <button type="submit" class="btn primary">Salvar colaborador</button>
             <button type="reset" class="btn">Limpar</button>

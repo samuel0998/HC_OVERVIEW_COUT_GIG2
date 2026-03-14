@@ -1,4 +1,7 @@
+import os
+import smtplib
 import unicodedata
+from email.mime.text import MIMEText
 from io import BytesIO
 from datetime import datetime
 
@@ -11,10 +14,12 @@ from models.hc_gig2 import HCGig2
 
 hc_bp = Blueprint("hc", __name__)
 
-CARGOS = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
-AREAS = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
-TURNOS = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS = ["OPERACIONAL", "OFF", "Licença"]
+CARGOS  = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
+AREAS   = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
+TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
+STATUS  = ["OPERACIONAL", "Licença", "Férias", "Desligado"]
+RH_EMAIL = "rh_gig2-br@id-logistics.com"
+APP_URL  = "https://hcoverviewcoutgig2-production.up.railway.app/atualizar"
 
 
 def _parse_date(value):
@@ -53,6 +58,9 @@ def novo_hc():
 @hc_bp.route("/atualizar")
 def atualizar():
     return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
+
+
+
 
 
 @hc_bp.route("/dashboard")
@@ -109,12 +117,8 @@ def novo_colaborador():
         cargo=(data.get("cargo") or "").strip(),
         area=(data.get("area") or "").strip() or None,
         turno=(data.get("turno") or "").strip() or None,
-        status=(data.get("status") or "OPERACIONAL").strip(),
-        previsao_afastamento=bool(data.get("previsao_afastamento")),
-        data_afastamento=_parse_date(data.get("data_afastamento")),
-        causa_afastamento=(data.get("causa_afastamento") or "").strip() or None,
+        status="OPERACIONAL",
     )
-    colaborador.aplicar_status_por_data()
 
     if not colaborador.nome_completo or not colaborador.cargo:
         return jsonify({"erro": "Nome e cargo são obrigatórios."}), 400
@@ -135,19 +139,92 @@ def atualizar_colaborador(item_id):
         if existe_login:
             return jsonify({"erro": "Já existe outro colaborador com esse login."}), 409
 
+    novo_status = (data.get("status") or colaborador.status).strip()
+
+    # Validações por status
+    if novo_status in ("Licença", "Férias"):
+        descricao = (data.get("causa_afastamento") or "").strip()
+        if not descricao:
+            return jsonify({"erro": f"Descrição é obrigatória para status '{novo_status}'."}), 400
+
+    if novo_status == "Desligado":
+        descricao = (data.get("causa_afastamento") or "").strip()
+        if not descricao:
+            return jsonify({"erro": "Descrição é obrigatória para Desligamento."}), 400
+
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
-    colaborador.login = novo_login if novo_login else colaborador.login
-    colaborador.cargo = (data.get("cargo") or colaborador.cargo).strip()
-    colaborador.area = (data.get("area") or "").strip() or colaborador.area
-    colaborador.turno = (data.get("turno") or "").strip() or colaborador.turno
-    colaborador.status = (data.get("status") or colaborador.status).strip()
-    colaborador.previsao_afastamento = bool(data.get("previsao_afastamento"))
-    colaborador.data_afastamento = _parse_date(data.get("data_afastamento"))
+    colaborador.login         = novo_login if novo_login else colaborador.login
+    colaborador.cargo         = (data.get("cargo") or colaborador.cargo).strip()
+    colaborador.area          = (data.get("area") or "").strip() or None
+    colaborador.turno         = (data.get("turno") or "").strip() or None
+    colaborador.status        = novo_status
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
-    colaborador.aplicar_status_por_data()
+
+    # Campos específicos por status
+    if novo_status in ("Licença", "Férias"):
+        colaborador.data_inicio_licenca = _parse_date(data.get("data_inicio_licenca"))
+        colaborador.data_fim_licenca    = _parse_date(data.get("data_fim_licenca"))
+        colaborador.data_desligamento   = None
+    elif novo_status == "Desligado":
+        colaborador.data_desligamento   = _parse_date(data.get("data_desligamento"))
+        colaborador.data_inicio_licenca = None
+        colaborador.data_fim_licenca    = None
+    else:  # OPERACIONAL
+        colaborador.data_inicio_licenca = None
+        colaborador.data_fim_licenca    = None
+        colaborador.data_desligamento   = None
 
     db.session.commit()
     return jsonify({"mensagem": "Colaborador atualizado com sucesso.", "item": colaborador.to_dict()})
+
+
+@hc_bp.route("/api/hc/<int:item_id>", methods=["DELETE"])
+def excluir_colaborador(item_id):
+    colaborador = HCGig2.query.get_or_404(item_id)
+    db.session.delete(colaborador)
+    db.session.commit()
+    return jsonify({"mensagem": f"Colaborador '{colaborador.nome_completo}' excluído com sucesso."})
+
+
+@hc_bp.route("/api/hc/<int:item_id>/pedir-data-desligamento", methods=["POST"])
+def pedir_data_desligamento(item_id):
+    colaborador = HCGig2.query.get_or_404(item_id)
+    nome = colaborador.nome_completo
+
+    corpo = (
+        f"Olá equipe de RH,\n\n"
+        f"Solicito uma previsão de data para o desligamento do colaborador {nome}.\n\n"
+        f"Você pode adicionar a data sugerida no link: {APP_URL}\n\n"
+        f"Att"
+    )
+
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+
+    if not smtp_user or not smtp_pass:
+        # Retorna o mailto como fallback
+        import urllib.parse
+        assunto  = urllib.parse.quote(f"Previsão de data de desligamento – {nome}")
+        corpo_q  = urllib.parse.quote(corpo)
+        mailto   = f"mailto:{RH_EMAIL}?subject={assunto}&body={corpo_q}"
+        return jsonify({"mailto": mailto, "aviso": "SMTP não configurado — use o link mailto."}), 202
+
+    try:
+        msg = MIMEText(corpo, "plain", "utf-8")
+        msg["Subject"] = f"Previsão de data de desligamento – {nome}"
+        msg["From"]    = smtp_user
+        msg["To"]      = RH_EMAIL
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(smtp_user, [RH_EMAIL], msg.as_string())
+
+        return jsonify({"mensagem": f"E-mail enviado para {RH_EMAIL} com sucesso."})
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao enviar e-mail: {str(e)}"}), 500
 
 
 @hc_bp.route("/api/hc/import-csv", methods=["POST"])
