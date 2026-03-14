@@ -19,8 +19,10 @@
             <p>SITE: GIG2 | Gestão de HC</p>
         </div>
         <nav>
-            <a href="{{ url_for('hc.home') }}">Entrada HC</a>
-            <a href="{{ url_for('hc.dashboard') }}">Dashboard</a>
+            <a href="{{ url_for('hc.home') }}" class="{% if request.endpoint == 'hc.home' %}active{% endif %}">Início</a>
+            <a href="{{ url_for('hc.novo_hc') }}" class="{% if request.endpoint == 'hc.novo_hc' %}active{% endif %}">Novo HC</a>
+            <a href="{{ url_for('hc.atualizar') }}" class="{% if request.endpoint == 'hc.atualizar' %}active{% endif %}">Atualizar</a>
+            <a href="{{ url_for('hc.dashboard') }}" class="{% if request.endpoint == 'hc.dashboard' %}active{% endif %}">Dashboard</a>
         </nav>
     </header>
 

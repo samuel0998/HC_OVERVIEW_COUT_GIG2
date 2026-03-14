@@ -1,3 +1,4 @@
+import unicodedata
 from io import BytesIO
 from datetime import datetime
 
@@ -11,9 +12,9 @@ from models.hc_gig2 import HCGig2
 hc_bp = Blueprint("hc", __name__)
 
 CARGOS = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
-AREAS = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "ADM"]
+AREAS = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS = ["OPERACIONAL", "OFF"]
+STATUS = ["OPERACIONAL", "OFF", "Licença"]
 
 
 def _parse_date(value):
@@ -25,9 +26,33 @@ def _parse_date(value):
         return None
 
 
+def _normalizar(s):
+    """Remove acentos e deixa em minúsculo para comparação de colunas."""
+    return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii").lower().strip()
+
+
+def _find_col(df, keyword):
+    """Encontra coluna no DataFrame pelo keyword normalizado."""
+    norm_kw = _normalizar(keyword)
+    for col in df.columns:
+        if norm_kw in _normalizar(col):
+            return col
+    return None
+
+
 @hc_bp.route("/")
 def home():
-    return render_template("hc_overview.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
+    return render_template("hc_overview.html")
+
+
+@hc_bp.route("/novo")
+def novo_hc():
+    return render_template("newcolaborator.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
+
+
+@hc_bp.route("/atualizar")
+def atualizar():
+    return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 @hc_bp.route("/dashboard")
@@ -71,20 +96,19 @@ def listar_colaboradores():
 def novo_colaborador():
     data = request.get_json() or {}
 
-    login = (data.get("login") or "").strip()
-    if not login:
-        return jsonify({"erro": "Login é obrigatório."}), 400
+    login = (data.get("login") or "").strip() or None
 
-    existente = HCGig2.query.filter_by(login=login).first()
-    if existente:
-        return jsonify({"erro": "Já existe colaborador com esse login."}), 409
+    if login:
+        existente = HCGig2.query.filter_by(login=login).first()
+        if existente:
+            return jsonify({"erro": "Já existe colaborador com esse login."}), 409
 
     colaborador = HCGig2(
         nome_completo=(data.get("nome_completo") or "").strip(),
         login=login,
         cargo=(data.get("cargo") or "").strip(),
-        area=(data.get("area") or "").strip(),
-        turno=(data.get("turno") or "").strip(),
+        area=(data.get("area") or "").strip() or None,
+        turno=(data.get("turno") or "").strip() or None,
         status=(data.get("status") or "OPERACIONAL").strip(),
         previsao_afastamento=bool(data.get("previsao_afastamento")),
         data_afastamento=_parse_date(data.get("data_afastamento")),
@@ -92,9 +116,8 @@ def novo_colaborador():
     )
     colaborador.aplicar_status_por_data()
 
-    campos_obrigatorios = [colaborador.nome_completo, colaborador.cargo, colaborador.area, colaborador.turno]
-    if not all(campos_obrigatorios):
-        return jsonify({"erro": "Nome, cargo, área e turno são obrigatórios."}), 400
+    if not colaborador.nome_completo or not colaborador.cargo:
+        return jsonify({"erro": "Nome e cargo são obrigatórios."}), 400
 
     db.session.add(colaborador)
     db.session.commit()
@@ -106,16 +129,17 @@ def atualizar_colaborador(item_id):
     colaborador = HCGig2.query.get_or_404(item_id)
     data = request.get_json() or {}
 
-    novo_login = (data.get("login") or colaborador.login).strip()
-    existe_login = HCGig2.query.filter(HCGig2.login == novo_login, HCGig2.id != item_id).first()
-    if existe_login:
-        return jsonify({"erro": "Já existe outro colaborador com esse login."}), 409
+    novo_login = (data.get("login") or "").strip() or None
+    if novo_login and novo_login != colaborador.login:
+        existe_login = HCGig2.query.filter(HCGig2.login == novo_login, HCGig2.id != item_id).first()
+        if existe_login:
+            return jsonify({"erro": "Já existe outro colaborador com esse login."}), 409
 
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
-    colaborador.login = novo_login
+    colaborador.login = novo_login if novo_login else colaborador.login
     colaborador.cargo = (data.get("cargo") or colaborador.cargo).strip()
-    colaborador.area = (data.get("area") or colaborador.area).strip()
-    colaborador.turno = (data.get("turno") or colaborador.turno).strip()
+    colaborador.area = (data.get("area") or "").strip() or colaborador.area
+    colaborador.turno = (data.get("turno") or "").strip() or colaborador.turno
     colaborador.status = (data.get("status") or colaborador.status).strip()
     colaborador.previsao_afastamento = bool(data.get("previsao_afastamento"))
     colaborador.data_afastamento = _parse_date(data.get("data_afastamento"))
@@ -126,6 +150,121 @@ def atualizar_colaborador(item_id):
     return jsonify({"mensagem": "Colaborador atualizado com sucesso.", "item": colaborador.to_dict()})
 
 
+@hc_bp.route("/api/hc/import-csv", methods=["POST"])
+def importar_csv():
+    arquivo = request.files.get("arquivo")
+    if not arquivo:
+        return jsonify({"erro": "Envie um arquivo CSV."}), 400
+
+    try:
+        df = pd.read_csv(arquivo, encoding="utf-8-sig", dtype=str)
+    except Exception:
+        try:
+            arquivo.seek(0)
+            df = pd.read_csv(arquivo, encoding="latin-1", dtype=str)
+        except Exception as e:
+            return jsonify({"erro": f"Erro ao ler CSV: {str(e)}"}), 400
+
+    col_nome = _find_col(df, "nome")
+    col_login = _find_col(df, "login")
+    col_cargo = _find_col(df, "cargo")
+    col_area = _find_col(df, "area")
+    col_turno = _find_col(df, "turno")
+    col_previsao = _find_col(df, "previsao") or _find_col(df, "previs")
+    col_descricao = _find_col(df, "descri")
+    # Separar "status de liberacao" de "status"
+    col_status_lib = _find_col(df, "libera")
+    col_status = None
+    for c in df.columns:
+        norm = _normalizar(c)
+        if norm == "status":
+            col_status = c
+            break
+    if not col_status:
+        col_status = _find_col(df, "status")
+
+    if not col_nome:
+        return jsonify({"erro": "Coluna 'Nome Completo' não encontrada no CSV."}), 400
+
+    STATUS_MAP = {
+        "operacional": "OPERACIONAL",
+        "off": "OFF",
+        "licenca": "Licença",
+        "licença": "Licença",
+    }
+
+    inseridos = 0
+    atualizados = 0
+    erros = []
+
+    for idx, row in df.iterrows():
+        try:
+            nome = str(row.get(col_nome, "")).strip() if col_nome else ""
+            if not nome or nome.lower() == "nan":
+                continue
+
+            login = str(row.get(col_login, "")).strip() if col_login else ""
+            login = None if login.lower() in ("nan", "none", "") else login
+
+            cargo = str(row.get(col_cargo, "")).strip() if col_cargo else ""
+            cargo = "" if cargo.lower() == "nan" else cargo
+
+            area = str(row.get(col_area, "")).strip() if col_area else ""
+            area = None if area.lower() in ("nan", "none", "") else area
+
+            turno = str(row.get(col_turno, "")).strip() if col_turno else ""
+            turno = None if turno.lower() in ("nan", "none", "") else turno
+
+            raw_status = str(row.get(col_status, "operacional")).strip() if col_status else "operacional"
+            status = STATUS_MAP.get(_normalizar(raw_status), "OPERACIONAL")
+
+            previsao_raw = str(row.get(col_previsao, "não")).strip() if col_previsao else "não"
+            previsao = _normalizar(previsao_raw) in ("sim", "true", "1", "yes")
+
+            causa = str(row.get(col_descricao, "")).strip() if col_descricao else ""
+            causa = None if causa.lower() in ("nan", "none", "") else causa or None
+
+            status_lib = str(row.get(col_status_lib, "")).strip() if col_status_lib else ""
+            status_lib = None if status_lib.lower() in ("nan", "none", "") else status_lib or None
+
+            # Upsert: tenta por login, senão por nome
+            item = None
+            if login:
+                item = HCGig2.query.filter_by(login=login).first()
+            if not item:
+                item = HCGig2.query.filter(
+                    HCGig2.nome_completo.ilike(nome)
+                ).first()
+
+            if not item:
+                item = HCGig2()
+                db.session.add(item)
+                inseridos += 1
+            else:
+                atualizados += 1
+
+            item.nome_completo = nome
+            item.login = login
+            item.cargo = cargo or (item.cargo if item.cargo else "")
+            item.area = area
+            item.turno = turno
+            item.status = status
+            item.previsao_afastamento = previsao
+            item.causa_afastamento = causa
+            item.status_liberacao = status_lib
+            item.aplicar_status_por_data()
+
+        except Exception as e:
+            erros.append(f"Linha {idx + 2}: {str(e)}")
+
+    db.session.commit()
+
+    result = {"mensagem": "Importação concluída.", "inseridos": inseridos, "atualizados": atualizados}
+    if erros:
+        result["erros"] = erros
+    return jsonify(result)
+
+
 @hc_bp.route("/api/hc/import", methods=["POST"])
 def importar_excel():
     arquivo = request.files.get("arquivo")
@@ -133,17 +272,8 @@ def importar_excel():
         return jsonify({"erro": "Envie um arquivo Excel."}), 400
 
     df = pd.read_excel(arquivo)
-    colunas_esperadas = [
-        "nome_completo",
-        "login",
-        "cargo",
-        "area",
-        "turno",
-        "status",
-        "previsao_afastamento",
-        "data_afastamento",
-        "causa_afastamento",
-    ]
+    colunas_esperadas = ["nome_completo", "login", "cargo", "area", "turno", "status",
+                         "previsao_afastamento", "data_afastamento", "causa_afastamento"]
 
     normalizadas = {c.lower().strip(): c for c in df.columns}
     faltando = [c for c in colunas_esperadas if c not in normalizadas]
@@ -156,7 +286,7 @@ def importar_excel():
     for _, row in df.iterrows():
         login = str(row[normalizadas["login"]]).strip()
         if not login or login.lower() == "nan":
-            continue
+            login = None
 
         data_afastamento = None
         raw_date = row[normalizadas["data_afastamento"]]
@@ -172,7 +302,7 @@ def importar_excel():
         previsao = row[normalizadas["previsao_afastamento"]]
         previsao_bool = str(previsao).strip().lower() in ["true", "1", "sim", "yes"]
 
-        item = HCGig2.query.filter_by(login=login).first()
+        item = HCGig2.query.filter_by(login=login).first() if login else None
         if not item:
             item = HCGig2(login=login)
             db.session.add(item)
@@ -182,8 +312,8 @@ def importar_excel():
 
         item.nome_completo = str(row[normalizadas["nome_completo"]]).strip()
         item.cargo = str(row[normalizadas["cargo"]]).strip()
-        item.area = str(row[normalizadas["area"]]).strip()
-        item.turno = str(row[normalizadas["turno"]]).strip()
+        item.area = str(row[normalizadas["area"]]).strip() or None
+        item.turno = str(row[normalizadas["turno"]]).strip() or None
         item.status = str(row[normalizadas["status"]]).strip() or "OPERACIONAL"
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
@@ -198,7 +328,26 @@ def importar_excel():
 @hc_bp.route("/api/hc/export", methods=["GET"])
 def exportar_excel():
     registros = HCGig2.query.order_by(HCGig2.nome_completo.asc()).all()
-    dados = [r.to_dict() for r in registros]
+
+    dados = []
+    for r in registros:
+        d = r.to_dict()
+        dados.append({
+            "ID": d["id"],
+            "Nome Completo": d["nome_completo"],
+            "Login": d["login"],
+            "Cargo": d["cargo"],
+            "Area": d["area"],
+            "Turno": d["turno"],
+            "Status": d["status"],
+            "Status Liberação": d["status_liberacao"],
+            "Previsão Afastamento": "SIM" if d["previsao_afastamento"] else "NÃO",
+            "Data Afastamento": d["data_afastamento"] or "",
+            "Descrição": d["causa_afastamento"] or "",
+            "Criado em": d["created_at"] or "",
+            "Atualizado em": d["updated_at"] or "",
+        })
+
     df = pd.DataFrame(dados)
 
     output = BytesIO()
@@ -236,9 +385,9 @@ def dashboard_data():
     status_data = {"OPERACIONAL": operacional, "OFF": off}
 
     for r in registros:
-        por_area[r.area] = por_area.get(r.area, 0) + 1
+        por_area[r.area or ""] = por_area.get(r.area or "", 0) + 1
         por_cargo[r.cargo] = por_cargo.get(r.cargo, 0) + 1
-        por_turno[r.turno] = por_turno.get(r.turno, 0) + 1
+        por_turno[r.turno or ""] = por_turno.get(r.turno or "", 0) + 1
 
     pct_outbound = round((sum(v for k, v in por_area.items() if k in outbound_areas) / total) * 100, 1) if total else 0
     pct_inbound = round((sum(v for k, v in por_area.items() if k in inbound_areas) / total) * 100, 1) if total else 0
