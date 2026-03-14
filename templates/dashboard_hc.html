@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}HC Overview | Dashboard{% endblock %}
+{% block content %}
+<div class="cards-grid">
+    <div class="stat-card"><span>HC TOTAL</span><strong id="hcTotal">0</strong></div>
+    <div class="stat-card"><span>HC OPERACIONAL</span><strong id="hcOperacional">0</strong></div>
+    <div class="stat-card"><span>% OUTBOUND</span><strong id="pctOutbound">0%</strong></div>
+    <div class="stat-card"><span>% INBOUND</span><strong id="pctInbound">0%</strong></div>
+    <div class="stat-card"><span>% ICQA</span><strong id="pctIcqa">0%</strong></div>
+</div>
+
+<div class="dashboard-grid">
+    <section class="card chart-card"><h2>HC por Área</h2><canvas id="chartArea"></canvas></section>
+    <section class="card chart-card"><h2>Associados e PIT's</h2><canvas id="chartAssociados"></canvas></section>
+    <section class="card chart-card"><h2>HC por Cargo</h2><canvas id="chartCargo"></canvas></section>
+    <section class="card chart-card"><h2>HC por Turno</h2><canvas id="chartTurno"></canvas></section>
+    <section class="card chart-card"><h2>Status</h2><canvas id="chartStatus"></canvas></section>
+</div>
+<script src="{{ url_for('static', filename='js/dashboard_hc.js') }}"></script>
+{% endblock %}

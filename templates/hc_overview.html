@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block title %}HC Overview | Entrada{% endblock %}
+{% block content %}
+<div class="grid-2">
+    <section class="card">
+        <h2>Novo HC GIG2</h2>
+        <form id="formNovo" class="form-grid">
+            <input type="text" name="nome_completo" placeholder="Nome completo" required>
+            <input type="text" name="login" placeholder="Login" required>
+            <select name="cargo" required>
+                <option value="">Cargo</option>
+                {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="area" required>
+                <option value="">Área</option>
+                {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="turno" required>
+                <option value="">Turno</option>
+                {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="status">
+                {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <label class="check"><input type="checkbox" name="previsao_afastamento"> Previsão de afastamento?</label>
+            <input type="date" name="data_afastamento">
+            <input type="text" name="causa_afastamento" placeholder="Causa do afastamento">
+            <button type="submit" class="btn primary">Salvar colaborador</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Atualizar colaborador</h2>
+        <div class="toolbar">
+            <input id="busca" type="text" placeholder="Pesquisar por login / nome / cargo / área / turno">
+            <button id="btnExportar" class="btn">Exportar Excel</button>
+            <label class="btn file-btn">Importar Excel <input id="arquivoImport" type="file" accept=".xlsx,.xls"></label>
+        </div>
+        <div id="mensagem" class="mensagem"></div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Login</th>
+                        <th>Cargo</th>
+                        <th>Área</th>
+                        <th>Turno</th>
+                        <th>Status</th>
+                        <th>Afastamento</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="tabelaHC"></tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div id="modalEdicao" class="modal hidden">
+    <div class="modal-content card">
+        <h2>Editar colaborador</h2>
+        <form id="formEditar" class="form-grid">
+            <input type="hidden" name="id">
+            <input type="text" name="nome_completo" placeholder="Nome completo" required>
+            <input type="text" name="login" placeholder="Login" required>
+            <select name="cargo" required>
+                <option value="">Cargo</option>
+                {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="area" required>
+                <option value="">Área</option>
+                {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="turno" required>
+                <option value="">Turno</option>
+                {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <select name="status">
+                {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+            </select>
+            <label class="check"><input type="checkbox" name="previsao_afastamento"> Previsão de afastamento?</label>
+            <input type="date" name="data_afastamento">
+            <input type="text" name="causa_afastamento" placeholder="Causa do afastamento">
+            <div class="modal-actions">
+                <button type="submit" class="btn primary">Salvar alteração</button>
+                <button type="button" id="fecharModal" class="btn danger">Fechar</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/hc_overview.js') }}"></script>
+{% endblock %}
