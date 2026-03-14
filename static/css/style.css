@@ -18,14 +18,43 @@ body {
 .topbar {
   background: linear-gradient(90deg, #003a63, #0a4c78);
   color: white;
-  padding: 18px 24px;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
-.topbar h1 { margin: 0 0 4px; font-size: 32px; }
+.topbar-logos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.logo-amazon {
+  height: 44px;
+  width: auto;
+  background: white;
+  border-radius: 8px;
+  padding: 4px 8px;
+  object-fit: contain;
+}
+.logo-id {
+  height: 44px;
+  width: auto;
+  background: white;
+  border-radius: 8px;
+  padding: 4px 8px;
+  object-fit: contain;
+}
+.logo-lion {
+  height: 52px;
+  width: auto;
+  object-fit: contain;
+}
+.topbar-title { flex: 1; }
+.topbar h1 { margin: 0 0 4px; font-size: 28px; }
 .topbar p { margin: 0; font-size: 14px; opacity: .9; }
-.topbar nav { display: flex; gap: 12px; }
+.topbar nav { display: flex; gap: 12px; flex-shrink: 0; }
 .topbar a {
   color: white; text-decoration: none; font-weight: bold; padding: 10px 14px;
   border: 1px solid rgba(255,255,255,.25); border-radius: 8px;
