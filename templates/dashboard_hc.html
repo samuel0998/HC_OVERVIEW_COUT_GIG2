@@ -1,20 +1,93 @@
 {% extends 'base.html' %}
 {% block title %}HC Overview | Dashboard{% endblock %}
 {% block content %}
-<div class="cards-grid">
-    <div class="stat-card"><span>HC TOTAL</span><strong id="hcTotal">0</strong></div>
-    <div class="stat-card"><span>HC OPERACIONAL</span><strong id="hcOperacional">0</strong></div>
-    <div class="stat-card"><span>% OUTBOUND</span><strong id="pctOutbound">0%</strong></div>
-    <div class="stat-card"><span>% INBOUND</span><strong id="pctInbound">0%</strong></div>
-    <div class="stat-card"><span>% ICQA</span><strong id="pctIcqa">0%</strong></div>
-</div>
 
-<div class="dashboard-grid">
-    <section class="card chart-card"><h2>HC por Área</h2><canvas id="chartArea"></canvas></section>
-    <section class="card chart-card"><h2>Associados e PIT's</h2><canvas id="chartAssociados"></canvas></section>
-    <section class="card chart-card"><h2>HC por Cargo</h2><canvas id="chartCargo"></canvas></section>
-    <section class="card chart-card"><h2>HC por Turno</h2><canvas id="chartTurno"></canvas></section>
-    <section class="card chart-card"><h2>Status</h2><canvas id="chartStatus"></canvas></section>
-</div>
+<div class="dash-layout">
+
+  <!-- FILTROS LATERAIS -->
+  <aside class="dash-filters">
+    <div class="filter-header">
+      <span>Filtros</span>
+      <button id="btnLimparFiltros" class="btn-clear">Limpar</button>
+    </div>
+
+    <div class="filter-group">
+      <label>Área</label>
+      <div id="filterArea" class="filter-pills"></div>
+    </div>
+
+    <div class="filter-group">
+      <label>Turno</label>
+      <div id="filterTurno" class="filter-pills"></div>
+    </div>
+
+    <div class="filter-group">
+      <label>Status</label>
+      <div id="filterStatus" class="filter-pills"></div>
+    </div>
+  </aside>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <div class="dash-main">
+
+    <!-- CARDS -->
+    <div class="cards-grid">
+      <div class="stat-card card-blue">
+        <span>HC TOTAL</span>
+        <strong id="hcTotal">0</strong>
+      </div>
+      <div class="stat-card card-green">
+        <span>HC OPERACIONAL</span>
+        <strong id="hcOperacional">0</strong>
+      </div>
+      <div class="stat-card card-orange">
+        <span>% OUTBOUND</span>
+        <strong id="pctOutbound">0%</strong>
+      </div>
+      <div class="stat-card card-teal">
+        <span>% INBOUND</span>
+        <strong id="pctInbound">0%</strong>
+      </div>
+      <div class="stat-card card-purple">
+        <span>% ICQA</span>
+        <strong id="pctIcqa">0%</strong>
+      </div>
+    </div>
+
+    <!-- GRÁFICOS LINHA 1 -->
+    <div class="dashboard-grid">
+      <section class="card chart-card">
+        <h2>HC por Área</h2>
+        <canvas id="chartArea"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Associados e PIT's</h2>
+        <canvas id="chartAssociados"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>HC por Cargo</h2>
+        <canvas id="chartCargo"></canvas>
+      </section>
+    </div>
+
+    <!-- GRÁFICOS LINHA 2 -->
+    <div class="dashboard-grid" style="margin-top:16px">
+      <section class="card chart-card">
+        <h2>HC por Turno</h2>
+        <canvas id="chartTurno"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Status</h2>
+        <canvas id="chartStatus"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>HC Operacional por Turno</h2>
+        <canvas id="chartOperacionalTurno"></canvas>
+      </section>
+    </div>
+
+  </div><!-- /dash-main -->
+</div><!-- /dash-layout -->
+
 <script src="{{ url_for('static', filename='js/dashboard_hc.js') }}"></script>
 {% endblock %}

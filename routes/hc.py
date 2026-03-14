@@ -365,54 +365,91 @@ def exportar_excel():
 
 @hc_bp.route("/api/hc/dashboard", methods=["GET"])
 def dashboard_data():
-    registros = HCGig2.query.all()
+    f_area   = request.args.get("area", "").strip()
+    f_turno  = request.args.get("turno", "").strip()
+    f_status = request.args.get("status", "").strip()
 
-    for r in registros:
+    todos = HCGig2.query.all()
+    for r in todos:
         r.aplicar_status_por_data()
     db.session.commit()
 
-    total = len(registros)
+    # Aplica filtros
+    registros = todos
+    if f_area:
+        registros = [r for r in registros if (r.area or "") == f_area]
+    if f_turno:
+        registros = [r for r in registros if (r.turno or "") == f_turno]
+    if f_status:
+        registros = [r for r in registros if r.status == f_status]
+
+    total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
-    off = sum(1 for r in registros if r.status == "OFF")
+    off        = sum(1 for r in registros if r.status == "OFF")
+    licenca    = sum(1 for r in registros if r.status == "Licença")
 
     outbound_areas = {"OUTBOUND", "INSUMOS", "LP"}
-    inbound_areas = {"INBOUND", "C-RET"}
-    icqa_areas = {"ICQA"}
+    inbound_areas  = {"INBOUND", "C-RET"}
+    icqa_areas     = {"ICQA"}
 
-    por_area = {}
+    por_area  = {}
     por_cargo = {}
     por_turno = {}
-    status_data = {"OPERACIONAL": operacional, "OFF": off}
 
     for r in registros:
-        por_area[r.area or ""] = por_area.get(r.area or "", 0) + 1
-        por_cargo[r.cargo] = por_cargo.get(r.cargo, 0) + 1
-        por_turno[r.turno or ""] = por_turno.get(r.turno or "", 0) + 1
+        por_area[r.area or "—"]   = por_area.get(r.area or "—", 0) + 1
+        por_cargo[r.cargo]        = por_cargo.get(r.cargo, 0) + 1
+        por_turno[r.turno or "—"] = por_turno.get(r.turno or "—", 0) + 1
+
+    # Ordena por valor desc
+    por_area  = dict(sorted(por_area.items(),  key=lambda x: x[1], reverse=True))
+    por_cargo = dict(sorted(por_cargo.items(), key=lambda x: x[1], reverse=True))
 
     pct_outbound = round((sum(v for k, v in por_area.items() if k in outbound_areas) / total) * 100, 1) if total else 0
-    pct_inbound = round((sum(v for k, v in por_area.items() if k in inbound_areas) / total) * 100, 1) if total else 0
-    pct_icqa = round((sum(v for k, v in por_area.items() if k in icqa_areas) / total) * 100, 1) if total else 0
+    pct_inbound  = round((sum(v for k, v in por_area.items() if k in inbound_areas)  / total) * 100, 1) if total else 0
+    pct_icqa     = round((sum(v for k, v in por_area.items() if k in icqa_areas)     / total) * 100, 1) if total else 0
 
     associados_e_pits = {}
     for turno in TURNOS:
         associados_e_pits[turno] = {
             "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado"),
-            "PIT": sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"),
+            "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"),
         }
 
-    return jsonify(
-        {
-            "cards": {
-                "hc_total": total,
-                "hc_operacional": operacional,
-                "pct_outbound": pct_outbound,
-                "pct_inbound": pct_inbound,
-                "pct_icqa": pct_icqa,
-            },
-            "por_area": por_area,
-            "por_cargo": por_cargo,
-            "por_turno": por_turno,
-            "status": status_data,
-            "associados_e_pits": associados_e_pits,
+    # HC Operacional por turno — Analista / Associado / PIT
+    operacional_por_turno = {}
+    for turno in TURNOS:
+        if turno == "ADM":
+            continue
+        operacional_por_turno[turno] = {
+            "Analista":  sum(1 for r in registros if r.turno == turno and r.cargo == "Analista"  and r.status == "OPERACIONAL"),
+            "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado" and r.status == "OPERACIONAL"),
+            "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
         }
-    )
+
+    # Valores únicos para os filtros (sempre do total, não dos filtrados)
+    areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
+    turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
+    status_disponiveis = sorted({r.status for r in todos})
+
+    return jsonify({
+        "cards": {
+            "hc_total": total,
+            "hc_operacional": operacional,
+            "pct_outbound": pct_outbound,
+            "pct_inbound":  pct_inbound,
+            "pct_icqa":     pct_icqa,
+        },
+        "por_area":  por_area,
+        "por_cargo": por_cargo,
+        "por_turno": por_turno,
+        "status": {"OPERACIONAL": operacional, "Licença": licenca, "OFF": off},
+        "associados_e_pits": associados_e_pits,
+        "operacional_por_turno": operacional_por_turno,
+        "filtros_disponiveis": {
+            "areas":  areas_disponiveis,
+            "turnos": turnos_disponiveis,
+            "status": status_disponiveis,
+        },
+        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status},
+    })
