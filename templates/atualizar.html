@@ -8,7 +8,21 @@
 
 <div class="card">
     <div class="toolbar">
-        <input id="busca" type="text" placeholder="Pesquisar por nome / login / cargo / área / turno">
+        <input id="busca" type="text" placeholder="Pesquisar por nome / login / cargo / área / turno / status">
+        <select id="filtroStatus" class="filter-select">
+            <option value="">Todos os status</option>
+            <option value="OPERACIONAL">OPERACIONAL</option>
+            <option value="OFF">OFF</option>
+            <option value="Licença">Licença</option>
+        </select>
+        <select id="filtroArea" class="filter-select">
+            <option value="">Todas as áreas</option>
+            {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select>
+        <select id="filtroTurno" class="filter-select">
+            <option value="">Todos os turnos</option>
+            {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select>
         <button id="btnExportar" class="btn primary">Exportar Excel</button>
         <label class="btn file-btn">
             Importar CSV
