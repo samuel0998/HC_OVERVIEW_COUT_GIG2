@@ -25,6 +25,16 @@ class HCGig2(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
+    def aplicar_status_por_data(self):
+        hoje = date.today()
+        if self.status in ("Licença", "Férias"):
+            if self.data_fim_licenca and hoje > self.data_fim_licenca:
+                self.status = "OPERACIONAL"
+                self.data_inicio_licenca = None
+                self.data_fim_licenca = None
+        elif self.status == "Desligado":
+            pass  # Desligado não reverte automaticamente
+
     def to_dict(self):
         return {
             "id": self.id,
