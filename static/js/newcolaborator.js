@@ -24,10 +24,6 @@ formNovo.addEventListener("submit", async (e) => {
     cargo: data.get("cargo"),
     area: data.get("area"),
     turno: data.get("turno"),
-    status: data.get("status"),
-    previsao_afastamento: data.get("previsao_afastamento") === "on",
-    data_afastamento: data.get("data_afastamento"),
-    causa_afastamento: data.get("causa_afastamento"),
   };
 
   const res = await fetch("/api/hc", {

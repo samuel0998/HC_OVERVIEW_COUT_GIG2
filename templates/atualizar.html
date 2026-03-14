@@ -8,12 +8,11 @@
 
 <div class="card">
     <div class="toolbar">
-        <input id="busca" type="text" placeholder="Pesquisar por nome / login / cargo / área / turno / status">
-        <select id="filtroStatus" class="filter-select">
-            <option value="">Todos os status</option>
-            <option value="OPERACIONAL">OPERACIONAL</option>
-            <option value="OFF">OFF</option>
-            <option value="Licença">Licença</option>
+        <input id="buscaNome"  type="text" placeholder="Pesquisar por nome" style="flex:1.5">
+        <input id="buscaLogin" type="text" placeholder="Pesquisar por login" style="flex:1">
+        <select id="filtroCargo" class="filter-select">
+            <option value="">Todos os cargos</option>
+            {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
         </select>
         <select id="filtroArea" class="filter-select">
             <option value="">Todas as áreas</option>
@@ -23,6 +22,12 @@
             <option value="">Todos os turnos</option>
             {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
         </select>
+        <select id="filtroStatus" class="filter-select">
+            <option value="">Todos os status</option>
+            {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="toolbar" style="margin-top:0;margin-bottom:12px">
         <button id="btnExportar" class="btn primary">Exportar Excel</button>
         <label class="btn file-btn">
             Importar CSV
@@ -41,7 +46,7 @@
                     <th>Área</th>
                     <th>Turno</th>
                     <th>Status</th>
-                    <th>Afastamento</th>
+                    <th>Comentário</th>
                     <th>Ações</th>
                 </tr>
             </thead>
@@ -51,36 +56,93 @@
     <div id="totalRegistros" class="total-registros"></div>
 </div>
 
+<!-- MODAL EDIÇÃO -->
 <div id="modalEdicao" class="modal hidden">
-    <div class="modal-content card">
-        <h2>Editar Colaborador</h2>
-        <form id="formEditar" class="form-grid">
+    <div class="modal-content card" style="max-width:620px;width:92vw">
+        <h2 id="modalTitulo">Editar Colaborador</h2>
+        <form id="formEditar">
             <input type="hidden" name="id">
-            <input type="text" name="nome_completo" placeholder="Nome completo" required>
-            <input type="text" name="login" placeholder="Login">
-            <select name="cargo" required>
-                <option value="">Cargo</option>
-                {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-            </select>
-            <select name="area">
-                <option value="">Área</option>
-                {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-            </select>
-            <select name="turno">
-                <option value="">Turno</option>
-                {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-            </select>
-            <select name="status">
-                {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
-            </select>
-            <label class="check"><input type="checkbox" name="previsao_afastamento"> Previsão de afastamento?</label>
-            <input type="date" name="data_afastamento">
-            <input type="text" name="causa_afastamento" placeholder="Causa / Descrição do afastamento">
-            <div class="modal-actions">
+
+            <div class="form-grid">
+                <input type="text" name="nome_completo" placeholder="Nome completo" required>
+                <input type="text" name="login" placeholder="Login">
+                <select name="cargo" required>
+                    <option value="">Cargo *</option>
+                    {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select name="area">
+                    <option value="">Área</option>
+                    {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select name="turno">
+                    <option value="">Turno</option>
+                    {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select name="status" id="modalStatus">
+                    <option value="OPERACIONAL">OPERACIONAL</option>
+                    <option value="Licença">Licença</option>
+                    <option value="Férias">Férias</option>
+                    <option value="Desligado">Desligado</option>
+                </select>
+            </div>
+
+            <!-- Bloco LICENÇA / FÉRIAS -->
+            <div id="blocoLicenca" class="status-block hidden">
+                <div class="status-block-title" id="labelLicenca">Dados da Licença</div>
+                <div class="form-grid" style="margin-top:10px">
+                    <div>
+                        <label class="field-label">Data de Início</label>
+                        <input type="date" name="data_inicio_licenca" id="dataInicioLicenca">
+                        <label class="check mt-4"><input type="checkbox" id="semDataInicio"> Sem data de início</label>
+                    </div>
+                    <div>
+                        <label class="field-label">Data de Fim</label>
+                        <input type="date" name="data_fim_licenca" id="dataFimLicenca">
+                        <label class="check mt-4"><input type="checkbox" id="semDataFim"> Sem data de fim</label>
+                    </div>
+                </div>
+                <textarea name="causa_afastamento" id="descricaoLicenca" placeholder="Descrição * (obrigatória)" class="textarea-full mt-8" rows="3"></textarea>
+            </div>
+
+            <!-- Bloco DESLIGADO -->
+            <div id="blocoDesligado" class="status-block hidden">
+                <div class="status-block-title deslig">Dados do Desligamento</div>
+                <div class="form-grid" style="margin-top:10px">
+                    <div>
+                        <label class="field-label">Data de Desligamento</label>
+                        <input type="date" name="data_desligamento" id="dataDesligamento">
+                    </div>
+                    <div style="display:flex;align-items:flex-end">
+                        <button type="button" id="btnPedirData" class="btn" style="width:100%">
+                            📧 Pedir Data ao RH
+                        </button>
+                    </div>
+                </div>
+                <textarea name="causa_afastamento" id="descricaoDesligamento" placeholder="Motivo do desligamento * (obrigatório)" class="textarea-full mt-8" rows="3"></textarea>
+            </div>
+
+            <!-- Bloco OPERACIONAL (nenhum extra) -->
+            <div id="blocoOperacional" class="status-block hidden">
+                <p class="op-info">✅ Colaborador consta na operação normalmente.</p>
+            </div>
+
+            <div class="modal-actions" style="margin-top:16px">
                 <button type="submit" class="btn primary">Salvar alteração</button>
                 <button type="button" id="fecharModal" class="btn danger">Fechar</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL CONFIRMAÇÃO EXCLUSÃO -->
+<div id="modalExcluir" class="modal hidden">
+    <div class="modal-content card" style="max-width:440px;width:90vw;text-align:center">
+        <h2 style="color:#c62828">Excluir Colaborador</h2>
+        <p id="textoExcluir" style="margin:16px 0;font-size:15px"></p>
+        <div style="display:flex;gap:10px;justify-content:center">
+            <button id="btnConfirmarExcluir" class="btn danger">Confirmar Exclusão</button>
+            <button id="btnCancelarExcluir" class="btn">Cancelar</button>
+        </div>
     </div>
 </div>
 

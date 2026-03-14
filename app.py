@@ -28,6 +28,18 @@ def create_app():
             db.session.execute(db.text(
                 "ALTER TABLE hc_gig2 ALTER COLUMN turno DROP NOT NULL"
             ))
+            db.session.execute(db.text(
+                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_desligamento DATE"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE hc_gig2 ALTER COLUMN causa_afastamento TYPE VARCHAR(500)"
+            ))
             db.session.commit()
 
             # Verificação das colunas após migração
