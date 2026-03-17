@@ -57,9 +57,10 @@
             <div>
                 <label class="field-label">Nível de acesso</label>
                 <select id="p-nivel" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);">
-                    <option value="visualizador">Visualizador</option>
-                    <option value="gestor">Gestor</option>
-                    <option value="admin">Administrador</option>
+                    <option value="LC1">LC1 — Somente Dashboard</option>
+                    <option value="LC3">LC3 — Dashboard + Novo HC + Atualizar + Pendências</option>
+                    <option value="LC5">LC5 — Tudo exceto Histórico e Excluir</option>
+                    <option value="EXPERT">EXPERT — Acesso Total</option>
                 </select>
             </div>
         </div>
@@ -100,8 +101,8 @@ function renderTabela(lista) {
         const acessoBadge = o.permission_hcview
             ? '<span class="badge operacional">Ativo</span>'
             : '<span class="badge off">Bloqueado</span>';
-        const nivelCls = { admin: 'off', gestor: 'licenca', visualizador: 'ferias' }[o.permission_level_hcview] || '';
-        const nivelLabel = { admin: 'Admin', gestor: 'Gestor', visualizador: 'Visualizador' }[o.permission_level_hcview] || '—';
+        const nivelCls = { LC1: 'ferias', LC3: 'licenca', LC5: 'operacional', EXPERT: 'off' }[o.permission_level_hcview] || '';
+        const nivelLabel = { LC1: 'LC1', LC3: 'LC3', LC5: 'LC5', EXPERT: 'EXPERT' }[o.permission_level_hcview] || '—';
         const nivelBadge = o.permission_level_hcview
             ? `<span class="badge ${nivelCls}">${nivelLabel}</span>`
             : '<span style="color:var(--muted);">—</span>';
@@ -131,7 +132,7 @@ function abrirModal(o) {
     document.getElementById('modal-titulo').textContent = 'Editar Permissão';
     document.getElementById('modal-operador-info').textContent = `Operador: ${o.nome} (${o.login})`;
     document.getElementById('p-acesso').value = o.permission_hcview ? 'true' : 'false';
-    document.getElementById('p-nivel').value = o.permission_level_hcview || 'visualizador';
+    document.getElementById('p-nivel').value = o.permission_level_hcview || 'LC1';
     document.getElementById('msg-perm').textContent = '';
     document.getElementById('modal-perm').classList.remove('hidden');
 }

@@ -19,6 +19,7 @@
     <p>Selecione uma opção para continuar</p>
 </div>
 <div class="home-buttons">
+    {% if current_user.can_edit %}
     <a href="{{ url_for('hc.novo_hc') }}" class="home-btn">
         <div class="home-btn-icon">+</div>
         <div class="home-btn-label">Novo HC GIG2</div>
@@ -29,11 +30,15 @@
         <div class="home-btn-label">Atualizar Colaborador</div>
         <div class="home-btn-desc">Editar, importar e exportar dados</div>
     </a>
+    {% endif %}
+    {% if current_user.can_dashboard %}
     <a href="{{ url_for('hc.dashboard') }}" class="home-btn">
         <div class="home-btn-icon">&#9636;</div>
         <div class="home-btn-label">Dashboard</div>
         <div class="home-btn-desc">Visualizar indicadores e gráficos</div>
     </a>
+    {% endif %}
+    {% if current_user.can_edit %}
     <a href="{{ url_for('hc.pendencias_page') }}" class="home-btn {% if pendencias_count and pendencias_count > 0 %}home-btn-alert{% endif %}">
         <div class="home-btn-icon">&#9888;</div>
         <div class="home-btn-label">Pendências</div>
@@ -45,10 +50,13 @@
             {% endif %}
         </div>
     </a>
+    {% endif %}
+    {% if current_user.can_historico %}
     <a href="{{ url_for('hc.historico_page') }}" class="home-btn">
         <div class="home-btn-icon">&#128203;</div>
         <div class="home-btn-label">Histórico</div>
         <div class="home-btn-desc">Registros de movimentações</div>
     </a>
+    {% endif %}
 </div>
 {% endblock %}

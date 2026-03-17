@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from io import BytesIO
 
 import pandas as pd
-from flask import Blueprint, jsonify, render_template, request, send_file
+from flask import Blueprint, abort, jsonify, render_template, request, send_file
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
@@ -95,30 +95,40 @@ def home():
 @hc_bp.route("/novo")
 @login_required
 def novo_hc():
+    if not current_user.can_edit:
+        abort(403)
     return render_template("newcolaborator.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 @hc_bp.route("/atualizar")
 @login_required
 def atualizar():
+    if not current_user.can_edit:
+        abort(403)
     return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 @hc_bp.route("/dashboard")
 @login_required
 def dashboard():
+    if not current_user.can_dashboard:
+        abort(403)
     return render_template("dashboard_hc.html")
 
 
 @hc_bp.route("/pendencias")
 @login_required
 def pendencias_page():
+    if not current_user.can_edit:
+        abort(403)
     return render_template("pendencias.html")
 
 
 @hc_bp.route("/historico")
 @login_required
 def historico_page():
+    if not current_user.can_historico:
+        abort(403)
     return render_template("historico.html")
 
 
@@ -285,6 +295,8 @@ def atualizar_colaborador(item_id):
 @hc_bp.route("/api/hc/<int:item_id>", methods=["DELETE"])
 @login_required
 def excluir_colaborador(item_id):
+    if not current_user.can_delete:
+        return jsonify({"erro": "Sem permissão para excluir colaboradores."}), 403
     colaborador = HCGig2.query.get_or_404(item_id)
     nome = colaborador.nome_completo
 

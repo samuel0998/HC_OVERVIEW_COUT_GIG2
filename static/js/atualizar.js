@@ -20,12 +20,13 @@ const btnPedirData    = document.getElementById("btnPedirData");
 let cache = [];
 let excluirId = null;
 
-// ── URL params (vindos do dashboard) ────────────────────────────
+// ── URL params (vindos do dashboard ou links externos) ───────────
 const _p = new URLSearchParams(window.location.search);
 if (_p.get("status")) filtroStatus.value = _p.get("status");
 if (_p.get("area"))   filtroArea.value   = _p.get("area");
 if (_p.get("turno"))  filtroTurno.value  = _p.get("turno");
 if (_p.get("cargo"))  filtroCargo.value  = _p.get("cargo");
+if (_p.get("login"))  buscaLogin.value   = _p.get("login");
 
 // ── Mensagem ─────────────────────────────────────────────────────
 function showMessage(text, isError = false) {
