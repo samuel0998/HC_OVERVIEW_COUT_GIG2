@@ -74,7 +74,7 @@ def atualizar_permissao(login_val):
 
     if "permission_level_hcview" in data:
         nivel = (data["permission_level_hcview"] or "").strip()
-        if nivel not in ("admin", "gestor", "visualizador", ""):
+        if nivel not in ("LC1", "LC3", "LC5", "EXPERT", ""):
             return jsonify({"erro": "Nível inválido."}), 400
         operador.permission_level_hcview = nivel or None
 

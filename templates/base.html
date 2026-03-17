@@ -20,10 +20,16 @@
         </div>
         <nav>
             <a href="{{ url_for('hc.home') }}" class="{% if request.endpoint == 'hc.home' %}active{% endif %}">Início</a>
+            {% if current_user.can_edit %}
             <a href="{{ url_for('hc.novo_hc') }}" class="{% if request.endpoint == 'hc.novo_hc' %}active{% endif %}">Novo HC</a>
             <a href="{{ url_for('hc.atualizar') }}" class="{% if request.endpoint == 'hc.atualizar' %}active{% endif %}">Atualizar</a>
+            {% endif %}
+            {% if current_user.can_dashboard %}
             <a href="{{ url_for('hc.dashboard') }}" class="{% if request.endpoint == 'hc.dashboard' %}active{% endif %}">Dashboard</a>
+            {% endif %}
+            {% if current_user.can_historico %}
             <a href="{{ url_for('hc.historico_page') }}" class="{% if request.endpoint == 'hc.historico_page' %}active{% endif %}">Histórico</a>
+            {% endif %}
             {% if current_user.is_admin %}
             <a href="{{ url_for('auth.usuarios_page') }}" class="{% if request.endpoint == 'auth.usuarios_page' %}active{% endif %}">Usuários</a>
             {% endif %}
