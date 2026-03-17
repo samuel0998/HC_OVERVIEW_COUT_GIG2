@@ -1,12 +1,14 @@
+import json
 import os
 import smtplib
 import unicodedata
+from datetime import date, timedelta
 from email.mime.text import MIMEText
 from io import BytesIO
-from datetime import datetime
 
 import pandas as pd
 from flask import Blueprint, jsonify, render_template, request, send_file
+from flask_login import current_user, login_required
 from sqlalchemy import or_
 
 from models import db
@@ -17,12 +19,16 @@ hc_bp = Blueprint("hc", __name__)
 CARGOS  = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS  = ["OPERACIONAL", "Licença", "Férias", "Desligado"]
+STATUS  = ["OPERACIONAL", "Licença", "Férias", "Desligado", "OFF"]
 RH_EMAIL = "rh_gig2-br@id-logistics.com"
 APP_URL  = "https://hcoverviewcoutgig2-production.up.railway.app/atualizar"
 
 
+# ── Helpers ────────────────────────────────────────────────────
+
+
 def _parse_date(value):
+    from datetime import datetime
     if not value:
         return None
     try:
@@ -32,12 +38,10 @@ def _parse_date(value):
 
 
 def _normalizar(s):
-    """Remove acentos e deixa em minúsculo para comparação de colunas."""
     return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii").lower().strip()
 
 
 def _find_col(df, keyword):
-    """Encontra coluna no DataFrame pelo keyword normalizado."""
     norm_kw = _normalizar(keyword)
     for col in df.columns:
         if norm_kw in _normalizar(col):
@@ -45,30 +49,84 @@ def _find_col(df, keyword):
     return None
 
 
+def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
+    """Log an activity to registro_atividade."""
+    from models.registro_atividade import RegistroAtividade
+    try:
+        u_login = current_user.login if current_user.is_authenticated else "sistema"
+        u_nome  = current_user.nome  if current_user.is_authenticated else "Sistema"
+    except Exception:
+        u_login, u_nome = "sistema", "Sistema"
+
+    reg = RegistroAtividade(
+        tipo=tipo,
+        operador_id=op.id if op else None,
+        operador_login=op.login if op else None,
+        operador_nome=op.nome_completo if op else None,
+        usuario_login=u_login,
+        usuario_nome=u_nome,
+        descricao=descricao,
+        dados_anteriores=dados_ant,
+        dados_novos=dados_nov,
+    )
+    db.session.add(reg)
+
+
+def _pendencias_count():
+    """Return count of operators with pending dates."""
+    return HCGig2.query.filter(
+        or_(
+            db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
+            db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
+        )
+    ).count()
+
+
+# ── Page routes ────────────────────────────────────────────────
+
+
 @hc_bp.route("/")
+@login_required
 def home():
-    return render_template("hc_overview.html")
+    count = _pendencias_count()
+    return render_template("hc_overview.html", pendencias_count=count)
 
 
 @hc_bp.route("/novo")
+@login_required
 def novo_hc():
     return render_template("newcolaborator.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 @hc_bp.route("/atualizar")
+@login_required
 def atualizar():
     return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
-
-
-
 @hc_bp.route("/dashboard")
+@login_required
 def dashboard():
     return render_template("dashboard_hc.html")
 
 
+@hc_bp.route("/pendencias")
+@login_required
+def pendencias_page():
+    return render_template("pendencias.html")
+
+
+@hc_bp.route("/historico")
+@login_required
+def historico_page():
+    return render_template("historico.html")
+
+
+# ── API: Colaboradores ─────────────────────────────────────────
+
+
 @hc_bp.route("/api/hc", methods=["GET"])
+@login_required
 def listar_colaboradores():
     termo = request.args.get("q", "").strip()
     query = HCGig2.query
@@ -101,6 +159,7 @@ def listar_colaboradores():
 
 
 @hc_bp.route("/api/hc", methods=["POST"])
+@login_required
 def novo_colaborador():
     data = request.get_json() or {}
 
@@ -124,14 +183,40 @@ def novo_colaborador():
         return jsonify({"erro": "Nome e cargo são obrigatórios."}), 400
 
     db.session.add(colaborador)
+    db.session.flush()  # get id before commit
+
+    _registrar(
+        "adicao",
+        colaborador,
+        f"Novo colaborador cadastrado: {colaborador.nome_completo} ({colaborador.cargo})",
+        dados_nov=json.dumps({
+            "nome_completo": colaborador.nome_completo,
+            "login": colaborador.login or "",
+            "cargo": colaborador.cargo,
+            "area": colaborador.area or "",
+            "turno": colaborador.turno or "",
+        }),
+    )
+
     db.session.commit()
     return jsonify({"mensagem": "Colaborador cadastrado com sucesso.", "item": colaborador.to_dict()}), 201
 
 
 @hc_bp.route("/api/hc/<int:item_id>", methods=["PUT"])
+@login_required
 def atualizar_colaborador(item_id):
     colaborador = HCGig2.query.get_or_404(item_id)
     data = request.get_json() or {}
+
+    dados_ant = json.dumps({
+        "nome_completo": colaborador.nome_completo,
+        "login": colaborador.login or "",
+        "cargo": colaborador.cargo,
+        "area": colaborador.area or "",
+        "turno": colaborador.turno or "",
+        "status": colaborador.status,
+        "causa_afastamento": colaborador.causa_afastamento or "",
+    })
 
     novo_login = (data.get("login") or "").strip() or None
     if novo_login and novo_login != colaborador.login:
@@ -141,7 +226,6 @@ def atualizar_colaborador(item_id):
 
     novo_status = (data.get("status") or colaborador.status).strip()
 
-    # Validações por status
     if novo_status in ("Licença", "Férias"):
         descricao = (data.get("causa_afastamento") or "").strip()
         if not descricao:
@@ -152,6 +236,7 @@ def atualizar_colaborador(item_id):
         if not descricao:
             return jsonify({"erro": "Descrição é obrigatória para Desligamento."}), 400
 
+    status_anterior = colaborador.status
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
     colaborador.cargo         = (data.get("cargo") or colaborador.cargo).strip()
@@ -160,7 +245,6 @@ def atualizar_colaborador(item_id):
     colaborador.status        = novo_status
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
 
-    # Campos específicos por status
     if novo_status in ("Licença", "Férias"):
         colaborador.data_inicio_licenca = _parse_date(data.get("data_inicio_licenca"))
         colaborador.data_fim_licenca    = _parse_date(data.get("data_fim_licenca"))
@@ -169,24 +253,156 @@ def atualizar_colaborador(item_id):
         colaborador.data_desligamento   = _parse_date(data.get("data_desligamento"))
         colaborador.data_inicio_licenca = None
         colaborador.data_fim_licenca    = None
-    else:  # OPERACIONAL
+    else:
         colaborador.data_inicio_licenca = None
         colaborador.data_fim_licenca    = None
         colaborador.data_desligamento   = None
+
+    dados_nov = json.dumps({
+        "nome_completo": colaborador.nome_completo,
+        "login": colaborador.login or "",
+        "cargo": colaborador.cargo,
+        "area": colaborador.area or "",
+        "turno": colaborador.turno or "",
+        "status": colaborador.status,
+        "causa_afastamento": colaborador.causa_afastamento or "",
+    })
+
+    tipo = "edicao_status" if status_anterior != novo_status else "edicao"
+    msg_status = f" (status: {status_anterior} → {novo_status})" if status_anterior != novo_status else ""
+    _registrar(
+        tipo,
+        colaborador,
+        f"Colaborador atualizado: {colaborador.nome_completo}{msg_status}",
+        dados_ant=dados_ant,
+        dados_nov=dados_nov,
+    )
 
     db.session.commit()
     return jsonify({"mensagem": "Colaborador atualizado com sucesso.", "item": colaborador.to_dict()})
 
 
 @hc_bp.route("/api/hc/<int:item_id>", methods=["DELETE"])
+@login_required
 def excluir_colaborador(item_id):
     colaborador = HCGig2.query.get_or_404(item_id)
+    nome = colaborador.nome_completo
+
+    # If terminated, archive before deleting
+    if colaborador.status == "Desligado":
+        from models.historico import HistoricoOperacional
+        try:
+            u_login = current_user.login if current_user.is_authenticated else "sistema"
+        except Exception:
+            u_login = "sistema"
+
+        hist = HistoricoOperacional(
+            hc_id_original=colaborador.id,
+            nome_completo=colaborador.nome_completo,
+            login=colaborador.login,
+            cargo=colaborador.cargo,
+            area=colaborador.area,
+            turno=colaborador.turno,
+            status_final=colaborador.status,
+            data_desligamento=colaborador.data_desligamento,
+            data_inicio_licenca=colaborador.data_inicio_licenca,
+            data_fim_licenca=colaborador.data_fim_licenca,
+            causa=colaborador.causa_afastamento,
+            data_criacao_original=colaborador.created_at,
+            arquivado_por=u_login,
+        )
+        db.session.add(hist)
+
+    _registrar(
+        "exclusao",
+        colaborador,
+        f"Colaborador removido: {colaborador.nome_completo} ({colaborador.cargo} | {colaborador.status})",
+        dados_ant=json.dumps(colaborador.to_dict()),
+    )
+
     db.session.delete(colaborador)
     db.session.commit()
-    return jsonify({"mensagem": f"Colaborador '{colaborador.nome_completo}' excluído com sucesso."})
+    return jsonify({"mensagem": f"Colaborador '{nome}' excluído com sucesso."})
+
+
+# ── API: Pendências ────────────────────────────────────────────
+
+
+@hc_bp.route("/api/hc/pendencias", methods=["GET"])
+@login_required
+def listar_pendencias():
+    hoje = date.today()
+    weekday = hoje.weekday()
+
+    # Next Tuesday (or today if Tuesday)
+    if weekday <= 1:
+        days_to_tuesday = 1 - weekday
+    else:
+        days_to_tuesday = 8 - weekday
+    proxima_terca = hoje + timedelta(days=days_to_tuesday)
+    prazo_vencido = weekday > 1
+
+    pendentes = HCGig2.query.filter(
+        or_(
+            db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
+            db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
+        )
+    ).order_by(HCGig2.nome_completo.asc()).all()
+
+    return jsonify({
+        "pendencias": [p.to_dict() for p in pendentes],
+        "total": len(pendentes),
+        "prazo": proxima_terca.strftime("%d/%m/%Y"),
+        "prazo_vencido": prazo_vencido,
+    })
+
+
+# ── API: Histórico ─────────────────────────────────────────────
+
+
+@hc_bp.route("/api/hc/historico", methods=["GET"])
+@login_required
+def listar_historico():
+    from models.registro_atividade import RegistroAtividade
+    limite = int(request.args.get("limite", 200))
+    tipo = request.args.get("tipo", "").strip()
+
+    query = RegistroAtividade.query
+    if tipo:
+        query = query.filter(RegistroAtividade.tipo == tipo)
+    registros = query.order_by(RegistroAtividade.timestamp.desc()).limit(limite).all()
+    return jsonify([r.to_dict() for r in registros])
+
+
+@hc_bp.route("/api/hc/historico-operacional", methods=["GET"])
+@login_required
+def listar_historico_operacional():
+    from models.historico import HistoricoOperacional
+    registros = HistoricoOperacional.query.order_by(HistoricoOperacional.data_arquivo.desc()).all()
+    return jsonify([r.to_dict() for r in registros])
+
+
+# ── API: Admin – trigger status processing ────────────────────
+
+
+@hc_bp.route("/api/admin/processar-status", methods=["POST"])
+@login_required
+def trigger_processar_status():
+    if not current_user.is_admin:
+        return jsonify({"erro": "Acesso negado."}), 403
+    from app import processar_status_automatico
+    try:
+        processar_status_automatico()
+        return jsonify({"mensagem": "Processamento concluído."})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+# ── API: Email ────────────────────────────────────────────────
 
 
 @hc_bp.route("/api/hc/<int:item_id>/pedir-data-desligamento", methods=["POST"])
+@login_required
 def pedir_data_desligamento(item_id):
     colaborador = HCGig2.query.get_or_404(item_id)
     nome = colaborador.nome_completo
@@ -204,7 +420,6 @@ def pedir_data_desligamento(item_id):
     smtp_pass = os.getenv("SMTP_PASS", "")
 
     if not smtp_user or not smtp_pass:
-        # Retorna o mailto como fallback
         import urllib.parse
         assunto  = urllib.parse.quote(f"Previsão de data de desligamento – {nome}")
         corpo_q  = urllib.parse.quote(corpo)
@@ -227,7 +442,11 @@ def pedir_data_desligamento(item_id):
         return jsonify({"erro": f"Falha ao enviar e-mail: {str(e)}"}), 500
 
 
+# ── API: Import / Export ───────────────────────────────────────
+
+
 @hc_bp.route("/api/hc/import-csv", methods=["POST"])
+@login_required
 def importar_csv():
     arquivo = request.files.get("arquivo")
     if not arquivo:
@@ -249,7 +468,6 @@ def importar_csv():
     col_turno = _find_col(df, "turno")
     col_previsao = _find_col(df, "previsao") or _find_col(df, "previs")
     col_descricao = _find_col(df, "descri")
-    # Separar "status de liberacao" de "status"
     col_status_lib = _find_col(df, "libera")
     col_status = None
     for c in df.columns:
@@ -304,15 +522,13 @@ def importar_csv():
             status_lib = str(row.get(col_status_lib, "")).strip() if col_status_lib else ""
             status_lib = None if status_lib.lower() in ("nan", "none", "") else status_lib or None
 
-            # Upsert: tenta por login, senão por nome
             item = None
             if login:
                 item = HCGig2.query.filter_by(login=login).first()
             if not item:
-                item = HCGig2.query.filter(
-                    HCGig2.nome_completo.ilike(nome)
-                ).first()
+                item = HCGig2.query.filter(HCGig2.nome_completo.ilike(nome)).first()
 
+            is_new = item is None
             if not item:
                 item = HCGig2()
                 db.session.add(item)
@@ -335,7 +551,6 @@ def importar_csv():
             erros.append(f"Linha {idx + 2}: {str(e)}")
 
     db.session.commit()
-
     result = {"mensagem": "Importação concluída.", "inseridos": inseridos, "atualizados": atualizados}
     if erros:
         result["erros"] = erros
@@ -343,6 +558,7 @@ def importar_csv():
 
 
 @hc_bp.route("/api/hc/import", methods=["POST"])
+@login_required
 def importar_excel():
     arquivo = request.files.get("arquivo")
     if not arquivo:
@@ -403,6 +619,7 @@ def importar_excel():
 
 
 @hc_bp.route("/api/hc/export", methods=["GET"])
+@login_required
 def exportar_excel():
     registros = HCGig2.query.order_by(HCGig2.nome_completo.asc()).all()
 
@@ -440,7 +657,11 @@ def exportar_excel():
     )
 
 
+# ── API: Dashboard ─────────────────────────────────────────────
+
+
 @hc_bp.route("/api/hc/dashboard", methods=["GET"])
+@login_required
 def dashboard_data():
     f_area   = request.args.get("area", "").strip()
     f_turno  = request.args.get("turno", "").strip()
@@ -451,7 +672,6 @@ def dashboard_data():
         r.aplicar_status_por_data()
     db.session.commit()
 
-    # Aplica filtros
     registros = todos
     if f_area:
         registros = [r for r in registros if (r.area or "") == f_area]
@@ -478,7 +698,6 @@ def dashboard_data():
         por_cargo[r.cargo]        = por_cargo.get(r.cargo, 0) + 1
         por_turno[r.turno or "—"] = por_turno.get(r.turno or "—", 0) + 1
 
-    # Ordena por valor desc
     por_area  = dict(sorted(por_area.items(),  key=lambda x: x[1], reverse=True))
     por_cargo = dict(sorted(por_cargo.items(), key=lambda x: x[1], reverse=True))
 
@@ -493,7 +712,6 @@ def dashboard_data():
             "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"),
         }
 
-    # HC Operacional por turno — Analista / Associado / PIT
     operacional_por_turno = {}
     for turno in TURNOS:
         if turno == "ADM":
@@ -504,7 +722,6 @@ def dashboard_data():
             "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
         }
 
-    # Valores únicos para os filtros (sempre do total, não dos filtrados)
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
     turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
     status_disponiveis = sorted({r.status for r in todos})

@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% block title %}Pendências | HC GIG2{% endblock %}
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('hc.home') }}" class="btn back-btn btn-sm">&#8592; Início</a>
+    <h2 class="page-title">Ticket de Pendências</h2>
+</div>
+
+<div id="pend-info" class="pendencia-info-card card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+        <div>
+            <span class="pend-label">Total de pendências</span>
+            <span id="total-count" class="pend-total">—</span>
+        </div>
+        <div>
+            <span class="pend-label">Prazo (terça-feira)</span>
+            <span id="prazo-val" class="pend-prazo">—</span>
+        </div>
+        <div id="prazo-badge-wrap"></div>
+    </div>
+</div>
+
+<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h2 style="margin:0;font-size:18px;">Colaboradores com pendência de data</h2>
+        <span id="pend-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
+    </div>
+    <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Pendências são registros de <strong>Licença, Férias ou Desligamento</strong> sem data de concretização definida.
+        O prazo para definição é toda <strong>terça-feira</strong>. Após o prazo, o status passa para <strong>OFF</strong>.
+    </p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Colaborador</th>
+                    <th>Login</th>
+                    <th>Cargo</th>
+                    <th>Área</th>
+                    <th>Turno</th>
+                    <th>Status</th>
+                    <th>Pendência</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody id="pend-tbody">
+                <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="total-registros" id="pend-total-label"></div>
+</div>
+
+<script>
+(function () {
+    async function carregarPendencias() {
+        try {
+            const res = await fetch('/api/hc/pendencias');
+            const data = await res.json();
+
+            document.getElementById('total-count').textContent = data.total;
+            document.getElementById('prazo-val').textContent = data.prazo;
+            document.getElementById('pend-loading').textContent = '';
+
+            const badgeWrap = document.getElementById('prazo-badge-wrap');
+            if (data.prazo_vencido) {
+                badgeWrap.innerHTML = '<span class="badge off" style="font-size:13px;padding:6px 14px;">PRAZO VENCIDO</span>';
+            } else {
+                badgeWrap.innerHTML = '<span class="badge operacional" style="font-size:13px;padding:6px 14px;">Prazo em aberto</span>';
+            }
+
+            const tbody = document.getElementById('pend-tbody');
+            if (data.pendencias.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Nenhuma pendência encontrada. Tudo em dia!</td></tr>';
+                document.getElementById('pend-total-label').textContent = '';
+                return;
+            }
+
+            tbody.innerHTML = data.pendencias.map(p => {
+                const statusCls = p.status.toLowerCase().replace('ê', 'e').replace('é', 'e').replace('ç', 'c');
+                const pendDesc = getPendDesc(p);
+                return `<tr>
+                    <td>${p.nome_completo}</td>
+                    <td>${p.login || '—'}</td>
+                    <td>${p.cargo}</td>
+                    <td>${p.area || '—'}</td>
+                    <td>${p.turno || '—'}</td>
+                    <td><span class="badge ${statusCls}">${p.status}</span></td>
+                    <td style="color:#c62828;font-size:13px;">${pendDesc}</td>
+                    <td>
+                        <a href="/atualizar?login=${encodeURIComponent(p.login || p.nome_completo)}" class="btn btn-sm primary">Definir data</a>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('pend-total-label').textContent = `${data.total} colaborador(es) com pendência`;
+        } catch (e) {
+            document.getElementById('pend-loading').textContent = 'Erro ao carregar.';
+        }
+    }
+
+    function getPendDesc(p) {
+        if (p.status === 'Desligado') return 'Desligamento sem data definida';
+        if (p.status === 'Licença') return 'Licença sem data de início/fim';
+        if (p.status === 'Férias') return 'Férias sem data de início/fim';
+        return 'Data de concretização não definida';
+    }
+
+    carregarPendencias();
+})();
+</script>
+{% endblock %}

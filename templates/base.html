@@ -23,7 +23,16 @@
             <a href="{{ url_for('hc.novo_hc') }}" class="{% if request.endpoint == 'hc.novo_hc' %}active{% endif %}">Novo HC</a>
             <a href="{{ url_for('hc.atualizar') }}" class="{% if request.endpoint == 'hc.atualizar' %}active{% endif %}">Atualizar</a>
             <a href="{{ url_for('hc.dashboard') }}" class="{% if request.endpoint == 'hc.dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{{ url_for('hc.historico_page') }}" class="{% if request.endpoint == 'hc.historico_page' %}active{% endif %}">Histórico</a>
+            {% if current_user.is_admin %}
+            <a href="{{ url_for('auth.usuarios_page') }}" class="{% if request.endpoint == 'auth.usuarios_page' %}active{% endif %}">Usuários</a>
+            {% endif %}
         </nav>
+        <div class="topbar-user">
+            <span class="user-greeting">{{ current_user.nome }}</span>
+            {% if current_user.is_admin %}<span class="user-level-badge">Admin</span>{% endif %}
+            <a href="{{ url_for('auth.logout') }}" class="logout-btn">Sair</a>
+        </div>
     </header>
 
     <main class="container">
