@@ -1,0 +1,196 @@
+{% extends 'base.html' %}
+{% block title %}Usuários | HC GIG2{% endblock %}
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('hc.home') }}" class="btn back-btn btn-sm">&#8592; Início</a>
+    <h2 class="page-title">Gerenciar Usuários do Sistema</h2>
+    <button class="btn primary btn-sm" onclick="abrirModalNovo()">+ Novo Usuário</button>
+</div>
+
+<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h2 style="margin:0;font-size:18px;">Usuários Cadastrados</h2>
+        <button class="btn btn-sm" onclick="carregarUsuarios()">&#8635; Atualizar</button>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Login</th>
+                    <th>Nome</th>
+                    <th>Nível</th>
+                    <th>Status</th>
+                    <th>Último acesso</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="users-tbody">
+                <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="total-registros" id="users-total"></div>
+</div>
+
+<!-- Modal: Novo / Editar usuário -->
+<div id="modal-usuario" class="modal hidden">
+    <div class="modal-content card">
+        <h2 id="modal-titulo" style="margin-top:0;">Novo Usuário</h2>
+        <div id="msg-usuario" class="mensagem"></div>
+        <div class="form-grid">
+            <div>
+                <label class="field-label">Login</label>
+                <input type="text" id="u-login" placeholder="ex: sxmoraes" class="form-grid input" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);" autocomplete="off">
+            </div>
+            <div>
+                <label class="field-label">Nome completo</label>
+                <input type="text" id="u-nome" placeholder="Nome do usuário" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);">
+            </div>
+            <div>
+                <label class="field-label">Nível de acesso</label>
+                <select id="u-nivel" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);">
+                    <option value="visualizador">Visualizador</option>
+                    <option value="gestor">Gestor</option>
+                    <option value="admin">Administrador</option>
+                </select>
+            </div>
+            <div>
+                <label class="field-label" id="senha-label">Senha</label>
+                <input type="password" id="u-senha" placeholder="Digite a senha" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);" autocomplete="new-password">
+            </div>
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button class="btn" onclick="fecharModal()">Cancelar</button>
+            <button class="btn primary" onclick="salvarUsuario()">Salvar</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let editingId = null;
+
+async function carregarUsuarios() {
+    try {
+        const res = await fetch('/api/usuarios');
+        const data = await res.json();
+        const tbody = document.getElementById('users-tbody');
+
+        if (!Array.isArray(data) || !data.length) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Nenhum usuário encontrado.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.map(u => {
+            const nivelCls = { admin: 'off', gestor: 'licenca', visualizador: 'ferias' }[u.nivel_acesso] || '';
+            const nivelLabel = { admin: 'Admin', gestor: 'Gestor', visualizador: 'Visualizador' }[u.nivel_acesso] || u.nivel_acesso;
+            const statusBadge = u.ativo
+                ? '<span class="badge operacional">Ativo</span>'
+                : '<span class="badge off">Inativo</span>';
+            return `<tr>
+                <td>${u.id}</td>
+                <td><strong>${u.login}</strong></td>
+                <td>${u.nome}</td>
+                <td><span class="badge ${nivelCls}">${nivelLabel}</span></td>
+                <td>${statusBadge}</td>
+                <td style="font-size:12px;">${u.last_login || '—'}</td>
+                <td>
+                    <button class="btn btn-sm" onclick="abrirModalEditar(${JSON.stringify(u).replace(/"/g, '&quot;')})">Editar</button>
+                    <button class="btn btn-sm danger" onclick="excluirUsuario(${u.id}, '${u.login}')">Excluir</button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('users-total').textContent = `${data.length} usuário(s)`;
+    } catch (e) {
+        document.getElementById('users-tbody').innerHTML = '<tr><td colspan="7" style="color:red;padding:16px;">Erro ao carregar usuários.</td></tr>';
+    }
+}
+
+function abrirModalNovo() {
+    editingId = null;
+    document.getElementById('modal-titulo').textContent = 'Novo Usuário';
+    document.getElementById('u-login').value = '';
+    document.getElementById('u-login').disabled = false;
+    document.getElementById('u-nome').value = '';
+    document.getElementById('u-nivel').value = 'gestor';
+    document.getElementById('u-senha').value = '';
+    document.getElementById('senha-label').textContent = 'Senha';
+    document.getElementById('msg-usuario').textContent = '';
+    document.getElementById('modal-usuario').classList.remove('hidden');
+}
+
+function abrirModalEditar(u) {
+    editingId = u.id;
+    document.getElementById('modal-titulo').textContent = 'Editar Usuário';
+    document.getElementById('u-login').value = u.login;
+    document.getElementById('u-login').disabled = true;
+    document.getElementById('u-nome').value = u.nome;
+    document.getElementById('u-nivel').value = u.nivel_acesso;
+    document.getElementById('u-senha').value = '';
+    document.getElementById('senha-label').textContent = 'Nova senha (deixe em branco para manter)';
+    document.getElementById('msg-usuario').textContent = '';
+    document.getElementById('modal-usuario').classList.remove('hidden');
+}
+
+function fecharModal() {
+    document.getElementById('modal-usuario').classList.add('hidden');
+}
+
+async function salvarUsuario() {
+    const msg = document.getElementById('msg-usuario');
+    msg.style.color = '';
+    const login = document.getElementById('u-login').value.trim();
+    const nome = document.getElementById('u-nome').value.trim();
+    const nivel = document.getElementById('u-nivel').value;
+    const senha = document.getElementById('u-senha').value.trim();
+
+    if (!nome) { msg.textContent = 'Nome é obrigatório.'; msg.style.color = 'red'; return; }
+
+    try {
+        let res;
+        if (editingId) {
+            const body = { nome, nivel_acesso: nivel };
+            if (senha) body.nova_senha = senha;
+            res = await fetch(`/api/usuarios/${editingId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        } else {
+            if (!login) { msg.textContent = 'Login é obrigatório.'; msg.style.color = 'red'; return; }
+            if (!senha) { msg.textContent = 'Senha é obrigatória.'; msg.style.color = 'red'; return; }
+            res = await fetch('/api/usuarios', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login, nome, nivel_acesso: nivel, senha }),
+            });
+        }
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro.'; msg.style.color = 'red'; return; }
+        fecharModal();
+        carregarUsuarios();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function excluirUsuario(id, login) {
+    if (!confirm(`Excluir usuário "${login}"? Esta ação não pode ser desfeita.`)) return;
+    try {
+        const res = await fetch(`/api/usuarios/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) { alert(data.erro || 'Erro ao excluir.'); return; }
+        carregarUsuarios();
+    } catch (e) {
+        alert('Erro de comunicação.');
+    }
+}
+
+document.getElementById('modal-usuario').addEventListener('click', function (e) {
+    if (e.target === this) fecharModal();
+});
+
+carregarUsuarios();
+</script>
+{% endblock %}

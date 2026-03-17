@@ -1,6 +1,19 @@
 {% extends 'base.html' %}
 {% block title %}HC GIG2 | Home{% endblock %}
 {% block content %}
+
+{% if pendencias_count and pendencias_count > 0 %}
+<a href="{{ url_for('hc.pendencias_page') }}" class="pendencia-banner">
+    <span class="pendencia-icon">&#9888;</span>
+    <span class="pendencia-text">
+        <strong>{{ pendencias_count }} pendência(s) esta semana</strong>
+        — colaboradores com Licença, Férias ou Desligamento sem data definida.
+        Prazo: toda terça-feira. Clique para ver a lista.
+    </span>
+    <span class="pendencia-arrow">&#8594;</span>
+</a>
+{% endif %}
+
 <div class="home-hero">
     <h2>Bem-vindo ao Sistema HC GIG2</h2>
     <p>Selecione uma opção para continuar</p>
@@ -20,6 +33,22 @@
         <div class="home-btn-icon">&#9636;</div>
         <div class="home-btn-label">Dashboard</div>
         <div class="home-btn-desc">Visualizar indicadores e gráficos</div>
+    </a>
+    <a href="{{ url_for('hc.pendencias_page') }}" class="home-btn {% if pendencias_count and pendencias_count > 0 %}home-btn-alert{% endif %}">
+        <div class="home-btn-icon">&#9888;</div>
+        <div class="home-btn-label">Pendências</div>
+        <div class="home-btn-desc">
+            {% if pendencias_count and pendencias_count > 0 %}
+                <span style="color:#c62828;font-weight:bold;">{{ pendencias_count }} pendência(s)</span>
+            {% else %}
+                Sem pendências desta semana
+            {% endif %}
+        </div>
+    </a>
+    <a href="{{ url_for('hc.historico_page') }}" class="home-btn">
+        <div class="home-btn-icon">&#128203;</div>
+        <div class="home-btn-label">Histórico</div>
+        <div class="home-btn-desc">Registros de movimentações</div>
     </a>
 </div>
 {% endblock %}

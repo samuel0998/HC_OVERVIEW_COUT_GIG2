@@ -1,0 +1,177 @@
+{% extends 'base.html' %}
+{% block title %}Histórico | HC GIG2{% endblock %}
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('hc.home') }}" class="btn back-btn btn-sm">&#8592; Início</a>
+    <h2 class="page-title">Histórico de Atividades</h2>
+</div>
+
+<!-- Tabs -->
+<div class="hist-tabs">
+    <button class="hist-tab active" onclick="showTab('atividades', this)">Registro de Atividades</button>
+    <button class="hist-tab" onclick="showTab('operacional', this)">Histórico Operacional</button>
+</div>
+
+<!-- Tab: Registro de Atividades -->
+<div id="tab-atividades" class="hist-panel">
+    <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <h2 style="margin:0;font-size:18px;">Movimentações do Sistema</h2>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <select id="filtro-tipo" class="filter-select" onchange="carregarAtividades()" style="min-width:160px;">
+                    <option value="">Todos os tipos</option>
+                    <option value="adicao">Adição</option>
+                    <option value="edicao">Edição</option>
+                    <option value="edicao_status">Edição de Status</option>
+                    <option value="exclusao">Exclusão</option>
+                    <option value="desligamento_automatico">Desligamento Automático</option>
+                </select>
+                <button class="btn btn-sm" onclick="carregarAtividades()">&#8635; Atualizar</button>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data/Hora</th>
+                        <th>Tipo</th>
+                        <th>Operador</th>
+                        <th>Usuário</th>
+                        <th>Descrição</th>
+                    </tr>
+                </thead>
+                <tbody id="ativ-tbody">
+                    <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="total-registros" id="ativ-total"></div>
+    </div>
+</div>
+
+<!-- Tab: Histórico Operacional -->
+<div id="tab-operacional" class="hist-panel" style="display:none;">
+    <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <h2 style="margin:0;font-size:18px;">Colaboradores Desligados (Arquivo)</h2>
+            <button class="btn btn-sm" onclick="carregarHistoricoOp()">&#8635; Atualizar</button>
+        </div>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+            Colaboradores desligados automaticamente ou manualmente, arquivados para controle futuro.
+        </p>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Login</th>
+                        <th>Cargo</th>
+                        <th>Área</th>
+                        <th>Turno</th>
+                        <th>Data Desligamento</th>
+                        <th>Motivo</th>
+                        <th>Arquivado em</th>
+                        <th>Por</th>
+                    </tr>
+                </thead>
+                <tbody id="op-tbody">
+                    <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="total-registros" id="op-total"></div>
+    </div>
+</div>
+
+<script>
+const TIPO_LABELS = {
+    'adicao': 'Adição',
+    'edicao': 'Edição',
+    'edicao_status': 'Edição de Status',
+    'exclusao': 'Exclusão',
+    'desligamento_automatico': 'Desligamento Auto.',
+};
+
+const TIPO_CLASSES = {
+    'adicao': 'operacional',
+    'edicao': 'ferias',
+    'edicao_status': 'licenca',
+    'exclusao': 'off',
+    'desligamento_automatico': 'desligado',
+};
+
+function showTab(tab, btn) {
+    document.querySelectorAll('.hist-panel').forEach(p => p.style.display = 'none');
+    document.querySelectorAll('.hist-tab').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + tab).style.display = '';
+    btn.classList.add('active');
+
+    if (tab === 'operacional') carregarHistoricoOp();
+}
+
+async function carregarAtividades() {
+    const tipo = document.getElementById('filtro-tipo').value;
+    const url = '/api/hc/historico?limite=300' + (tipo ? '&tipo=' + tipo : '');
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const tbody = document.getElementById('ativ-tbody');
+
+        if (!data.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro encontrado.</td></tr>';
+            document.getElementById('ativ-total').textContent = '';
+            return;
+        }
+
+        tbody.innerHTML = data.map(r => {
+            const cls = TIPO_CLASSES[r.tipo] || '';
+            const label = TIPO_LABELS[r.tipo] || r.tipo;
+            return `<tr>
+                <td style="white-space:nowrap;font-size:12px;">${r.timestamp}</td>
+                <td><span class="badge ${cls}" style="font-size:11px;">${label}</span></td>
+                <td style="font-size:13px;">${r.operador_nome || '—'}<br><span style="color:var(--muted);font-size:11px;">${r.operador_login || ''}</span></td>
+                <td style="font-size:13px;">${r.usuario_nome || '—'}<br><span style="color:var(--muted);font-size:11px;">${r.usuario_login || ''}</span></td>
+                <td style="font-size:13px;max-width:380px;">${r.descricao || '—'}</td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('ativ-total').textContent = `${data.length} registro(s)`;
+    } catch (e) {
+        document.getElementById('ativ-tbody').innerHTML = '<tr><td colspan="5" style="color:red;padding:16px;">Erro ao carregar atividades.</td></tr>';
+    }
+}
+
+async function carregarHistoricoOp() {
+    try {
+        const res = await fetch('/api/hc/historico-operacional');
+        const data = await res.json();
+        const tbody = document.getElementById('op-tbody');
+
+        if (!data.length) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum colaborador arquivado.</td></tr>';
+            document.getElementById('op-total').textContent = '';
+            return;
+        }
+
+        tbody.innerHTML = data.map(r => `<tr>
+            <td>${r.nome_completo}</td>
+            <td>${r.login || '—'}</td>
+            <td>${r.cargo || '—'}</td>
+            <td>${r.area || '—'}</td>
+            <td>${r.turno || '—'}</td>
+            <td>${r.data_desligamento || '—'}</td>
+            <td style="max-width:200px;font-size:12px;">${r.causa || '—'}</td>
+            <td style="font-size:12px;">${r.data_arquivo || '—'}</td>
+            <td style="font-size:12px;">${r.arquivado_por || '—'}</td>
+        </tr>`).join('');
+
+        document.getElementById('op-total').textContent = `${data.length} colaborador(es) arquivado(s)`;
+    } catch (e) {
+        document.getElementById('op-tbody').innerHTML = '<tr><td colspan="9" style="color:red;padding:16px;">Erro ao carregar histórico.</td></tr>';
+    }
+}
+
+// Load on page open
+carregarAtividades();
+</script>
+{% endblock %}

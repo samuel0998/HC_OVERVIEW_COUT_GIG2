@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login | HC Overview GIG2</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-body">
+    <div class="login-page">
+        <div class="login-card">
+            <div class="login-logos">
+                <img src="{{ url_for('static', filename='images/amazon_logo.png') }}" alt="Amazon" class="logo-amazon">
+                <img src="{{ url_for('static', filename='images/id_logo.png') }}" alt="ID" class="logo-id">
+                <img src="{{ url_for('static', filename='images/lion_logo.png') }}" alt="GIG2" class="logo-lion">
+            </div>
+            <div class="login-title">
+                <h1>HEADCOUNT OVERVIEW</h1>
+                <p>SITE: GIG2 | Gestão de HC</p>
+            </div>
+
+            {% if erro %}
+            <div class="alert alert-danger">{{ erro }}</div>
+            {% endif %}
+
+            <form method="POST" class="login-form">
+                <div class="login-field">
+                    <label for="login">Login</label>
+                    <input type="text" id="login" name="login" placeholder="Seu login de acesso" required autofocus autocomplete="username">
+                </div>
+                <div class="login-field">
+                    <label for="senha">Senha</label>
+                    <input type="password" id="senha" name="senha" placeholder="Sua senha" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn primary login-submit">Entrar</button>
+            </form>
+
+            <p class="login-version">v1.0.2</p>
+        </div>
+    </div>
+</body>
+</html>
