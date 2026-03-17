@@ -137,8 +137,8 @@ def create_app():
 
     @login_manager.user_loader
     def load_user(user_id):
-        from models.user_system import UserSystem
-        return UserSystem.query.get(int(user_id))
+        from models.operadores import Operadores
+        return Operadores.query.get(user_id)
 
     @login_manager.unauthorized_handler
     def unauthorized():
@@ -148,7 +148,7 @@ def create_app():
 
     with app.app_context():
         from models.hc_gig2 import HCGig2  # noqa: F401
-        from models.user_system import UserSystem  # noqa: F401
+        from models.operadores import Operadores  # noqa: F401
         from models.historico import HistoricoOperacional  # noqa: F401
         from models.registro_atividade import RegistroAtividade  # noqa: F401
 
@@ -198,22 +198,19 @@ def create_app():
             db.session.rollback()
             print(f"[MIGRATION] ERRO ao aplicar migração: {e}")
 
-        # ── Default admin user ─────────────────────────────────
+        # ── Migrations: operadores permission columns ──────────
         try:
-            if not UserSystem.query.first():
-                admin = UserSystem(
-                    login="admin",
-                    nome="Administrador",
-                    nivel_acesso="admin",
-                    ativo=True,
-                )
-                admin.set_senha("admin123")
-                db.session.add(admin)
-                db.session.commit()
-                print("[INIT] Usuário admin criado. Login: admin | Senha: admin123")
+            db.session.execute(db.text(
+                "ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_hcview BOOLEAN DEFAULT FALSE"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_level_hcview VARCHAR(20)"
+            ))
+            db.session.commit()
+            print("[MIGRATION] Colunas permission_hcview e permission_level_hcview verificadas em 'operadores'.")
         except Exception as e:
             db.session.rollback()
-            print(f"[INIT] ERRO ao criar admin: {e}")
+            print(f"[MIGRATION] ERRO nas colunas de permissão HC View: {e}")
 
         # ── Auto-status on startup ─────────────────────────────
         try:
