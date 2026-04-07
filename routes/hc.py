@@ -500,8 +500,10 @@ def importar_csv():
         "licença": "Licença",
     }
 
+    # Apaga todos os colaboradores existentes antes de inserir os novos
+    HCGig2.query.delete()
+
     inseridos = 0
-    atualizados = 0
     erros = []
 
     for idx, row in df.iterrows():
@@ -534,23 +536,13 @@ def importar_csv():
             status_lib = str(row.get(col_status_lib, "")).strip() if col_status_lib else ""
             status_lib = None if status_lib.lower() in ("nan", "none", "") else status_lib or None
 
-            item = None
-            if login:
-                item = HCGig2.query.filter_by(login=login).first()
-            if not item:
-                item = HCGig2.query.filter(HCGig2.nome_completo.ilike(nome)).first()
-
-            is_new = item is None
-            if not item:
-                item = HCGig2()
-                db.session.add(item)
-                inseridos += 1
-            else:
-                atualizados += 1
+            item = HCGig2()
+            db.session.add(item)
+            inseridos += 1
 
             item.nome_completo = nome
             item.login = login
-            item.cargo = cargo or (item.cargo if item.cargo else "")
+            item.cargo = cargo or ""
             item.area = area
             item.turno = turno
             item.status = status
@@ -563,7 +555,7 @@ def importar_csv():
             erros.append(f"Linha {idx + 2}: {str(e)}")
 
     db.session.commit()
-    result = {"mensagem": "Importação concluída.", "inseridos": inseridos, "atualizados": atualizados}
+    result = {"mensagem": "Base renovada com sucesso.", "inseridos": inseridos}
     if erros:
         result["erros"] = erros
     return jsonify(result)
