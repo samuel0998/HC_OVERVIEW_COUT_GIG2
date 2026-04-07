@@ -30,6 +30,7 @@ const TURNO_COLORS = {
 const STATUS_COLORS = {
   "OPERACIONAL": "#2e7d32",
   "Licença":     "#f9a825",
+  "Férias":      "#1976d2",
   "OFF":         "#c62828",
 };
 

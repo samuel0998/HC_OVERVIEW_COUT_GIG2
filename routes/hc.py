@@ -696,6 +696,7 @@ def dashboard_data():
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
     off        = sum(1 for r in registros if r.status == "OFF")
     licenca    = sum(1 for r in registros if r.status == "Licença")
+    ferias     = sum(1 for r in registros if r.status == "Férias")
 
     outbound_areas = {"OUTBOUND", "INSUMOS", "LP"}
     inbound_areas  = {"INBOUND", "C-RET"}
@@ -749,7 +750,7 @@ def dashboard_data():
         "por_area":  por_area,
         "por_cargo": por_cargo,
         "por_turno": por_turno,
-        "status": {"OPERACIONAL": operacional, "Licença": licenca, "OFF": off},
+        "status": {"OPERACIONAL": operacional, "Licença": licenca, "Férias": ferias, "OFF": off},
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {
