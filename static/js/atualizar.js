@@ -263,9 +263,27 @@ arquivoImport.addEventListener("change", async () => {
   const res  = await fetch("/api/hc/import-csv", { method: "POST", body: formData });
   const data = await res.json();
   if (!res.ok) return showMessage(data.erro || "Erro na importação.", true);
-  let msg = `${data.mensagem} Inseridos: ${data.inseridos} | Atualizados: ${data.atualizados}`;
-  if (data.erros && data.erros.length) msg += ` | Erros: ${data.erros.length}`;
+
+  let msg = `${data.mensagem} Inseridos: ${data.inseridos}`;
   showMessage(msg);
+
+  if (data.erros && data.erros.length) {
+    const container = document.getElementById("erros-import");
+    if (container) {
+      container.innerHTML = `
+        <div style="margin-top:12px;padding:12px 16px;background:#fff7ed;border:2px solid #f97316;border-radius:8px;">
+          <strong style="color:#c2410c;">⚠️ ${data.erros.length} problema(s) encontrado(s) — corrija manualmente:</strong>
+          <ul style="margin:8px 0 0 0;padding-left:18px;color:#7c2d12;font-size:13px;">
+            ${data.erros.map(e => `<li>${e}</li>`).join("")}
+          </ul>
+        </div>`;
+      container.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  } else {
+    const container = document.getElementById("erros-import");
+    if (container) container.innerHTML = "";
+  }
+
   carregarTabela();
   arquivoImport.value = "";
 });

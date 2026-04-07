@@ -505,6 +505,7 @@ def importar_csv():
 
     inseridos = 0
     erros = []
+    logins_vistos = set()
 
     for idx, row in df.iterrows():
         try:
@@ -514,6 +515,13 @@ def importar_csv():
 
             login = str(row.get(col_login, "")).strip() if col_login else ""
             login = None if login.lower() in ("nan", "none", "") else login
+
+            # Se login duplicado no CSV, sobe o colaborador sem login para não violar unique constraint
+            if login and login in logins_vistos:
+                erros.append(f"⚠️ Linha {idx + 2}: login '{login}' duplicado no CSV — '{nome}' foi inserido SEM login. Corrija manualmente.")
+                login = None
+            elif login:
+                logins_vistos.add(login)
 
             cargo = str(row.get(col_cargo, "")).strip() if col_cargo else ""
             cargo = "" if cargo.lower() == "nan" else cargo
