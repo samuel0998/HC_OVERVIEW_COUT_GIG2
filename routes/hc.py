@@ -17,7 +17,7 @@ from models.hc_gig2 import HCGig2
 hc_bp = Blueprint("hc", __name__)
 
 CARGOS  = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
-AREAS   = ["INBOUND", "OUTBOUND", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
+AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
 STATUS  = ["OPERACIONAL", "Licença", "Férias", "Desligado", "OFF"]
 RH_EMAIL = "rh_gig2-br@id-logistics.com"
@@ -698,8 +698,8 @@ def dashboard_data():
     licenca    = sum(1 for r in registros if r.status == "Licença")
     ferias     = sum(1 for r in registros if r.status == "Férias")
 
-    outbound_areas = {"OUTBOUND", "INSUMOS", "LP"}
-    inbound_areas  = {"INBOUND", "C-RET"}
+    outbound_areas = {"OUTBOUND", "TRANSFER OUT", "INSUMOS", "LP"}
+    inbound_areas  = {"INBOUND", "TRANSFER IN", "C-RET"}
     icqa_areas     = {"ICQA"}
 
     por_area  = {}
