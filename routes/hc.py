@@ -72,8 +72,19 @@ def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
     db.session.add(reg)
 
 
+def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
+    alterou = False
+    for registro in registros:
+        if registro.aplicar_status_por_data(hoje):
+            alterou = True
+    if alterou and commit:
+        db.session.commit()
+    return alterou
+
+
 def _pendencias_count():
     """Return count of operators with pending dates."""
+    _aplicar_regra_hc_atual(HCGig2.query.all())
     return HCGig2.query.filter(
         or_(
             db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
@@ -156,14 +167,7 @@ def listar_colaboradores():
 
     registros = query.order_by(HCGig2.nome_completo.asc()).all()
 
-    alterou = False
-    for r in registros:
-        antigo = r.status
-        r.aplicar_status_por_data()
-        if antigo != r.status:
-            alterou = True
-    if alterou:
-        db.session.commit()
+    _aplicar_regra_hc_atual(registros)
 
     return jsonify([r.to_dict() for r in registros])
 
@@ -268,6 +272,8 @@ def atualizar_colaborador(item_id):
         colaborador.data_fim_licenca    = None
         colaborador.data_desligamento   = None
 
+    colaborador.aplicar_status_por_data()
+
     dados_nov = json.dumps({
         "nome_completo": colaborador.nome_completo,
         "login": colaborador.login or "",
@@ -278,8 +284,9 @@ def atualizar_colaborador(item_id):
         "causa_afastamento": colaborador.causa_afastamento or "",
     })
 
-    tipo = "edicao_status" if status_anterior != novo_status else "edicao"
-    msg_status = f" (status: {status_anterior} → {novo_status})" if status_anterior != novo_status else ""
+    status_final = colaborador.status
+    tipo = "edicao_status" if status_anterior != status_final else "edicao"
+    msg_status = f" (status: {status_anterior} → {status_final})" if status_anterior != status_final else ""
     _registrar(
         tipo,
         colaborador,
@@ -345,6 +352,7 @@ def excluir_colaborador(item_id):
 def listar_pendencias():
     hoje = date.today()
     weekday = hoje.weekday()
+    _aplicar_regra_hc_atual(HCGig2.query.all(), hoje=hoje)
 
     # Next Tuesday (or today if Tuesday)
     if weekday <= 1:
@@ -498,6 +506,9 @@ def importar_csv():
         "off": "OFF",
         "licenca": "Licença",
         "licença": "Licença",
+        "ferias": "Férias",
+        "férias": "Férias",
+        "desligado": "Desligado",
     }
 
     # Apaga todos os colaboradores existentes antes de inserir os novos
@@ -634,6 +645,7 @@ def importar_excel():
 @login_required
 def exportar_excel():
     registros = HCGig2.query.order_by(HCGig2.nome_completo.asc()).all()
+    _aplicar_regra_hc_atual(registros)
 
     dados = []
     for r in registros:
@@ -680,9 +692,7 @@ def dashboard_data():
     f_status = request.args.get("status", "").strip()
 
     todos = HCGig2.query.all()
-    for r in todos:
-        r.aplicar_status_por_data()
-    db.session.commit()
+    _aplicar_regra_hc_atual(todos)
 
     registros = todos
     if f_area:

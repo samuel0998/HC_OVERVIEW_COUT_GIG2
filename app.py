@@ -38,11 +38,9 @@ def processar_status_automatico():
             para_arquivar.append(op)
             continue
 
-        # 2. Auto-revert: license/vacation period ended
-        if op.status in ("Licença", "Férias") and op.data_fim_licenca and hoje > op.data_fim_licenca:
-            op.status = "OPERACIONAL"
-            op.data_inicio_licenca = None
-            op.data_fim_licenca = None
+        # 2. Auto-revert/cleanup: leave/vacation period ended or old operational flags
+        alterou_por_data = op.aplicar_status_por_data(hoje)
+        if status_ant in ("Licença", "Férias") and op.status == "OPERACIONAL" and alterou_por_data:
             registros.append(RegistroAtividade(
                 tipo="edicao_status",
                 operador_id=op.id,

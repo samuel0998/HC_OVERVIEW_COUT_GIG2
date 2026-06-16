@@ -25,15 +25,46 @@ class HCGig2(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    def aplicar_status_por_data(self):
-        hoje = date.today()
-        if self.status in ("Licença", "Férias"):
-            if self.data_fim_licenca and hoje > self.data_fim_licenca:
+    def _status_afastamento_ativo(self):
+        return self.status in ("Licença", "Férias")
+
+    def limpar_bloqueios_afastamento(self):
+        anterior = (
+            self.data_inicio_licenca,
+            self.data_fim_licenca,
+            self.previsao_afastamento,
+            self.data_afastamento,
+            self.causa_afastamento,
+        )
+        self.data_inicio_licenca = None
+        self.data_fim_licenca = None
+        self.previsao_afastamento = False
+        self.data_afastamento = None
+        self.causa_afastamento = None
+        return anterior != (
+            self.data_inicio_licenca,
+            self.data_fim_licenca,
+            self.previsao_afastamento,
+            self.data_afastamento,
+            self.causa_afastamento,
+        )
+
+    def aplicar_status_por_data(self, hoje=None):
+        hoje = hoje or date.today()
+        status_anterior = self.status
+
+        alterou_bloqueios = False
+
+        if self._status_afastamento_ativo():
+            if self.data_fim_licenca and hoje >= self.data_fim_licenca:
                 self.status = "OPERACIONAL"
-                self.data_inicio_licenca = None
-                self.data_fim_licenca = None
+                alterou_bloqueios = self.limpar_bloqueios_afastamento()
+        elif self.status == "OPERACIONAL":
+            alterou_bloqueios = self.limpar_bloqueios_afastamento()
         elif self.status == "Desligado":
             pass  # Desligado não reverte automaticamente
+
+        return status_anterior != self.status or alterou_bloqueios
 
     def to_dict(self):
         return {
