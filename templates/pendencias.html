@@ -26,8 +26,9 @@
         <span id="pend-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
-        Pendências são registros de <strong>Licença, Férias ou Desligamento</strong> sem data de concretização definida.
-        O prazo para definição é toda <strong>terça-feira</strong>. Após o prazo, o status passa para <strong>OFF</strong>.
+        Pendências são registros de <strong>Licença, Férias ou Desligamento</strong> sem data de concretização definida,
+        além de <strong>PIT operacional sem turno</strong> aguardando alocação.
+        O prazo para definição de datas é toda <strong>terça-feira</strong>. Após o prazo, o status passa para <strong>OFF</strong>.
     </p>
     <div class="table-wrap">
         <table>
@@ -88,7 +89,7 @@
                     <td><span class="badge ${statusCls}">${p.status}</span></td>
                     <td style="color:#c62828;font-size:13px;">${pendDesc}</td>
                     <td>
-                        <a href="/atualizar?login=${encodeURIComponent(p.login || p.nome_completo)}" class="btn btn-sm primary">Definir data</a>
+                        <a href="/atualizar?login=${encodeURIComponent(p.login || p.nome_completo)}" class="btn btn-sm primary">${p.pendencia_tipo === 'turno' ? 'Alocar turno' : 'Definir data'}</a>
                     </td>
                 </tr>`;
             }).join('');
@@ -100,6 +101,7 @@
     }
 
     function getPendDesc(p) {
+        if (p.pendencia_tipo === 'turno') return 'PIT operacional aguardando alocação de turno';
         if (p.status === 'Desligado') return 'Desligamento sem data definida';
         if (p.status === 'Licença') return 'Licença sem data de início/fim';
         if (p.status === 'Férias') return 'Férias sem data de início/fim';

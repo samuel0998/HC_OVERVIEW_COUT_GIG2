@@ -1,0 +1,22 @@
+=== [MIGRATION] Estrutura atual da tabela hc_gig2 ===
+  id                             | integer              | nullable=NO
+  nome_completo                  | character varying    | nullable=NO
+  login                          | character varying    | nullable=YES
+  cargo                          | character varying    | nullable=NO
+  area                           | character varying    | nullable=YES
+  turno                          | character varying    | nullable=YES
+  status                         | character varying    | nullable=NO
+  previsao_afastamento           | boolean              | nullable=NO
+  data_afastamento               | date                 | nullable=YES
+  causa_afastamento              | character varying    | nullable=YES
+  created_at                     | timestamp without time zone | nullable=NO
+  updated_at                     | timestamp without time zone | nullable=NO
+  status_liberacao               | character varying    | nullable=YES
+  data_inicio_licenca            | date                 | nullable=YES
+  data_fim_licenca               | date                 | nullable=YES
+  data_desligamento              | date                 | nullable=YES
+=== [MIGRATION] Concluída com sucesso ===
+[MIGRATION] Colunas permission_hcview e permission_level_hcview verificadas em 'operadores'.
+[AUTO-STATUS] Nenhuma alteração necessária.
+ * Serving Flask app 'app'
+ * Debug mode: on

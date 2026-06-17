@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import date, datetime
 from models import db
 
@@ -25,15 +26,61 @@ class HCGig2(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    def aplicar_status_por_data(self):
-        hoje = date.today()
-        if self.status in ("Licença", "Férias"):
-            if self.data_fim_licenca and hoje > self.data_fim_licenca:
+    def _status_afastamento_ativo(self):
+        return self.status in ("Licença", "Férias")
+
+    def _cargo_normalizado(self):
+        return unicodedata.normalize("NFKD", self.cargo or "").encode("ascii", "ignore").decode("ascii").upper().strip()
+
+    def _dias_desde_cadastro(self, hoje):
+        data_cadastro = self.created_at.date() if self.created_at else hoje
+        return (hoje - data_cadastro).days
+
+    def limpar_bloqueios_afastamento(self):
+        anterior = (
+            self.data_inicio_licenca,
+            self.data_fim_licenca,
+            self.previsao_afastamento,
+            self.data_afastamento,
+            self.causa_afastamento,
+        )
+        self.data_inicio_licenca = None
+        self.data_fim_licenca = None
+        self.previsao_afastamento = False
+        self.data_afastamento = None
+        self.causa_afastamento = None
+        return anterior != (
+            self.data_inicio_licenca,
+            self.data_fim_licenca,
+            self.previsao_afastamento,
+            self.data_afastamento,
+            self.causa_afastamento,
+        )
+
+    def aplicar_status_por_data(self, hoje=None):
+        hoje = hoje or date.today()
+        status_anterior = self.status
+
+        alterou_bloqueios = False
+
+        if self.status == "Treinamento":
+            cargo = self._cargo_normalizado()
+            dias = self._dias_desde_cadastro(hoje)
+            if cargo in ("AA", "ASSOCIADO") and dias >= 2:
                 self.status = "OPERACIONAL"
-                self.data_inicio_licenca = None
-                self.data_fim_licenca = None
+            elif cargo == "PIT" and dias >= 5:
+                self.status = "OPERACIONAL"
+                self.turno = None
+        elif self._status_afastamento_ativo():
+            if self.data_fim_licenca and hoje >= self.data_fim_licenca:
+                self.status = "OPERACIONAL"
+                alterou_bloqueios = self.limpar_bloqueios_afastamento()
+        elif self.status == "OPERACIONAL":
+            alterou_bloqueios = self.limpar_bloqueios_afastamento()
         elif self.status == "Desligado":
             pass  # Desligado não reverte automaticamente
+
+        return status_anterior != self.status or alterou_bloqueios
 
     def to_dict(self):
         return {
