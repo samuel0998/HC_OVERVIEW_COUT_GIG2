@@ -195,6 +195,7 @@ tbody tr:hover { background: #f0f6ff; }
 }
 .badge.off        { background: #fde2e2; color: #a11; }
 .badge.operacional{ background: #dcfce7; color: #166534; }
+.badge.treinamento{ background: #ccfbf1; color: #0f766e; }
 .badge.licenca    { background: #fef3c7; color: #92400e; }
 .badge.ferias     { background: #e0f2fe; color: #0277bd; }
 .badge.desligado  { background: #f3e8ff; color: #6a1b9a; }

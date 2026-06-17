@@ -16,10 +16,10 @@ from models.hc_gig2 import HCGig2
 
 hc_bp = Blueprint("hc", __name__)
 
-CARGOS  = ["Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
-AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
+CARGOS  = ["AA", "Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
+AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS  = ["OPERACIONAL", "Licença", "Férias", "Desligado", "OFF"]
+STATUS  = ["OPERACIONAL", "Treinamento", "Licença", "Férias", "Desligado", "OFF"]
 RH_EMAIL = "rh_gig2-br@id-logistics.com"
 APP_URL  = "https://hcoverviewcoutgig2-production.up.railway.app/atualizar"
 
@@ -47,6 +47,20 @@ def _find_col(df, keyword):
         if norm_kw in _normalizar(col):
             return col
     return None
+
+
+def _cargo_normalizado(cargo):
+    return _normalizar(cargo).upper()
+
+
+def _turno_inicial(cargo, turno=None):
+    if _cargo_normalizado(cargo) == "PIT":
+        return "ADM"
+    return (turno or "").strip() or None
+
+
+def _pendencia_turno_expr():
+    return db.and_(HCGig2.status == "OPERACIONAL", HCGig2.cargo == "PIT", HCGig2.turno.is_(None))
 
 
 def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
@@ -83,12 +97,13 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
 
 
 def _pendencias_count():
-    """Return count of operators with pending dates."""
+    """Return count of operators with pending dates or shift allocation."""
     _aplicar_regra_hc_atual(HCGig2.query.all())
     return HCGig2.query.filter(
         or_(
             db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
             db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
+            _pendencia_turno_expr(),
         )
     ).count()
 
@@ -189,9 +204,10 @@ def novo_colaborador():
         login=login,
         cargo=(data.get("cargo") or "").strip(),
         area=(data.get("area") or "").strip() or None,
-        turno=(data.get("turno") or "").strip() or None,
-        status="OPERACIONAL",
+        turno=None,
+        status="Treinamento",
     )
+    colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
 
     if not colaborador.nome_completo or not colaborador.cargo:
         return jsonify({"erro": "Nome e cargo são obrigatórios."}), 400
@@ -209,6 +225,7 @@ def novo_colaborador():
             "cargo": colaborador.cargo,
             "area": colaborador.area or "",
             "turno": colaborador.turno or "",
+            "status": colaborador.status,
         }),
     )
 
@@ -257,6 +274,8 @@ def atualizar_colaborador(item_id):
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     colaborador.status        = novo_status
+    if colaborador.status == "Treinamento":
+        colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
 
     if novo_status in ("Licença", "Férias"):
@@ -366,11 +385,18 @@ def listar_pendencias():
         or_(
             db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
             db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
+            _pendencia_turno_expr(),
         )
     ).order_by(HCGig2.nome_completo.asc()).all()
 
     return jsonify({
-        "pendencias": [p.to_dict() for p in pendentes],
+        "pendencias": [
+            {
+                **p.to_dict(),
+                "pendencia_tipo": "turno" if p.status == "OPERACIONAL" and p.cargo == "PIT" and not p.turno else "data",
+            }
+            for p in pendentes
+        ],
         "total": len(pendentes),
         "prazo": proxima_terca.strftime("%d/%m/%Y"),
         "prazo_vencido": prazo_vencido,
@@ -503,6 +529,7 @@ def importar_csv():
 
     STATUS_MAP = {
         "operacional": "OPERACIONAL",
+        "treinamento": "Treinamento",
         "off": "OFF",
         "licenca": "Licença",
         "licença": "Licença",
@@ -563,7 +590,7 @@ def importar_csv():
             item.login = login
             item.cargo = cargo or ""
             item.area = area
-            item.turno = turno
+            item.turno = _turno_inicial(item.cargo, turno) if status == "Treinamento" else turno
             item.status = status
             item.previsao_afastamento = previsao
             item.causa_afastamento = causa
@@ -629,8 +656,9 @@ def importar_excel():
         item.nome_completo = str(row[normalizadas["nome_completo"]]).strip()
         item.cargo = str(row[normalizadas["cargo"]]).strip()
         item.area = str(row[normalizadas["area"]]).strip() or None
-        item.turno = str(row[normalizadas["turno"]]).strip() or None
+        turno = str(row[normalizadas["turno"]]).strip() or None
         item.status = str(row[normalizadas["status"]]).strip() or "OPERACIONAL"
+        item.turno = _turno_inicial(item.cargo, turno) if item.status == "Treinamento" else turno
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
         causa = row[normalizadas["causa_afastamento"]]
@@ -705,11 +733,12 @@ def dashboard_data():
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
     off        = sum(1 for r in registros if r.status == "OFF")
+    treinamento = sum(1 for r in registros if r.status == "Treinamento")
     licenca    = sum(1 for r in registros if r.status == "Licença")
     ferias     = sum(1 for r in registros if r.status == "Férias")
 
     outbound_areas = {"OUTBOUND", "TRANSFER OUT", "INSUMOS", "LP"}
-    inbound_areas  = {"INBOUND", "TRANSFER IN", "C-RET"}
+    inbound_areas  = {"INBOUND", "TRANSFER IN", "TRANSFERIN", "C-RET"}
     icqa_areas     = {"ICQA"}
 
     por_area  = {}
@@ -760,7 +789,7 @@ def dashboard_data():
         "por_area":  por_area,
         "por_cargo": por_cargo,
         "por_turno": por_turno,
-        "status": {"OPERACIONAL": operacional, "Licença": licenca, "Férias": ferias, "OFF": off},
+        "status": {"OPERACIONAL": operacional, "Treinamento": treinamento, "Licença": licenca, "Férias": ferias, "OFF": off},
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {

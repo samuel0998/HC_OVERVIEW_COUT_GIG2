@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import date, datetime
 from models import db
 
@@ -28,6 +29,13 @@ class HCGig2(db.Model):
     def _status_afastamento_ativo(self):
         return self.status in ("Licença", "Férias")
 
+    def _cargo_normalizado(self):
+        return unicodedata.normalize("NFKD", self.cargo or "").encode("ascii", "ignore").decode("ascii").upper().strip()
+
+    def _dias_desde_cadastro(self, hoje):
+        data_cadastro = self.created_at.date() if self.created_at else hoje
+        return (hoje - data_cadastro).days
+
     def limpar_bloqueios_afastamento(self):
         anterior = (
             self.data_inicio_licenca,
@@ -55,7 +63,15 @@ class HCGig2(db.Model):
 
         alterou_bloqueios = False
 
-        if self._status_afastamento_ativo():
+        if self.status == "Treinamento":
+            cargo = self._cargo_normalizado()
+            dias = self._dias_desde_cadastro(hoje)
+            if cargo in ("AA", "ASSOCIADO") and dias >= 2:
+                self.status = "OPERACIONAL"
+            elif cargo == "PIT" and dias >= 5:
+                self.status = "OPERACIONAL"
+                self.turno = None
+        elif self._status_afastamento_ativo():
             if self.data_fim_licenca and hoje >= self.data_fim_licenca:
                 self.status = "OPERACIONAL"
                 alterou_bloqueios = self.limpar_bloqueios_afastamento()

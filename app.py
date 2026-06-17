@@ -54,6 +54,19 @@ def processar_status_automatico():
             ))
             continue
 
+        if status_ant == "Treinamento" and op.status == "OPERACIONAL" and alterou_por_data:
+            registros.append(RegistroAtividade(
+                tipo="edicao_status",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automação",
+                descricao=f"Virada automática de Treinamento para OPERACIONAL ({op.cargo})",
+                dados_anteriores=json.dumps({"status": status_ant}),
+                dados_novos=json.dumps({"status": "OPERACIONAL", "turno": op.turno or ""}),
+            ))
+
         # 3. Pendência deadline missed (no dates defined) → OFF
         if prazo_vencido:
             if op.status in ("Licença", "Férias") and not op.data_inicio_licenca:
