@@ -159,6 +159,7 @@ def create_app():
 
     with app.app_context():
         from models.hc_gig2 import HCGig2  # noqa: F401
+        from models.lc_atual import LCAtual  # noqa: F401
         from models.operadores import Operadores  # noqa: F401
         from models.historico import HistoricoOperacional  # noqa: F401
         from models.registro_atividade import RegistroAtividade  # noqa: F401

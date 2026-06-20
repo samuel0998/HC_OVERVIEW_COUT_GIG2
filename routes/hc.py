@@ -13,6 +13,7 @@ from sqlalchemy import or_
 
 from models import db
 from models.hc_gig2 import HCGig2
+from models.lc_atual import LCAtual
 
 hc_bp = Blueprint("hc", __name__)
 
@@ -47,6 +48,13 @@ def _find_col(df, keyword):
         if norm_kw in _normalizar(col):
             return col
     return None
+
+
+def _clean_excel_value(value):
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none") else text
 
 
 def _cargo_normalizado(cargo):
@@ -705,6 +713,132 @@ def exportar_excel():
         output,
         as_attachment=True,
         download_name="hc_gig2.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@hc_bp.route("/api/lc", methods=["GET"])
+@login_required
+def listar_lc():
+    termo = request.args.get("q", "").strip()
+    query = LCAtual.query
+
+    if termo:
+        like = f"%{termo}%"
+        query = query.filter(
+            or_(
+                LCAtual.login.ilike(like),
+                LCAtual.process_name.ilike(like),
+                LCAtual.lc_level.ilike(like),
+            )
+        )
+
+    registros = query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    return jsonify([r.to_dict() for r in registros])
+
+
+@hc_bp.route("/api/lc/import", methods=["POST"])
+@login_required
+def importar_lc_excel():
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissao para importar LC."}), 403
+
+    arquivo = request.files.get("arquivo")
+    if not arquivo:
+        return jsonify({"erro": "Envie um arquivo Excel."}), 400
+
+    try:
+        df = pd.read_excel(arquivo, dtype=str)
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao ler Excel de LC: {str(e)}"}), 400
+
+    col_login = _find_col(df, "login")
+    col_process = _find_col(df, "process name") or _find_col(df, "process")
+    col_lc_level = _find_col(df, "lc level") or _find_col(df, "level")
+
+    if not col_login and len(df.columns) > 1:
+        col_login = df.columns[1]
+    if not col_process and len(df.columns) > 5:
+        col_process = df.columns[5]
+    if not col_lc_level and len(df.columns) > 6:
+        col_lc_level = df.columns[6]
+
+    faltando = []
+    if not col_login:
+        faltando.append("Login (coluna B)")
+    if not col_process:
+        faltando.append("Process Name (coluna F)")
+    if not col_lc_level:
+        faltando.append("LC Level (coluna G)")
+    if faltando:
+        return jsonify({"erro": f"Colunas ausentes: {', '.join(faltando)}"}), 400
+
+    try:
+        LCAtual.query.delete()
+
+        inseridos = 0
+        ignorados = 0
+        erros = []
+
+        for idx, row in df.iterrows():
+            try:
+                login = _clean_excel_value(row.get(col_login))
+                process_name = _clean_excel_value(row.get(col_process))
+                lc_level = _clean_excel_value(row.get(col_lc_level))
+
+                if not login and not process_name and not lc_level:
+                    ignorados += 1
+                    continue
+
+                if not login or not process_name or not lc_level:
+                    erros.append(f"Linha {idx + 2}: login, Process Name e LC Level sao obrigatorios.")
+                    continue
+
+                db.session.add(LCAtual(
+                    login=login,
+                    process_name=process_name,
+                    lc_level=lc_level,
+                ))
+                inseridos += 1
+            except Exception as e:
+                erros.append(f"Linha {idx + 2}: {str(e)}")
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Erro ao gravar LC no banco: {str(e)}"}), 500
+
+    result = {
+        "mensagem": "LC atual renovada com sucesso.",
+        "inseridos": inseridos,
+        "ignorados": ignorados,
+    }
+    if erros:
+        result["erros"] = erros
+    return jsonify(result)
+
+
+@hc_bp.route("/api/lc/export", methods=["GET"])
+@login_required
+def exportar_lc_excel():
+    registros = LCAtual.query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    dados = [{
+        "Login": r.login,
+        "Process Name": r.process_name,
+        "LC Level": r.lc_level,
+    } for r in registros]
+
+    df = pd.DataFrame(dados)
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="LC_ATUAL")
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name="lc_atual.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
