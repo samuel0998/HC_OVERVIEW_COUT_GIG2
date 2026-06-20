@@ -13,6 +13,8 @@ const modalExcluir    = document.getElementById("modalExcluir");
 const fecharModal     = document.getElementById("fecharModal");
 const btnExportar     = document.getElementById("btnExportar");
 const arquivoImport   = document.getElementById("arquivoImport");
+const btnExportarLC   = document.getElementById("btnExportarLC");
+const arquivoImportLC = document.getElementById("arquivoImportLC");
 const totalRegistros  = document.getElementById("totalRegistros");
 const modalStatus     = document.getElementById("modalStatus");
 const btnPedirData    = document.getElementById("btnPedirData");
@@ -256,6 +258,7 @@ filtroStatus.addEventListener("change", renderTabela);
 
 // ── Exportar ──────────────────────────────────────────────────────
 btnExportar.addEventListener("click", () => { window.location.href = "/api/hc/export"; });
+btnExportarLC.addEventListener("click", () => { window.location.href = "/api/lc/export"; });
 
 // ── Importar CSV ──────────────────────────────────────────────────
 arquivoImport.addEventListener("change", async () => {
@@ -290,6 +293,38 @@ arquivoImport.addEventListener("change", async () => {
 
   carregarTabela();
   arquivoImport.value = "";
+});
+
+// Importar LC Excel
+arquivoImportLC.addEventListener("change", async () => {
+  const file = arquivoImportLC.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append("arquivo", file);
+  showMessage("Importando LC...");
+
+  const res = await fetch("/api/lc/import", { method: "POST", body: formData });
+  const data = await res.json();
+  if (!res.ok) return showMessage(data.erro || "Erro na importacao de LC.", true);
+
+  showMessage(`${data.mensagem} Inseridos: ${data.inseridos}`);
+
+  const container = document.getElementById("erros-import-lc");
+  if (container && data.erros && data.erros.length) {
+    container.innerHTML = `
+      <div style="margin-top:12px;padding:12px 16px;background:#fff7ed;border:2px solid #f97316;border-radius:8px;">
+        <strong style="color:#c2410c;">${data.erros.length} problema(s) encontrado(s) na LC:</strong>
+        <ul style="margin:8px 0 0 0;padding-left:18px;color:#7c2d12;font-size:13px;">
+          ${data.erros.map(e => `<li>${e}</li>`).join("")}
+        </ul>
+      </div>`;
+    container.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } else if (container) {
+    container.innerHTML = "";
+  }
+
+  arquivoImportLC.value = "";
 });
 
 carregarTabela();
