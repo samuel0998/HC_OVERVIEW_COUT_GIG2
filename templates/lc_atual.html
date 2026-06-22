@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}HC Overview | Lista LC{% endblock %}
+{% block content %}
+
+<div class="page-header">
+    <a href="{{ url_for('hc.dashboard') }}" class="btn back-btn">&larr; Dashboard</a>
+    <h2 class="page-title">Lista LC Atual</h2>
+</div>
+
+<div class="card">
+    <div class="toolbar lc-toolbar">
+        <input id="buscaLC" type="text" placeholder="Pesquisar login, processo, nome, cargo">
+        <select id="filtroProcesso" class="filter-select">
+            <option value="">Todos os processos</option>
+        </select>
+        <select id="filtroLevel" class="filter-select">
+            <option value="">Todos os levels</option>
+        </select>
+        <select id="filtroAreaLC" class="filter-select">
+            <option value="">Todas as areas</option>
+        </select>
+        <select id="filtroTurnoLC" class="filter-select">
+            <option value="">Todos os turnos</option>
+        </select>
+        <select id="filtroStatusLC" class="filter-select">
+            <option value="">Todos os status</option>
+        </select>
+        <select id="filtroCargoLC" class="filter-select">
+            <option value="">Todos os cargos</option>
+            <option value="Associado">Associado</option>
+            <option value="PIT">PIT</option>
+        </select>
+        <label class="check lc-check">
+            <input type="checkbox" id="filtroSemHC">
+            Sem HC
+        </label>
+        <button id="btnLimparLC" class="btn">Limpar</button>
+    </div>
+
+    <div id="totalLC" class="total-registros"></div>
+
+    <div class="table-wrap lc-table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Login</th>
+                    <th>Nome</th>
+                    <th>Processo</th>
+                    <th>LC Level</th>
+                    <th>Cargo</th>
+                    <th>Area</th>
+                    <th>Turno</th>
+                    <th>Status HC</th>
+                    <th>HC</th>
+                </tr>
+            </thead>
+            <tbody id="tabelaLC"></tbody>
+        </table>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/lc_atual.js') }}"></script>
+{% endblock %}

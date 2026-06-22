@@ -167,6 +167,14 @@ body {
 .toolbar input {
   flex: 1; min-width: 220px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
 }
+.lc-toolbar { align-items: center; }
+.lc-toolbar input { min-width: 260px; }
+.lc-check {
+  background: #f0f4f8;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
 
 /* ── BUTTONS ── */
 .btn {
@@ -181,6 +189,7 @@ body {
 
 /* ── TABLE ── */
 .table-wrap { max-height: 540px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.lc-table-wrap { max-height: 680px; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 thead { position: sticky; top: 0; background: var(--primary); color: white; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
