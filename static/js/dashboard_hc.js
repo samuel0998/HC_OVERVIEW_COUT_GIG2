@@ -35,6 +35,14 @@ const STATUS_COLORS = {
   "OFF":         "#c62828",
 };
 
+const LC_LEVEL_COLORS = {
+  "LC1": "#1565c0",
+  "LC3": "#00897b",
+  "LC5": "#e65100",
+  "EXPERT": "#6a1b9a",
+  "Sem informacao": "#90a4ae",
+};
+
 // ── Estado dos filtros ───────────────────────────────────────────
 const filtros = { area: "", turno: "", status: "" };
 const charts  = {};
@@ -66,23 +74,54 @@ function datalabelsPlugin() {
     id: "datalabels_inline",
     afterDatasetsDraw(chart) {
       const ctx = chart.ctx;
+      const horizontal = chart.options.indexAxis === "y";
       chart.data.datasets.forEach((ds, di) => {
         const meta = chart.getDatasetMeta(di);
         meta.data.forEach((bar, i) => {
           const val = ds.data[i];
           if (!val) return;
           ctx.save();
-          ctx.fillStyle = "#fff";
-          ctx.font = "bold 11px Arial";
+          ctx.font = "bold 12px Arial";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const { x, y } = bar.tooltipPosition();
-          ctx.fillText(val, x, y);
+          const text = String(val);
+          const width = ctx.measureText(text).width;
+
+          if (horizontal) {
+            let labelX = x + width / 2 + 8;
+            let fillStyle = "#111827";
+            if (labelX + width / 2 > chart.chartArea.right) {
+              labelX = x - width / 2 - 8;
+              fillStyle = "#fff";
+            }
+            ctx.fillStyle = fillStyle;
+            ctx.fillText(text, labelX, y);
+          } else {
+            let labelY = y - 10;
+            let fillStyle = "#111827";
+            if (labelY < chart.chartArea.top + 8) {
+              labelY = y + 14;
+              fillStyle = "#fff";
+            }
+            ctx.fillStyle = fillStyle;
+            ctx.fillText(text, x, labelY);
+          }
           ctx.restore();
         });
       });
     }
   };
+}
+
+function maxValue(values) {
+  return values.length ? Math.max(...values.map(v => Number(v) || 0)) : 0;
+}
+
+function paddedMax(values) {
+  const max = maxValue(values);
+  if (!max) return 5;
+  return Math.ceil(max * 1.18);
 }
 
 // ── Render gráfico de barras horizontal (com rótulos externos) ───
@@ -103,13 +142,15 @@ function renderBarH(id, labels, values, colors, clickFn) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       indexAxis: "y",
+      layout: { padding: { right: 26, top: 8, bottom: 4 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.x}` } }
       },
       scales: {
-        x: { grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
+        x: { suggestedMax: paddedMax(values), grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
         y: { grid: { display: false }, ticks: { color: "#374151", font: { size: 11 } } }
       },
       onClick(evt, elements) {
@@ -139,12 +180,14 @@ function renderBarV(id, labels, values, colors, clickFn) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 20, right: 8 } },
       plugins: {
         legend: { display: false },
         tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y}` } }
       },
       scales: {
-        y: { grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
+        y: { suggestedMax: paddedMax(values), grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
         x: { grid: { display: false }, ticks: { color: "#374151", font: { size: 11 } } }
       },
       onClick(evt, elements) {
@@ -173,6 +216,7 @@ function renderDoughnut(id, labels, values, colors, clickFn) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       cutout: "55%",
       plugins: {
         legend: {
@@ -202,17 +246,20 @@ function renderGrouped(id, mapa, series, serieColors, clickFn) {
   }));
 
   const ctx = document.getElementById(id);
+  const allValues = datasets.flatMap(ds => ds.data);
   charts[id] = new Chart(ctx, {
     type: "bar",
     plugins: [datalabelsPlugin()],
     data: { labels, datasets },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 20, right: 8 } },
       plugins: {
         legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } }
       },
       scales: {
-        y: { grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
+        y: { suggestedMax: paddedMax(allValues), grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
         x: { grid: { display: false }, ticks: { color: "#374151", font: { size: 11 } } }
       },
       onClick(evt, elements) {
@@ -239,6 +286,26 @@ function renderPills(containerId, valores, campo) {
     };
     el.appendChild(btn);
   });
+}
+
+function topEntries(obj, limit = 12) {
+  return Object.fromEntries(Object.entries(obj || {}).slice(0, limit));
+}
+
+function seriesFromMap(mapa) {
+  const found = new Set();
+  Object.values(mapa || {}).forEach(row => {
+    Object.keys(row || {}).forEach(k => found.add(k));
+  });
+  const preferred = ["LC1", "LC3", "LC5", "EXPERT", "Sem informacao"];
+  return [
+    ...preferred.filter(k => found.has(k)),
+    ...Array.from(found).filter(k => !preferred.includes(k)).sort(),
+  ];
+}
+
+function colorsForSeries(series) {
+  return series.map((name, i) => LC_LEVEL_COLORS[name] || AREA_COLORS[i % AREA_COLORS.length]);
 }
 
 // ── Carregar e renderizar tudo ────────────────────────────────────
@@ -306,6 +373,63 @@ async function carregarDashboard() {
     (turno, cargo) => {
       window.location.href = listUrl({ turno, cargo, status: "OPERACIONAL" });
     }
+  );
+
+  const lc = data.lc || {};
+  const lcCards = lc.cards || {};
+  document.getElementById("lcTotalRegistros").textContent = lcCards.total_registros || 0;
+  document.getElementById("lcPessoas").textContent = lcCards.pessoas_com_lc || 0;
+  document.getElementById("lcProcessos").textContent = lcCards.processos || 0;
+  document.getElementById("lcSemHc").textContent = lcCards.sem_hc || 0;
+
+  const lcProcesso = topEntries(lc.por_processo, 15);
+  const lcProcessoLabels = Object.keys(lcProcesso);
+  const lcProcessoVals = Object.values(lcProcesso);
+  renderBarH("chartLCProcesso", lcProcessoLabels, lcProcessoVals,
+    lcProcessoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+  );
+
+  const lcLevelLabels = Object.keys(lc.por_level || {});
+  const lcLevelVals = Object.values(lc.por_level || {});
+  renderBarV("chartLCLevel", lcLevelLabels, lcLevelVals,
+    lcLevelLabels.map((l, i) => LC_LEVEL_COLORS[l] || AREA_COLORS[i % AREA_COLORS.length])
+  );
+
+  const lcTurnoLabels = Object.keys(lc.por_turno || {});
+  const lcTurnoVals = Object.values(lc.por_turno || {});
+  renderDoughnut("chartLCTurno", lcTurnoLabels, lcTurnoVals,
+    lcTurnoLabels.map(l => TURNO_COLORS[l] || PALETTE.slate)
+  );
+
+  const lcArea = topEntries(lc.por_area, 12);
+  const lcAreaLabels = Object.keys(lcArea);
+  renderBarH("chartLCArea", lcAreaLabels, Object.values(lcArea),
+    lcAreaLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+  );
+
+  const lcCargo = topEntries(lc.por_cargo, 12);
+  const lcCargoLabels = Object.keys(lcCargo);
+  renderBarV("chartLCCargo", lcCargoLabels, Object.values(lcCargo),
+    lcCargoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+  );
+
+  const lcStatusLabels = Object.keys(lc.por_status || {});
+  renderBarH("chartLCStatus", lcStatusLabels, Object.values(lc.por_status || {}),
+    lcStatusLabels.map(l => STATUS_COLORS[l] || PALETTE.slate)
+  );
+
+  const processoLevel = lc.processo_level || {};
+  const processoSeries = seriesFromMap(processoLevel);
+  renderGrouped("chartLCProcessoLevel", processoLevel, processoSeries, colorsForSeries(processoSeries));
+
+  const turnoLevel = lc.turno_level || {};
+  const turnoSeries = seriesFromMap(turnoLevel);
+  renderGrouped("chartLCTurnoLevel", turnoLevel, turnoSeries, colorsForSeries(turnoSeries));
+
+  const topLogin = topEntries(lc.top_login, 15);
+  const topLoginLabels = Object.keys(topLogin);
+  renderBarH("chartLCTopLogin", topLoginLabels, Object.values(topLogin),
+    topLoginLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
   );
 }
 

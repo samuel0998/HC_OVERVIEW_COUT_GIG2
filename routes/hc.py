@@ -912,6 +912,70 @@ def dashboard_data():
     turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
     status_disponiveis = sorted({r.status for r in todos})
 
+    hc_por_login = {
+        (r.login or "").strip().lower(): r
+        for r in todos
+        if (r.login or "").strip()
+    }
+
+    lc_todos = LCAtual.query.all()
+    lc_registros = []
+    lc_sem_hc = 0
+
+    for lc in lc_todos:
+        hc_ref = hc_por_login.get((lc.login or "").strip().lower())
+        if not hc_ref:
+            if not f_area and not f_turno and not f_status:
+                lc_registros.append((lc, None))
+            lc_sem_hc += 1
+            continue
+
+        if f_area and (hc_ref.area or "") != f_area:
+            continue
+        if f_turno and (hc_ref.turno or "") != f_turno:
+            continue
+        if f_status and hc_ref.status != f_status:
+            continue
+
+        lc_registros.append((lc, hc_ref))
+
+    def _count_dict(items):
+        resultado = {}
+        for item in items:
+            chave = item or "Sem informacao"
+            resultado[chave] = resultado.get(chave, 0) + 1
+        return dict(sorted(resultado.items(), key=lambda x: x[1], reverse=True))
+
+    def _unique_people_count(pares):
+        return len({(lc.login or "").strip().lower() for lc, _ in pares if (lc.login or "").strip()})
+
+    lc_por_processo = _count_dict([lc.process_name for lc, _ in lc_registros])
+    lc_por_level = _count_dict([lc.lc_level for lc, _ in lc_registros])
+    lc_por_turno = _count_dict([(hc_ref.turno if hc_ref else None) for _, hc_ref in lc_registros])
+    lc_por_area = _count_dict([(hc_ref.area if hc_ref else None) for _, hc_ref in lc_registros])
+    lc_por_cargo = _count_dict([(hc_ref.cargo if hc_ref else None) for _, hc_ref in lc_registros])
+    lc_por_status = _count_dict([(hc_ref.status if hc_ref else None) for _, hc_ref in lc_registros])
+
+    lc_processo_level = {}
+    for lc, _ in lc_registros:
+        processo = lc.process_name or "Sem informacao"
+        level = lc.lc_level or "Sem informacao"
+        lc_processo_level.setdefault(processo, {})
+        lc_processo_level[processo][level] = lc_processo_level[processo].get(level, 0) + 1
+    lc_processo_level = dict(
+        sorted(lc_processo_level.items(), key=lambda x: sum(x[1].values()), reverse=True)[:12]
+    )
+
+    lc_turno_level = {}
+    for lc, hc_ref in lc_registros:
+        turno = (hc_ref.turno if hc_ref else None) or "Sem informacao"
+        level = lc.lc_level or "Sem informacao"
+        lc_turno_level.setdefault(turno, {})
+        lc_turno_level[turno][level] = lc_turno_level[turno].get(level, 0) + 1
+
+    lc_top_login = _count_dict([lc.login for lc, _ in lc_registros])
+    lc_top_login = dict(list(lc_top_login.items())[:15])
+
     return jsonify({
         "cards": {
             "hc_total": total,
@@ -932,4 +996,21 @@ def dashboard_data():
             "status": status_disponiveis,
         },
         "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status},
+        "lc": {
+            "cards": {
+                "total_registros": len(lc_registros),
+                "pessoas_com_lc": _unique_people_count(lc_registros),
+                "processos": len(lc_por_processo),
+                "sem_hc": lc_sem_hc,
+            },
+            "por_processo": lc_por_processo,
+            "por_level": lc_por_level,
+            "por_turno": lc_por_turno,
+            "por_area": lc_por_area,
+            "por_cargo": lc_por_cargo,
+            "por_status": lc_por_status,
+            "processo_level": lc_processo_level,
+            "turno_level": lc_turno_level,
+            "top_login": lc_top_login,
+        },
     })
