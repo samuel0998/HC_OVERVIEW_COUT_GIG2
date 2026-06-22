@@ -314,8 +314,21 @@ tbody tr:hover { background: #f0f6ff; }
 .stat-card span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; font-weight: bold; letter-spacing: .4px; }
 .stat-card strong { font-size: 34px; color: #111827; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.chart-card { min-height: 320px; }
-.chart-card canvas { cursor: pointer; }
+.section-title {
+  margin: 22px 0 12px;
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: bold;
+}
+.lc-cards-grid { grid-template-columns: repeat(4, 1fr); }
+.chart-card { min-height: 370px; }
+.chart-card-large { min-height: 430px; }
+.chart-card canvas {
+  cursor: pointer;
+  width: 100% !important;
+  height: 300px !important;
+}
+.chart-card-large canvas { height: 360px !important; }
 .chart-card h2 { font-size: 15px; margin: 0 0 12px; color: var(--primary); font-weight: bold; }
 
 /* ── FILTROS NA LISTA (atualizar) ── */
@@ -427,7 +440,7 @@ tbody tr:hover { background: #f0f6ff; }
   .filter-pills { flex-direction: row; }
 }
 @media (max-width: 1100px) {
-  .grid-2, .dashboard-grid, .cards-grid { grid-template-columns: 1fr; }
+  .grid-2, .dashboard-grid, .cards-grid, .lc-cards-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .home-buttons { grid-template-columns: repeat(2, 1fr); }
 }

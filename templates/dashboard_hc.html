@@ -86,6 +86,72 @@
       </section>
     </div>
 
+    <div class="section-title">LC Atual</div>
+
+    <div class="cards-grid lc-cards-grid">
+      <div class="stat-card card-blue">
+        <span>LC REGISTROS</span>
+        <strong id="lcTotalRegistros">0</strong>
+      </div>
+      <div class="stat-card card-green">
+        <span>PESSOAS COM LC</span>
+        <strong id="lcPessoas">0</strong>
+      </div>
+      <div class="stat-card card-orange">
+        <span>PROCESSOS LC</span>
+        <strong id="lcProcessos">0</strong>
+      </div>
+      <div class="stat-card card-purple">
+        <span>LC SEM HC</span>
+        <strong id="lcSemHc">0</strong>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <section class="card chart-card chart-card-large">
+        <h2>LC por Processo</h2>
+        <canvas id="chartLCProcesso"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>LC por Level</h2>
+        <canvas id="chartLCLevel"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>LC por Turno</h2>
+        <canvas id="chartLCTurno"></canvas>
+      </section>
+    </div>
+
+    <div class="dashboard-grid" style="margin-top:16px">
+      <section class="card chart-card">
+        <h2>LC por Area</h2>
+        <canvas id="chartLCArea"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>LC por Cargo</h2>
+        <canvas id="chartLCCargo"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>LC por Status HC</h2>
+        <canvas id="chartLCStatus"></canvas>
+      </section>
+    </div>
+
+    <div class="dashboard-grid" style="margin-top:16px">
+      <section class="card chart-card chart-card-large">
+        <h2>Processo por Level</h2>
+        <canvas id="chartLCProcessoLevel"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Turno por Level</h2>
+        <canvas id="chartLCTurnoLevel"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Top Logins por LC</h2>
+        <canvas id="chartLCTopLogin"></canvas>
+      </section>
+    </div>
+
   </div><!-- /dash-main -->
 </div><!-- /dash-layout -->
 
