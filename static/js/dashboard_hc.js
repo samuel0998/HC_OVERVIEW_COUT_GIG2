@@ -44,7 +44,7 @@ const LC_LEVEL_COLORS = {
 };
 
 // ── Estado dos filtros ───────────────────────────────────────────
-const filtros = { area: "", turno: "", status: "" };
+const filtros = { area: "", turno: "", status: "", cargo: "" };
 const charts  = {};
 
 // ── Utilitários ──────────────────────────────────────────────────
@@ -53,6 +53,7 @@ function buildUrl() {
   if (filtros.area)   p.set("area",   filtros.area);
   if (filtros.turno)  p.set("turno",  filtros.turno);
   if (filtros.status) p.set("status", filtros.status);
+  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
   return `/api/hc/dashboard?${p.toString()}`;
 }
 
@@ -61,8 +62,19 @@ function listUrl(extra = {}) {
   if (filtros.area)   p.set("area",   filtros.area);
   if (filtros.turno)  p.set("turno",  filtros.turno);
   if (filtros.status) p.set("status", filtros.status);
+  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
   Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
   return `/atualizar?${p.toString()}`;
+}
+
+function lcListUrl(extra = {}) {
+  const p = new URLSearchParams();
+  if (filtros.area)   p.set("area",   filtros.area);
+  if (filtros.turno)  p.set("turno",  filtros.turno);
+  if (filtros.status) p.set("status", filtros.status);
+  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
+  return `/lc?${p.toString()}`;
 }
 
 function destroyChart(id) {
@@ -324,6 +336,7 @@ async function carregarDashboard() {
   renderPills("filterArea",   data.filtros_disponiveis.areas,  "area");
   renderPills("filterTurno",  data.filtros_disponiveis.turnos, "turno");
   renderPills("filterStatus", data.filtros_disponiveis.status, "status");
+  renderPills("filterCargo",  data.filtros_disponiveis.cargos, "cargo");
 
   // ── HC por Área (horizontal) ────────────────────────────────
   const areaLabels = Object.keys(data.por_area);
@@ -386,55 +399,66 @@ async function carregarDashboard() {
   const lcProcessoLabels = Object.keys(lcProcesso);
   const lcProcessoVals = Object.values(lcProcesso);
   renderBarH("chartLCProcesso", lcProcessoLabels, lcProcessoVals,
-    lcProcessoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+    lcProcessoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (label) => { window.location.href = lcListUrl({ process_name: label }); }
   );
 
   const lcLevelLabels = Object.keys(lc.por_level || {});
   const lcLevelVals = Object.values(lc.por_level || {});
   renderBarV("chartLCLevel", lcLevelLabels, lcLevelVals,
-    lcLevelLabels.map((l, i) => LC_LEVEL_COLORS[l] || AREA_COLORS[i % AREA_COLORS.length])
+    lcLevelLabels.map((l, i) => LC_LEVEL_COLORS[l] || AREA_COLORS[i % AREA_COLORS.length]),
+    (label) => { window.location.href = lcListUrl({ lc_level: label }); }
   );
 
   const lcTurnoLabels = Object.keys(lc.por_turno || {});
   const lcTurnoVals = Object.values(lc.por_turno || {});
   renderDoughnut("chartLCTurno", lcTurnoLabels, lcTurnoVals,
-    lcTurnoLabels.map(l => TURNO_COLORS[l] || PALETTE.slate)
+    lcTurnoLabels.map(l => TURNO_COLORS[l] || PALETTE.slate),
+    (label) => { window.location.href = lcListUrl({ turno: label }); }
   );
 
   const lcArea = topEntries(lc.por_area, 12);
   const lcAreaLabels = Object.keys(lcArea);
   renderBarH("chartLCArea", lcAreaLabels, Object.values(lcArea),
-    lcAreaLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+    lcAreaLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (label) => { window.location.href = lcListUrl({ area: label }); }
   );
 
   const lcCargo = topEntries(lc.por_cargo, 12);
   const lcCargoLabels = Object.keys(lcCargo);
   renderBarV("chartLCCargo", lcCargoLabels, Object.values(lcCargo),
-    lcCargoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+    lcCargoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (label) => { window.location.href = lcListUrl({ cargo: label }); }
   );
 
   const lcStatusLabels = Object.keys(lc.por_status || {});
   renderBarH("chartLCStatus", lcStatusLabels, Object.values(lc.por_status || {}),
-    lcStatusLabels.map(l => STATUS_COLORS[l] || PALETTE.slate)
+    lcStatusLabels.map(l => STATUS_COLORS[l] || PALETTE.slate),
+    (label) => { window.location.href = lcListUrl({ status: label }); }
   );
 
   const processoLevel = lc.processo_level || {};
   const processoSeries = seriesFromMap(processoLevel);
-  renderGrouped("chartLCProcessoLevel", processoLevel, processoSeries, colorsForSeries(processoSeries));
+  renderGrouped("chartLCProcessoLevel", processoLevel, processoSeries, colorsForSeries(processoSeries),
+    (process_name, lc_level) => { window.location.href = lcListUrl({ process_name, lc_level }); }
+  );
 
   const turnoLevel = lc.turno_level || {};
   const turnoSeries = seriesFromMap(turnoLevel);
-  renderGrouped("chartLCTurnoLevel", turnoLevel, turnoSeries, colorsForSeries(turnoSeries));
+  renderGrouped("chartLCTurnoLevel", turnoLevel, turnoSeries, colorsForSeries(turnoSeries),
+    (turno, lc_level) => { window.location.href = lcListUrl({ turno, lc_level }); }
+  );
 
   const topLogin = topEntries(lc.top_login, 15);
   const topLoginLabels = Object.keys(topLogin);
   renderBarH("chartLCTopLogin", topLoginLabels, Object.values(topLogin),
-    topLoginLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length])
+    topLoginLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (login) => { window.location.href = lcListUrl({ login }); }
   );
 }
 
 document.getElementById("btnLimparFiltros").addEventListener("click", () => {
-  filtros.area = filtros.turno = filtros.status = "";
+  filtros.area = filtros.turno = filtros.status = filtros.cargo = "";
   carregarDashboard();
 });
 

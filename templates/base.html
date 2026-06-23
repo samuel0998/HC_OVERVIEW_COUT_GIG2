@@ -26,6 +26,7 @@
             {% endif %}
             {% if current_user.can_dashboard %}
             <a href="{{ url_for('hc.dashboard') }}" class="{% if request.endpoint == 'hc.dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{{ url_for('hc.lc_page') }}" class="{% if request.endpoint == 'hc.lc_page' %}active{% endif %}">LC</a>
             {% endif %}
             {% if current_user.can_historico %}
             <a href="{{ url_for('hc.historico_page') }}" class="{% if request.endpoint == 'hc.historico_page' %}active{% endif %}">Histórico</a>

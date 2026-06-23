@@ -150,6 +150,14 @@ def dashboard():
     return render_template("dashboard_hc.html")
 
 
+@hc_bp.route("/lc")
+@login_required
+def lc_page():
+    if not current_user.can_dashboard:
+        abort(403)
+    return render_template("lc_atual.html")
+
+
 @hc_bp.route("/pendencias")
 @login_required
 def pendencias_page():
@@ -720,21 +728,86 @@ def exportar_excel():
 @hc_bp.route("/api/lc", methods=["GET"])
 @login_required
 def listar_lc():
-    termo = request.args.get("q", "").strip()
-    query = LCAtual.query
+    termo = request.args.get("q", "").strip().lower()
+    f_login = request.args.get("login", "").strip().lower()
+    f_process = request.args.get("process_name", request.args.get("process", "")).strip()
+    f_level = request.args.get("lc_level", request.args.get("level", "")).strip()
+    f_area = request.args.get("area", "").strip()
+    f_turno = request.args.get("turno", "").strip()
+    f_status = request.args.get("status", "").strip()
+    f_cargo = request.args.get("cargo", "").strip()
+    sem_hc = request.args.get("sem_hc", "").strip().lower() in ("1", "true", "sim")
 
-    if termo:
-        like = f"%{termo}%"
-        query = query.filter(
-            or_(
-                LCAtual.login.ilike(like),
-                LCAtual.process_name.ilike(like),
-                LCAtual.lc_level.ilike(like),
-            )
-        )
+    hc_por_login = {
+        (r.login or "").strip().lower(): r
+        for r in HCGig2.query.all()
+        if (r.login or "").strip()
+    }
 
-    registros = query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
-    return jsonify([r.to_dict() for r in registros])
+    registros = LCAtual.query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    dados = []
+
+    for r in registros:
+        login_key = (r.login or "").strip().lower()
+        hc_ref = hc_por_login.get(login_key)
+
+        if sem_hc and hc_ref:
+            continue
+        if f_login and f_login not in login_key:
+            continue
+        if f_process and r.process_name != f_process:
+            continue
+        if f_level and r.lc_level != f_level:
+            continue
+        if f_area and ((hc_ref.area if hc_ref else "") or "") != f_area:
+            continue
+        if f_turno and ((hc_ref.turno if hc_ref else "") or "") != f_turno:
+            continue
+        if f_status and ((hc_ref.status if hc_ref else "") or "") != f_status:
+            continue
+        if f_cargo and ((hc_ref.cargo if hc_ref else "") or "") != f_cargo:
+            continue
+
+        item = {
+            **r.to_dict(),
+            "nome_completo": hc_ref.nome_completo if hc_ref else "",
+            "cargo": hc_ref.cargo if hc_ref else "",
+            "area": hc_ref.area if hc_ref else "",
+            "turno": hc_ref.turno if hc_ref else "",
+            "status": hc_ref.status if hc_ref else "",
+            "hc_encontrado": bool(hc_ref),
+        }
+
+        if termo:
+            haystack = " ".join([
+                item["login"],
+                item["process_name"],
+                item["lc_level"],
+                item["nome_completo"],
+                item["cargo"],
+                item["area"],
+                item["turno"],
+                item["status"],
+            ]).lower()
+            if termo not in haystack:
+                continue
+
+        dados.append(item)
+
+    filtros = {
+        "processos": sorted({r.process_name for r in registros if r.process_name}),
+        "levels": sorted({r.lc_level for r in registros if r.lc_level}),
+        "areas": sorted({r.area for r in hc_por_login.values() if r.area}),
+        "turnos": sorted({r.turno for r in hc_por_login.values() if r.turno}),
+        "status": sorted({r.status for r in hc_por_login.values() if r.status}),
+        "cargos": ["Associado", "PIT"],
+    }
+
+    return jsonify({
+        "registros": dados,
+        "total": len(dados),
+        "filtros": filtros,
+    })
 
 
 @hc_bp.route("/api/lc/import", methods=["POST"])
@@ -852,6 +925,7 @@ def dashboard_data():
     f_area   = request.args.get("area", "").strip()
     f_turno  = request.args.get("turno", "").strip()
     f_status = request.args.get("status", "").strip()
+    f_cargo  = request.args.get("cargo", "").strip()
 
     todos = HCGig2.query.all()
     _aplicar_regra_hc_atual(todos)
@@ -863,6 +937,8 @@ def dashboard_data():
         registros = [r for r in registros if (r.turno or "") == f_turno]
     if f_status:
         registros = [r for r in registros if r.status == f_status]
+    if f_cargo:
+        registros = [r for r in registros if r.cargo == f_cargo]
 
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
@@ -936,6 +1012,8 @@ def dashboard_data():
             continue
         if f_status and hc_ref.status != f_status:
             continue
+        if f_cargo and hc_ref.cargo != f_cargo:
+            continue
 
         lc_registros.append((lc, hc_ref))
 
@@ -994,8 +1072,9 @@ def dashboard_data():
             "areas":  areas_disponiveis,
             "turnos": turnos_disponiveis,
             "status": status_disponiveis,
+            "cargos": ["Associado", "PIT"],
         },
-        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status},
+        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
         "lc": {
             "cards": {
                 "total_registros": len(lc_registros),
