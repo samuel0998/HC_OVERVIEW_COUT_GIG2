@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from models import db
@@ -13,31 +13,41 @@ def login():
         return redirect(url_for("hc.home"))
 
     erro = None
+    selected_fc = session.get("fc") or current_app.config.get("DEFAULT_FC", "GIG2")
+
     if request.method == "POST":
         login_val = (request.form.get("login") or "").strip().lower()
+        selected_fc = (request.form.get("fc") or selected_fc).strip().upper()
 
-        operador = Operadores.query.filter_by(login=login_val).first()
-
-        if not operador:
-            erro = "Login não encontrado no sistema."
-        elif not operador.permission_hcview:
-            erro = "Você não tem permissão para acessar o HC Overview."
+        if selected_fc not in current_app.config["FC_DATABASES"]:
+            erro = "FC invalido."
         else:
-            login_user(operador, remember=True)
-            next_page = request.args.get("next")
-            return redirect(next_page or url_for("hc.home"))
+            session["fc"] = selected_fc
+            operador = Operadores.query.filter_by(login=login_val).first()
 
-    return render_template("login.html", erro=erro)
+            if not operador:
+                erro = "Login nao encontrado no sistema."
+            elif not operador.permission_hcview:
+                erro = "Voce nao tem permissao para acessar o HC Overview."
+            else:
+                login_user(operador)
+                next_page = request.args.get("next")
+                return redirect(next_page or url_for("hc.home"))
+
+    return render_template(
+        "login.html",
+        erro=erro,
+        fc_options=current_app.config["FC_DATABASES"],
+        selected_fc=selected_fc,
+    )
 
 
 @auth_bp.route("/logout")
 @login_required
 def logout():
     logout_user()
+    session.pop("fc", None)
     return redirect(url_for("auth.login"))
-
-
-# ── Permission management (admin only) ──────────────────────────
 
 
 @auth_bp.route("/usuarios")
@@ -67,16 +77,15 @@ def atualizar_permissao(login_val):
     data = request.get_json() or {}
 
     if "permission_hcview" in data:
-        # Prevent admin from revoking their own access
         if operador.login == current_user.login and not data["permission_hcview"]:
-            return jsonify({"erro": "Você não pode revogar seu próprio acesso."}), 400
+            return jsonify({"erro": "Voce nao pode revogar seu proprio acesso."}), 400
         operador.permission_hcview = bool(data["permission_hcview"])
 
     if "permission_level_hcview" in data:
         nivel = (data["permission_level_hcview"] or "").strip()
         if nivel not in ("LC1", "LC3", "LC5", "EXPERT", ""):
-            return jsonify({"erro": "Nível inválido."}), 400
+            return jsonify({"erro": "Nivel invalido."}), 400
         operador.permission_level_hcview = nivel or None
 
     db.session.commit()
-    return jsonify({"mensagem": "Permissão atualizada.", "operador": operador.to_dict()})
+    return jsonify({"mensagem": "Permissao atualizada.", "operador": operador.to_dict()})

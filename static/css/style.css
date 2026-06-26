@@ -392,12 +392,15 @@ tbody tr:hover { background: #f0f6ff; }
   display: block; font-size: 12px; font-weight: bold; color: var(--muted);
   margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px;
 }
-.login-field input {
+.login-field input,
+.login-field select {
   width: 100%; padding: 11px 14px; border-radius: 8px;
   border: 1px solid var(--border); font-size: 14px; outline: none;
   transition: border-color .2s;
+  background: white;
 }
-.login-field input:focus { border-color: var(--primary); }
+.login-field input:focus,
+.login-field select:focus { border-color: var(--primary); }
 .login-submit { width: 100%; padding: 12px; font-size: 15px; margin-top: 6px; }
 .login-version { text-align: center; font-size: 11px; color: var(--muted); margin: 16px 0 0; }
 

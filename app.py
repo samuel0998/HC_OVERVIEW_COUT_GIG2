@@ -13,7 +13,7 @@ from routes.hc import hc_bp
 def _get_last_tuesday():
     """Returns the most recent Tuesday (today if today is Tuesday)."""
     today = date.today()
-    days_back = (today.weekday() - 1) % 7  # Mon(0)->6, Tue(1)->0, Wed(2)->1 ...
+    days_back = (today.weekday() - 1) % 7
     return today - timedelta(days=days_back)
 
 
@@ -24,7 +24,7 @@ def processar_status_automatico():
     from models.registro_atividade import RegistroAtividade
 
     hoje = date.today()
-    prazo_vencido = hoje.weekday() > 1  # Wed(2) through Sun(6) = past Tuesday
+    prazo_vencido = hoje.weekday() > 1
 
     todos = HCGig2.query.all()
     registros = []
@@ -33,22 +33,20 @@ def processar_status_automatico():
     for op in todos:
         status_ant = op.status
 
-        # 1. Auto-archive: termination date reached
         if op.status == "Desligado" and op.data_desligamento and hoje >= op.data_desligamento:
             para_arquivar.append(op)
             continue
 
-        # 2. Auto-revert/cleanup: leave/vacation period ended or old operational flags
         alterou_por_data = op.aplicar_status_por_data(hoje)
-        if status_ant in ("Licença", "Férias") and op.status == "OPERACIONAL" and alterou_por_data:
+        if status_ant in ("Licenca", "Licença", "Ferias", "Férias") and op.status == "OPERACIONAL" and alterou_por_data:
             registros.append(RegistroAtividade(
                 tipo="edicao_status",
                 operador_id=op.id,
                 operador_login=op.login,
                 operador_nome=op.nome_completo,
                 usuario_login="sistema",
-                usuario_nome="Automação",
-                descricao=f"Retorno automático para OPERACIONAL — período de {status_ant} encerrado",
+                usuario_nome="Automacao",
+                descricao=f"Retorno automatico para OPERACIONAL - periodo de {status_ant} encerrado",
                 dados_anteriores=json.dumps({"status": status_ant}),
                 dados_novos=json.dumps({"status": "OPERACIONAL"}),
             ))
@@ -61,15 +59,14 @@ def processar_status_automatico():
                 operador_login=op.login,
                 operador_nome=op.nome_completo,
                 usuario_login="sistema",
-                usuario_nome="Automação",
-                descricao=f"Virada automática de Treinamento para OPERACIONAL ({op.cargo})",
+                usuario_nome="Automacao",
+                descricao=f"Virada automatica de Treinamento para OPERACIONAL ({op.cargo})",
                 dados_anteriores=json.dumps({"status": status_ant}),
                 dados_novos=json.dumps({"status": "OPERACIONAL", "turno": op.turno or ""}),
             ))
 
-        # 3. Pendência deadline missed (no dates defined) → OFF
         if prazo_vencido:
-            if op.status in ("Licença", "Férias") and not op.data_inicio_licenca:
+            if op.status in ("Licenca", "Licença", "Ferias", "Férias") and not op.data_inicio_licenca:
                 op.status = "OFF"
                 registros.append(RegistroAtividade(
                     tipo="edicao_status",
@@ -77,8 +74,8 @@ def processar_status_automatico():
                     operador_login=op.login,
                     operador_nome=op.nome_completo,
                     usuario_login="sistema",
-                    usuario_nome="Automação",
-                    descricao=f"Status → OFF: pendência '{status_ant}' sem data definida (prazo terça-feira vencido)",
+                    usuario_nome="Automacao",
+                    descricao=f"Status -> OFF: pendencia '{status_ant}' sem data definida (prazo terca-feira vencido)",
                     dados_anteriores=json.dumps({"status": status_ant}),
                     dados_novos=json.dumps({"status": "OFF"}),
                 ))
@@ -90,13 +87,12 @@ def processar_status_automatico():
                     operador_login=op.login,
                     operador_nome=op.nome_completo,
                     usuario_login="sistema",
-                    usuario_nome="Automação",
-                    descricao="Status → OFF: pendência de desligamento sem data (prazo terça-feira vencido)",
+                    usuario_nome="Automacao",
+                    descricao="Status -> OFF: pendencia de desligamento sem data (prazo terca-feira vencido)",
                     dados_anteriores=json.dumps({"status": status_ant}),
                     dados_novos=json.dumps({"status": "OFF"}),
                 ))
 
-    # Archive and delete terminated employees
     for op in para_arquivar:
         hist = HistoricoOperacional(
             hc_id_original=op.id,
@@ -118,7 +114,7 @@ def processar_status_automatico():
             operador_login=op.login,
             operador_nome=op.nome_completo,
             usuario_login="sistema",
-            usuario_nome="Automação",
+            usuario_nome="Automacao",
             descricao=f"Colaborador '{op.nome_completo}' arquivado automaticamente em {op.data_desligamento}.",
         ))
         db.session.delete(op)
@@ -129,9 +125,78 @@ def processar_status_automatico():
     db.session.commit()
     count = len(registros)
     if count:
-        print(f"[AUTO-STATUS] {count} operação(ões) processada(s).")
+        print(f"[AUTO-STATUS] {count} operacao(oes) processada(s).")
     else:
-        print("[AUTO-STATUS] Nenhuma alteração necessária.")
+        print("[AUTO-STATUS] Nenhuma alteracao necessaria.")
+
+
+def _create_operational_tables_for_fc(fc):
+    engine = db.engines[fc]
+    db.metadatas[None].create_all(bind=engine)
+    print(f"[MIGRATION:{fc}] Tabelas operacionais verificadas.")
+
+
+def _migrate_hc_table_for_fc(fc):
+    engine = db.engines[fc]
+    with engine.begin() as conn:
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_liberacao VARCHAR(100)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN login DROP NOT NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN area DROP NOT NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN turno DROP NOT NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_desligamento DATE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN causa_afastamento TYPE VARCHAR(500)"))
+        result = conn.execute(db.text(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            "WHERE table_name = 'hc_gig2' "
+            "ORDER BY ordinal_position"
+        ))
+        colunas = result.fetchall()
+
+    print(f"=== [MIGRATION:{fc}] Estrutura atual da tabela hc_gig2 ===")
+    for col in colunas:
+        print(f"  {col[0]:30s} | {col[1]:20s} | nullable={col[2]}")
+    print(f"=== [MIGRATION:{fc}] Concluida com sucesso ===")
+
+
+def _migrate_operadores_table():
+    db.metadatas["GIG2"].create_all(bind=db.engines["GIG2"])
+    with db.engines["GIG2"].begin() as conn:
+        conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_hcview BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_level_hcview VARCHAR(20)"))
+    print("[MIGRATION:GIG2] Tabela central de operadores verificada.")
+
+
+def _bootstrap_databases(app):
+    fc_keys = list(app.config["FC_DATABASES"].keys())
+
+    for fc in fc_keys:
+        try:
+            _create_operational_tables_for_fc(fc)
+            _migrate_hc_table_for_fc(fc)
+        except Exception as e:
+            print(f"[MIGRATION:{fc}] ERRO: {e}")
+
+    try:
+        _migrate_operadores_table()
+    except Exception as e:
+        print(f"[MIGRATION:GIG2] ERRO na tabela central de operadores: {e}")
+
+    for fc in fc_keys:
+        try:
+            app.config["ACTIVE_FC"] = fc
+            db.session.remove()
+            print(f"[AUTO-STATUS:{fc}] Iniciando processamento.")
+            processar_status_automatico()
+        except Exception as e:
+            db.session.rollback()
+            print(f"[AUTO-STATUS:{fc}] ERRO: {e}")
+        finally:
+            db.session.remove()
+
+    app.config.pop("ACTIVE_FC", None)
 
 
 def create_app():
@@ -140,11 +205,10 @@ def create_app():
 
     db.init_app(app)
 
-    # ── Flask-Login ────────────────────────────────────────────
     login_manager = LoginManager()
     login_manager.init_app(app)
     login_manager.login_view = "auth.login"
-    login_manager.login_message = "Faça login para acessar o sistema."
+    login_manager.login_message = "Faca login para acessar o sistema."
 
     @login_manager.user_loader
     def load_user(user_id):
@@ -154,8 +218,19 @@ def create_app():
     @login_manager.unauthorized_handler
     def unauthorized():
         if request.is_json or request.path.startswith("/api/"):
-            return jsonify({"erro": "Não autenticado."}), 401
+            return jsonify({"erro": "Nao autenticado."}), 401
         return redirect(url_for("auth.login"))
+
+    @app.context_processor
+    def inject_fc_context():
+        from models import get_current_fc
+        fc_key = get_current_fc()
+        fc_data = app.config["FC_DATABASES"].get(fc_key, {})
+        return {
+            "active_fc": fc_key,
+            "active_fc_label": fc_data.get("label", fc_key),
+            "fc_options": app.config["FC_DATABASES"],
+        }
 
     with app.app_context():
         from models.hc_gig2 import HCGig2  # noqa: F401
@@ -164,71 +239,7 @@ def create_app():
         from models.historico import HistoricoOperacional  # noqa: F401
         from models.registro_atividade import RegistroAtividade  # noqa: F401
 
-        db.create_all()
-
-        # ── Column migrations ──────────────────────────────────
-        try:
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_liberacao VARCHAR(100)"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ALTER COLUMN login DROP NOT NULL"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ALTER COLUMN area DROP NOT NULL"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ALTER COLUMN turno DROP NOT NULL"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_desligamento DATE"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE hc_gig2 ALTER COLUMN causa_afastamento TYPE VARCHAR(500)"
-            ))
-            db.session.commit()
-
-            result = db.session.execute(db.text(
-                "SELECT column_name, data_type, is_nullable "
-                "FROM information_schema.columns "
-                "WHERE table_name = 'hc_gig2' "
-                "ORDER BY ordinal_position"
-            ))
-            colunas = result.fetchall()
-            print("=== [MIGRATION] Estrutura atual da tabela hc_gig2 ===")
-            for col in colunas:
-                print(f"  {col[0]:30s} | {col[1]:20s} | nullable={col[2]}")
-            print("=== [MIGRATION] Concluída com sucesso ===")
-
-        except Exception as e:
-            db.session.rollback()
-            print(f"[MIGRATION] ERRO ao aplicar migração: {e}")
-
-        # ── Migrations: operadores permission columns ──────────
-        try:
-            db.session.execute(db.text(
-                "ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_hcview BOOLEAN DEFAULT FALSE"
-            ))
-            db.session.execute(db.text(
-                "ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_level_hcview VARCHAR(20)"
-            ))
-            db.session.commit()
-            print("[MIGRATION] Colunas permission_hcview e permission_level_hcview verificadas em 'operadores'.")
-        except Exception as e:
-            db.session.rollback()
-            print(f"[MIGRATION] ERRO nas colunas de permissão HC View: {e}")
-
-        # ── Auto-status on startup ─────────────────────────────
-        try:
-            processar_status_automatico()
-        except Exception as e:
-            print(f"[AUTO-STATUS] ERRO: {e}")
+        _bootstrap_databases(app)
 
     app.register_blueprint(hc_bp)
     app.register_blueprint(auth_bp)
