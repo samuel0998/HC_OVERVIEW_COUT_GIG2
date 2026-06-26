@@ -16,10 +16,10 @@
         </div>
         <div class="topbar-title">
             <h1>HEADCOUNT OVERVIEW</h1>
-            <p>SITE: GIG2 | Gestão de HC</p>
+            <p>SITE: {{ active_fc_label }} | Gestao de HC</p>
         </div>
         <nav>
-            <a href="{{ url_for('hc.home') }}" class="{% if request.endpoint == 'hc.home' %}active{% endif %}">Início</a>
+            <a href="{{ url_for('hc.home') }}" class="{% if request.endpoint == 'hc.home' %}active{% endif %}">Inicio</a>
             {% if current_user.can_edit %}
             <a href="{{ url_for('hc.novo_hc') }}" class="{% if request.endpoint == 'hc.novo_hc' %}active{% endif %}">Novo HC</a>
             <a href="{{ url_for('hc.atualizar') }}" class="{% if request.endpoint == 'hc.atualizar' %}active{% endif %}">Atualizar</a>
@@ -29,10 +29,10 @@
             <a href="{{ url_for('hc.lc_page') }}" class="{% if request.endpoint == 'hc.lc_page' %}active{% endif %}">LC</a>
             {% endif %}
             {% if current_user.can_historico %}
-            <a href="{{ url_for('hc.historico_page') }}" class="{% if request.endpoint == 'hc.historico_page' %}active{% endif %}">Histórico</a>
+            <a href="{{ url_for('hc.historico_page') }}" class="{% if request.endpoint == 'hc.historico_page' %}active{% endif %}">Historico</a>
             {% endif %}
             {% if current_user.is_admin %}
-            <a href="{{ url_for('auth.usuarios_page') }}" class="{% if request.endpoint == 'auth.usuarios_page' %}active{% endif %}">Usuários</a>
+            <a href="{{ url_for('auth.usuarios_page') }}" class="{% if request.endpoint == 'auth.usuarios_page' %}active{% endif %}">Usuarios</a>
             {% endif %}
         </nav>
         <div class="topbar-user">

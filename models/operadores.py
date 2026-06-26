@@ -18,6 +18,7 @@ class Operadores(db.Model, UserMixin):
     """Maps to the existing 'operadores' table in Railway.
     Only declares columns needed by HC View — existing columns are preserved.
     """
+    __bind_key__ = "GIG2"
     __tablename__ = "operadores"
     __table_args__ = {"extend_existing": True}
 

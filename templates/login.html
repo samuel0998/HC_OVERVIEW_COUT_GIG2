@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login | HC Overview GIG2</title>
+    <title>Login | HC Overview</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="login-body">
@@ -16,7 +16,7 @@
             </div>
             <div class="login-title">
                 <h1>HEADCOUNT OVERVIEW</h1>
-                <p>SITE: GIG2 | Gestão de HC</p>
+                <p>Selecione o FC para conectar na instancia</p>
             </div>
 
             {% if erro %}
@@ -25,13 +25,21 @@
 
             <form method="POST" class="login-form">
                 <div class="login-field">
+                    <label for="fc">FC</label>
+                    <select id="fc" name="fc" required>
+                        {% for key, item in fc_options.items() %}
+                        <option value="{{ key }}" {% if key == selected_fc %}selected{% endif %}>{{ item.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="login-field">
                     <label for="login">Login</label>
                     <input type="text" id="login" name="login" placeholder="Seu login de acesso" required autofocus autocomplete="username">
                 </div>
                 <button type="submit" class="btn primary login-submit">Entrar</button>
             </form>
 
-            <p class="login-version">v1.0.2</p>
+            <p class="login-version">v1.1.0</p>
         </div>
     </div>
 </body>
