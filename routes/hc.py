@@ -57,6 +57,30 @@ def _clean_excel_value(value):
     return "" if text.lower() in ("nan", "none") else text
 
 
+def _read_csv_upload(arquivo):
+    tentativas = [
+        ("utf-8-sig", {"sep": None, "engine": "python"}),
+        ("utf-8-sig", {"sep": ";"}),
+        ("utf-8-sig", {"sep": ","}),
+        ("latin-1", {"sep": None, "engine": "python"}),
+        ("latin-1", {"sep": ";"}),
+        ("latin-1", {"sep": ","}),
+    ]
+    ultimo_erro = None
+
+    for encoding, opcoes in tentativas:
+        try:
+            arquivo.seek(0)
+            df = pd.read_csv(arquivo, encoding=encoding, dtype=str, **opcoes)
+            if len(df.columns) > 1:
+                return df
+            ultimo_erro = ValueError("CSV lido com apenas uma coluna.")
+        except Exception as e:
+            ultimo_erro = e
+
+    raise ultimo_erro
+
+
 def _cargo_normalizado(cargo):
     return _normalizar(cargo).upper()
 
@@ -515,13 +539,9 @@ def importar_csv():
         return jsonify({"erro": "Envie um arquivo CSV."}), 400
 
     try:
-        df = pd.read_csv(arquivo, encoding="utf-8-sig", dtype=str)
-    except Exception:
-        try:
-            arquivo.seek(0)
-            df = pd.read_csv(arquivo, encoding="latin-1", dtype=str)
-        except Exception as e:
-            return jsonify({"erro": f"Erro ao ler CSV: {str(e)}"}), 400
+        df = _read_csv_upload(arquivo)
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao ler CSV: {str(e)}"}), 400
 
     col_nome = _find_col(df, "nome")
     col_login = _find_col(df, "login")
