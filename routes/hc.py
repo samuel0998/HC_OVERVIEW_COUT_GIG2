@@ -85,6 +85,26 @@ def _cargo_normalizado(cargo):
     return _normalizar(cargo).upper()
 
 
+def _formatar_cargo(cargo):
+    texto = (cargo or "").strip()
+    if not texto or texto.lower() in ("nan", "none"):
+        return ""
+
+    cargo_map = {
+        "AA": "AA",
+        "ASSOCIADO": "Associado",
+        "PIT": "PIT",
+        "ANALISTA": "Analista",
+        "SUPERVISOR": "Supervisor",
+        "LIDER": "Líder",
+        "TECNICO": "Técnico",
+        "FISCAL": "Fiscal",
+        "COORDENADOR": "Coordenador",
+        "GERENTE": "Gerente",
+    }
+    return cargo_map.get(_cargo_normalizado(texto), texto)
+
+
 def _turno_inicial(cargo, turno=None):
     if _cargo_normalizado(cargo) == "PIT":
         return "ADM"
@@ -242,7 +262,7 @@ def novo_colaborador():
     colaborador = HCGig2(
         nome_completo=(data.get("nome_completo") or "").strip(),
         login=login,
-        cargo=(data.get("cargo") or "").strip(),
+        cargo=_formatar_cargo(data.get("cargo")),
         area=(data.get("area") or "").strip() or None,
         turno=None,
         status="Treinamento",
@@ -310,7 +330,7 @@ def atualizar_colaborador(item_id):
     status_anterior = colaborador.status
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
-    colaborador.cargo         = (data.get("cargo") or colaborador.cargo).strip()
+    colaborador.cargo         = _formatar_cargo(data.get("cargo") or colaborador.cargo)
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     colaborador.status        = novo_status
@@ -597,8 +617,7 @@ def importar_csv():
             elif login:
                 logins_vistos.add(login)
 
-            cargo = str(row.get(col_cargo, "")).strip() if col_cargo else ""
-            cargo = "" if cargo.lower() == "nan" else cargo
+            cargo = _formatar_cargo(row.get(col_cargo, "")) if col_cargo else ""
 
             area = str(row.get(col_area, "")).strip() if col_area else ""
             area = None if area.lower() in ("nan", "none", "") else area
@@ -690,7 +709,7 @@ def importar_excel():
             atualizados += 1
 
         item.nome_completo = str(row[normalizadas["nome_completo"]]).strip()
-        item.cargo = str(row[normalizadas["cargo"]]).strip()
+        item.cargo = _formatar_cargo(row[normalizadas["cargo"]])
         item.area = str(row[normalizadas["area"]]).strip() or None
         turno = str(row[normalizadas["turno"]]).strip() or None
         item.status = str(row[normalizadas["status"]]).strip() or "OPERACIONAL"
