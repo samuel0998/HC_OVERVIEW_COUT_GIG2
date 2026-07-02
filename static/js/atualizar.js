@@ -68,6 +68,14 @@ function jobOptions(selected) {
   ].join("");
 }
 
+function turnoExtraOptions(selected) {
+  const turnos = window.HC_TURNOS || [];
+  return [
+    `<option value="">Sem HE</option>`,
+    ...turnos.map(t => `<option value="${escapeAttr(t)}" ${t === selected ? "selected" : ""}>${t}</option>`)
+  ].join("");
+}
+
 // ── Carregar todos os dados ───────────────────────────────────────
 async function carregarTabela() {
   const res = await fetch("/api/hc");
@@ -123,6 +131,11 @@ function renderTabela() {
       <td>
         <select class="job-select" onchange="salvarAlocacao(${item.id}, { job: this.value })">
           ${jobOptions(item.job || "")}
+        </select>
+      </td>
+      <td>
+        <select class="job-select he-select" onchange="salvarAlocacao(${item.id}, { hora_extra_turno: this.value })">
+          ${turnoExtraOptions(item.hora_extra_turno || "")}
         </select>
       </td>
       <td class="td-comment">${comentario}</td>
@@ -183,6 +196,7 @@ window.abrirEdicao = function (id) {
   formEditar.status.value         = item.status;
   formEditar.presente_fc.checked  = !!item.presente_fc;
   formEditar.job.value            = item.job || "";
+  formEditar.hora_extra_turno.value = item.hora_extra_turno || "";
 
   // Reset checkboxes
   document.getElementById("semDataInicio").checked = false;
@@ -236,6 +250,7 @@ formEditar.addEventListener("submit", async (e) => {
     status,
     presente_fc: formEditar.presente_fc.checked,
     job: formEditar.job.value,
+    hora_extra_turno: formEditar.hora_extra_turno.value,
   };
 
   if (status === "Licença" || status === "Férias") {

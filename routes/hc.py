@@ -125,6 +125,18 @@ def _formatar_job(job):
     return texto
 
 
+def _formatar_turno_extra(turno):
+    texto = (turno or "").strip()
+    if not texto or texto.lower() in ("nan", "none"):
+        return None
+
+    normalizado = _normalizar(texto).upper()
+    for item in TURNOS:
+        if _normalizar(item).upper() == normalizado:
+            return item
+    return texto
+
+
 def _jobs_por_area(area):
     area_norm = _normalizar(area).upper()
     aliases = {
@@ -313,6 +325,7 @@ def novo_colaborador():
         presente_fc=_parse_bool(data.get("presente_fc"), default=True),
         presenca_manual="presente_fc" in data,
         job=_formatar_job(data.get("job")),
+        hora_extra_turno=_formatar_turno_extra(data.get("hora_extra_turno")),
     )
     colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
 
@@ -335,6 +348,7 @@ def novo_colaborador():
             "status": colaborador.status,
             "presente_fc": colaborador.presente_fc,
             "job": colaborador.job or "",
+            "hora_extra_turno": colaborador.hora_extra_turno or "",
         }),
     )
 
@@ -387,6 +401,7 @@ def atualizar_colaborador(item_id):
         colaborador.presente_fc = _parse_bool(data.get("presente_fc"), default=True)
         colaborador.presenca_manual = True
     colaborador.job           = _formatar_job(data.get("job", colaborador.job))
+    colaborador.hora_extra_turno = _formatar_turno_extra(data.get("hora_extra_turno", colaborador.hora_extra_turno))
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
@@ -415,6 +430,7 @@ def atualizar_colaborador(item_id):
         "status": colaborador.status,
         "presente_fc": colaborador.presente_fc,
         "job": colaborador.job or "",
+        "hora_extra_turno": colaborador.hora_extra_turno or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
     })
 
@@ -493,6 +509,7 @@ def atualizar_alocacao(item_id):
     dados_ant = json.dumps({
         "presente_fc": colaborador.presente_fc,
         "job": colaborador.job or "",
+        "hora_extra_turno": colaborador.hora_extra_turno or "",
     })
 
     if "presente_fc" in data:
@@ -500,16 +517,19 @@ def atualizar_alocacao(item_id):
         colaborador.presenca_manual = True
     if "job" in data:
         colaborador.job = _formatar_job(data.get("job"))
+    if "hora_extra_turno" in data:
+        colaborador.hora_extra_turno = _formatar_turno_extra(data.get("hora_extra_turno"))
 
     dados_nov = json.dumps({
         "presente_fc": colaborador.presente_fc,
         "job": colaborador.job or "",
+        "hora_extra_turno": colaborador.hora_extra_turno or "",
     })
 
     _registrar(
         "edicao",
         colaborador,
-        f"Chamada/job atualizados: {colaborador.nome_completo}",
+        f"Chamada/job/hora extra atualizados: {colaborador.nome_completo}",
         dados_ant=dados_ant,
         dados_nov=dados_nov,
     )
@@ -662,6 +682,7 @@ def importar_csv():
     col_turno = _find_col(df, "turno")
     col_presente = _find_col(df, "presente") or _find_col(df, "chamada") or _find_col(df, "fc")
     col_job = _find_col(df, "job") or _find_col(df, "processo")
+    col_he = _find_col(df, "hora extra") or _find_col(df, "he turno") or _find_col(df, "turno extra")
     col_previsao = _find_col(df, "previsao") or _find_col(df, "previs")
     col_descricao = _find_col(df, "descri")
     col_status_lib = _find_col(df, "libera")
@@ -721,6 +742,7 @@ def importar_csv():
 
             presente_fc = _parse_bool(row.get(col_presente), default=True) if col_presente else True
             job = _formatar_job(row.get(col_job, "")) if col_job else None
+            hora_extra_turno = _formatar_turno_extra(row.get(col_he, "")) if col_he else None
 
             raw_status = str(row.get(col_status, "operacional")).strip() if col_status else "operacional"
             status = STATUS_MAP.get(_normalizar(raw_status), "OPERACIONAL")
@@ -747,6 +769,7 @@ def importar_csv():
             item.presente_fc = presente_fc
             item.presenca_manual = bool(col_presente)
             item.job = job
+            item.hora_extra_turno = hora_extra_turno
             item.previsao_afastamento = previsao
             item.causa_afastamento = causa
             item.status_liberacao = status_lib
@@ -822,9 +845,11 @@ def importar_excel():
             or normalizadas.get("chamada")
         )
         col_job = normalizadas.get("job") or normalizadas.get("processo")
+        col_he = normalizadas.get("hora_extra_turno") or normalizadas.get("hora extra") or normalizadas.get("he turno") or normalizadas.get("turno extra")
         item.presente_fc = _parse_bool(row[col_presente], default=True) if col_presente else True
         item.presenca_manual = bool(col_presente)
         item.job = _formatar_job(row[col_job]) if col_job else None
+        item.hora_extra_turno = _formatar_turno_extra(row[col_he]) if col_he else None
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
         causa = row[normalizadas["causa_afastamento"]]
@@ -854,6 +879,7 @@ def exportar_excel():
             "Status": d["status"],
             "Chamada": "SIM" if d["presente_fc"] else "NAO",
             "Job": d["job"],
+            "Hora Extra Turno": d["hora_extra_turno"],
             "Status Liberação": d["status_liberacao"],
             "Previsão Afastamento": "SIM" if d["previsao_afastamento"] else "NÃO",
             "Data Afastamento": d["data_afastamento"] or "",
@@ -1088,7 +1114,11 @@ def dashboard_data():
     if f_area:
         registros = [r for r in registros if (r.area or "") == f_area]
     if f_turno:
-        registros = [r for r in registros if (r.turno or "") == f_turno]
+        registros = [
+            r for r in registros
+            if (r.turno or "") == f_turno
+            or (r.hora_extra_turno == f_turno and r.status == "OPERACIONAL" and r.presente_fc)
+        ]
     if f_status:
         registros = [r for r in registros if r.status == f_status]
     if f_cargo:
@@ -1119,9 +1149,21 @@ def dashboard_data():
     por_cargo = {}
     por_turno = {}
 
+    def _conta_no_turno(registro, turno):
+        if registro.turno == turno:
+            return True
+        return bool(
+            registro.hora_extra_turno == turno
+            and registro.status == "OPERACIONAL"
+            and registro.presente_fc
+        )
+
     for r in registros:
         por_area[r.area or "—"]   = por_area.get(r.area or "—", 0) + 1
         por_cargo[r.cargo]        = por_cargo.get(r.cargo, 0) + 1
+        if r.hora_extra_turno and r.status == "OPERACIONAL" and r.presente_fc:
+            chave_he = r.hora_extra_turno
+            por_turno[chave_he] = por_turno.get(chave_he, 0) + 1
         por_turno[r.turno or "—"] = por_turno.get(r.turno or "—", 0) + 1
 
     por_area  = dict(sorted(por_area.items(),  key=lambda x: x[1], reverse=True))
@@ -1134,9 +1176,9 @@ def dashboard_data():
     associados_e_pits = {}
     for turno in TURNOS:
         associados_e_pits[turno] = {
-            "AA": sum(1 for r in registros if r.turno == turno and r.cargo == "AA"),
-            "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado"),
-            "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"),
+            "AA": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "AA"),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Associado"),
+            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "PIT"),
         }
 
     operacional_por_turno = {}
@@ -1144,14 +1186,19 @@ def dashboard_data():
         if turno == "ADM":
             continue
         operacional_por_turno[turno] = {
-            "Analista":  sum(1 for r in registros if r.turno == turno and r.cargo == "Analista"  and r.status == "OPERACIONAL"),
-            "AA":        sum(1 for r in registros if r.turno == turno and r.cargo == "AA"        and r.status == "OPERACIONAL"),
-            "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado" and r.status == "OPERACIONAL"),
-            "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
+            "Analista":  sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Analista"  and r.status == "OPERACIONAL"),
+            "AA":        sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "AA"        and r.status == "OPERACIONAL"),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Associado" and r.status == "OPERACIONAL"),
+            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
         }
 
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
-    turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
+    turnos_disponiveis = sorted({
+        turno
+        for r in todos
+        for turno in (r.turno, r.hora_extra_turno)
+        if turno
+    })
     status_disponiveis = sorted({r.status for r in todos})
     jobs_do_setor = _jobs_por_area(f_area) if f_area else PROCESSOS
     jobs_disponiveis = jobs_do_setor or sorted({r.job for r in todos if r.job})
@@ -1215,7 +1262,12 @@ def dashboard_data():
     if not f_area:
         processos_por_job = dict(sorted(processos_por_job.items(), key=lambda x: x[1], reverse=True))
     processos_por_area = _count_dict([_processo_area(r.job) for r in hc_alocados])
-    processos_por_turno = _count_dict([r.turno for r in hc_alocados])
+    turnos_alocados = []
+    for r in hc_alocados:
+        turnos_alocados.append(r.turno)
+        if r.hora_extra_turno and r.presente_fc:
+            turnos_alocados.append(r.hora_extra_turno)
+    processos_por_turno = _count_dict(turnos_alocados)
     processos_por_cargo = _count_dict([r.cargo for r in hc_alocados])
     attendance_por_setor = {}
     attendance_por_turno = {}
@@ -1239,10 +1291,13 @@ def dashboard_data():
         destino.update(dict(sorted(grupos.items(), key=lambda x: x[1]["total"], reverse=True)))
 
     for r in hc_alocados:
-        turno = r.turno or "Sem informacao"
         job = r.job or "Sem processo"
-        matriz_turno_processo.setdefault(turno, {})
-        matriz_turno_processo[turno][job] = matriz_turno_processo[turno].get(job, 0) + 1
+        turnos_job = [r.turno or "Sem informacao"]
+        if r.hora_extra_turno and r.presente_fc:
+            turnos_job.append(r.hora_extra_turno)
+        for turno in turnos_job:
+            matriz_turno_processo.setdefault(turno, {})
+            matriz_turno_processo[turno][job] = matriz_turno_processo[turno].get(job, 0) + 1
 
     lc_por_processo = _count_dict([lc.process_name for lc, _ in lc_registros])
     lc_por_level = _count_dict([lc.lc_level for lc, _ in lc_registros])

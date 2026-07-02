@@ -64,6 +64,7 @@
                     <th>Status</th>
                     <th>Chamada</th>
                     <th>Job</th>
+                    <th>Hora Extra</th>
                     <th>Comentário</th>
                     <th>Ações</th>
                 </tr>
@@ -110,6 +111,10 @@
                 <select name="job">
                     <option value="">Job / Processo</option>
                     {% for item in processos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select name="hora_extra_turno">
+                    <option value="">Sem hora extra</option>
+                    {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                 </select>
             </div>
 
@@ -175,6 +180,7 @@
 
 <script>
 window.HC_PROCESSOS = {{ processos|tojson }};
+window.HC_TURNOS = {{ turnos|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/atualizar.js') }}"></script>
 {% endblock %}

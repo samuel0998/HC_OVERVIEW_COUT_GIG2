@@ -159,6 +159,7 @@ def _migrate_hc_table_for_fc(fc):
             "AND UPPER(cargo) IN ('AA', 'ASSOCIADO')"
         ))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS job VARCHAR(80)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS hora_extra_turno VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_desligamento DATE"))
