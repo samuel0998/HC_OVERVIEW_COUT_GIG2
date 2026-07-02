@@ -37,3 +37,4 @@ class Config:
     }
     DEFAULT_FC = os.getenv("DEFAULT_FC", "GIG2")
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+#sdasd
