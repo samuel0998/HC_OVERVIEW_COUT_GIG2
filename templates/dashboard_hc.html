@@ -70,6 +70,68 @@
     </div>
 
     <!-- GRÁFICOS LINHA 1 -->
+    <div class="section-title">Processos e Attendance</div>
+
+    <div class="cards-grid processos-cards-grid">
+      <div class="stat-card card-blue">
+        <span>AA OPERACIONAL</span>
+        <strong id="procAaOperacional">0</strong>
+      </div>
+      <div class="stat-card card-green">
+        <span>PRESENTES NO FC</span>
+        <strong id="procAaPresentes">0</strong>
+      </div>
+      <div class="stat-card card-orange">
+        <span>AA ALOCADOS</span>
+        <strong id="procAaAlocados">0</strong>
+      </div>
+      <div class="stat-card card-teal">
+        <span>ATTENDANCE</span>
+        <strong id="procAttendance">0%</strong>
+      </div>
+      <div class="stat-card card-purple">
+        <span>SEM JOB</span>
+        <strong id="procSemJob">0</strong>
+      </div>
+    </div>
+
+    <div class="dashboard-grid dashboard-grid-focus">
+      <section class="card chart-card chart-card-large chart-card-wide">
+        <h2>AA por Job</h2>
+        <canvas id="chartProcessoJob"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Processos por Setor</h2>
+        <canvas id="chartProcessoArea"></canvas>
+      </section>
+    </div>
+
+    <div class="dashboard-grid" style="margin-top:16px">
+      <section class="card chart-card">
+        <h2>Attendance por Turno</h2>
+        <canvas id="chartAttendanceTurno"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Alocados por Turno</h2>
+        <canvas id="chartProcessoTurno"></canvas>
+      </section>
+      <section class="card chart-card">
+        <h2>Alocados por Cargo</h2>
+        <canvas id="chartProcessoCargo"></canvas>
+      </section>
+    </div>
+
+    <div class="dashboard-grid" style="margin-top:16px">
+      <section class="card chart-card chart-card-large">
+        <h2>Turno por Job</h2>
+        <canvas id="chartTurnoProcesso"></canvas>
+      </section>
+      <section class="card chart-card chart-card-large">
+        <h2>Attendance por Setor</h2>
+        <canvas id="chartAttendanceSetor"></canvas>
+      </section>
+    </div>
+
     <div class="dashboard-grid">
       <section class="card chart-card">
         <h2>HC por Área</h2>
@@ -98,68 +160,6 @@
       <section class="card chart-card">
         <h2>HC Operacional por Turno</h2>
         <canvas id="chartOperacionalTurno"></canvas>
-      </section>
-    </div>
-
-    <div class="section-title">Processos e Attendance</div>
-
-    <div class="cards-grid processos-cards-grid">
-      <div class="stat-card card-blue">
-        <span>AA OPERACIONAL</span>
-        <strong id="procAaOperacional">0</strong>
-      </div>
-      <div class="stat-card card-green">
-        <span>PRESENTES NO FC</span>
-        <strong id="procAaPresentes">0</strong>
-      </div>
-      <div class="stat-card card-orange">
-        <span>AA ALOCADOS</span>
-        <strong id="procAaAlocados">0</strong>
-      </div>
-      <div class="stat-card card-teal">
-        <span>ATTENDANCE</span>
-        <strong id="procAttendance">0%</strong>
-      </div>
-      <div class="stat-card card-purple">
-        <span>SEM JOB</span>
-        <strong id="procSemJob">0</strong>
-      </div>
-    </div>
-
-    <div class="dashboard-grid">
-      <section class="card chart-card chart-card-large">
-        <h2>AA por Job</h2>
-        <canvas id="chartProcessoJob"></canvas>
-      </section>
-      <section class="card chart-card">
-        <h2>Processos por Setor</h2>
-        <canvas id="chartProcessoArea"></canvas>
-      </section>
-      <section class="card chart-card">
-        <h2>Attendance por Turno</h2>
-        <canvas id="chartAttendanceTurno"></canvas>
-      </section>
-    </div>
-
-    <div class="dashboard-grid" style="margin-top:16px">
-      <section class="card chart-card">
-        <h2>Alocados por Turno</h2>
-        <canvas id="chartProcessoTurno"></canvas>
-      </section>
-      <section class="card chart-card">
-        <h2>Alocados por Cargo</h2>
-        <canvas id="chartProcessoCargo"></canvas>
-      </section>
-      <section class="card chart-card chart-card-large">
-        <h2>Turno por Job</h2>
-        <canvas id="chartTurnoProcesso"></canvas>
-      </section>
-    </div>
-
-    <div class="dashboard-grid" style="margin-top:16px">
-      <section class="card chart-card chart-card-large">
-        <h2>Attendance por Setor</h2>
-        <canvas id="chartAttendanceSetor"></canvas>
       </section>
     </div>
 

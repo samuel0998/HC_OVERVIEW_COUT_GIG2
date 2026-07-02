@@ -323,6 +323,7 @@ tbody tr:hover { background: #f0f6ff; }
 .stat-card span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; font-weight: bold; letter-spacing: .4px; }
 .stat-card strong { font-size: 34px; color: #111827; }
 .dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.dashboard-grid-focus { grid-template-columns: 2fr 1fr; }
 .section-title {
   margin: 22px 0 12px;
   color: var(--primary);
@@ -332,6 +333,7 @@ tbody tr:hover { background: #f0f6ff; }
 .lc-cards-grid { grid-template-columns: repeat(4, 1fr); }
 .chart-card { min-height: 370px; }
 .chart-card-large { min-height: 430px; }
+.chart-card-wide { grid-column: span 1; }
 .chart-card canvas {
   cursor: pointer;
   width: 100% !important;
