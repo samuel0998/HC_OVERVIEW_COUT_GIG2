@@ -1,5 +1,6 @@
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
+from sqlalchemy import func
 
 from models import db
 from models.hc_gig2 import HCGig2
@@ -8,35 +9,46 @@ from models.operadores import Operadores
 auth_bp = Blueprint("auth", __name__)
 
 
-def _sincronizar_hc_com_operadores():
-    colaboradores = HCGig2.query.all()
-    existentes = {
-        (op.login or "").strip().lower(): op
-        for op in Operadores.query.all()
-        if (op.login or "").strip()
+def _hc_usuario_dict(colab):
+    login = (colab.login or "").strip().lower()
+    return {
+        "login": login,
+        "nome": colab.nome_completo or login,
+        "setor": colab.area or "",
+        "permission_hcview": False,
+        "permission_level_hcview": "",
+        "origem": "HC",
     }
 
-    novos = 0
-    for colab in colaboradores:
+
+def _usuarios_operadores_e_hc():
+    operadores = Operadores.query.order_by(Operadores.nome.asc()).all()
+    usuarios = {op.login.lower(): op.to_dict() for op in operadores if op.login}
+
+    for colab in HCGig2.query.all():
         login = (colab.login or "").strip().lower()
-        if not login or login in existentes:
-            continue
+        if login and login not in usuarios:
+            usuarios[login] = _hc_usuario_dict(colab)
 
-        operador = Operadores(
-            login=login,
-            nome=colab.nome_completo,
-            setor=colab.area,
-            treinamento=(colab.status == "Treinamento"),
-            permission_hcview=False,
-            permission_level_hcview=None,
-        )
-        db.session.add(operador)
-        existentes[login] = operador
-        novos += 1
+    return sorted(usuarios.values(), key=lambda item: ((item.get("nome") or "").lower(), item.get("login") or ""))
 
-    if novos:
-        db.session.commit()
-    return novos
+
+def _criar_operador_do_hc(login):
+    colab = HCGig2.query.filter(func.lower(HCGig2.login) == login.lower()).first()
+    if not colab:
+        return None
+
+    operador = Operadores(
+        login=login.lower(),
+        nome=colab.nome_completo,
+        setor=colab.area,
+        treinamento=(colab.status == "Treinamento"),
+        permission_hcview=False,
+        permission_level_hcview=None,
+    )
+    db.session.add(operador)
+    db.session.flush()
+    return operador
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -95,9 +107,7 @@ def usuarios_page():
 def listar_usuarios():
     if not current_user.is_admin:
         return jsonify({"erro": "Acesso negado."}), 403
-    _sincronizar_hc_com_operadores()
-    operadores = Operadores.query.order_by(Operadores.nome.asc()).all()
-    return jsonify([o.to_dict() for o in operadores])
+    return jsonify(_usuarios_operadores_e_hc())
 
 
 @auth_bp.route("/api/usuarios/<login_val>", methods=["PUT"])
@@ -106,7 +116,10 @@ def atualizar_permissao(login_val):
     if not current_user.is_admin:
         return jsonify({"erro": "Acesso negado."}), 403
 
-    operador = Operadores.query.get_or_404(login_val)
+    login_key = (login_val or "").strip().lower()
+    operador = Operadores.query.get(login_key) or _criar_operador_do_hc(login_key)
+    if not operador:
+        return jsonify({"erro": "Login nao encontrado no HC nem em operadores."}), 404
     data = request.get_json() or {}
 
     if "permission_hcview" in data:
