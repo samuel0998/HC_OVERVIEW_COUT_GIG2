@@ -25,7 +25,7 @@ PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
     "TRANSFER OUT": ["Transfer Out Pick", "Transfer Out Dock", "Transfer Support"],
-    "OUTBOUND": ["Pick", "Sort", "Pack Singles", "Pack Multis", "Outbound support", "Container Build", "Container Move", "Container Load"],
+    "OUTBOUND": ["Pick", "Sort", "Pack Singles", "Pack Multis", "Outbound support", "OB Support", "Container Build", "Container Move", "Container Load"],
     "INBOUND": ["PS INBOUND"],
 }
 PROCESSOS = [processo for processos in PROCESSOS_POR_AREA.values() for processo in processos]
