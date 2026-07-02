@@ -2,9 +2,41 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from flask_login import current_user, login_required, login_user, logout_user
 
 from models import db
+from models.hc_gig2 import HCGig2
 from models.operadores import Operadores
 
 auth_bp = Blueprint("auth", __name__)
+
+
+def _sincronizar_hc_com_operadores():
+    colaboradores = HCGig2.query.all()
+    existentes = {
+        (op.login or "").strip().lower(): op
+        for op in Operadores.query.all()
+        if (op.login or "").strip()
+    }
+
+    novos = 0
+    for colab in colaboradores:
+        login = (colab.login or "").strip().lower()
+        if not login or login in existentes:
+            continue
+
+        operador = Operadores(
+            login=login,
+            nome=colab.nome_completo,
+            setor=colab.area,
+            treinamento=(colab.status == "Treinamento"),
+            permission_hcview=False,
+            permission_level_hcview=None,
+        )
+        db.session.add(operador)
+        existentes[login] = operador
+        novos += 1
+
+    if novos:
+        db.session.commit()
+    return novos
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -63,6 +95,7 @@ def usuarios_page():
 def listar_usuarios():
     if not current_user.is_admin:
         return jsonify({"erro": "Acesso negado."}), 403
+    _sincronizar_hc_com_operadores()
     operadores = Operadores.query.order_by(Operadores.nome.asc()).all()
     return jsonify([o.to_dict() for o in operadores])
 
