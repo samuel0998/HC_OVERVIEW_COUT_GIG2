@@ -26,6 +26,15 @@
             <option value="">Todos os status</option>
             {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
         </select>
+        <select id="filtroPresenca" class="filter-select">
+            <option value="">Todos na chamada</option>
+            <option value="presente">No FC</option>
+            <option value="ausente">Fora do FC</option>
+        </select>
+        <select id="filtroJob" class="filter-select">
+            <option value="">Todos os jobs</option>
+            {% for item in processos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+        </select>
     </div>
     <div class="toolbar" style="margin-top:0;margin-bottom:12px">
         <button id="btnExportar" class="btn primary">Exportar Excel</button>
@@ -53,6 +62,8 @@
                     <th>Área</th>
                     <th>Turno</th>
                     <th>Status</th>
+                    <th>Chamada</th>
+                    <th>Job</th>
                     <th>Comentário</th>
                     <th>Ações</th>
                 </tr>
@@ -91,6 +102,14 @@
                     <option value="Licença">Licença</option>
                     <option value="Férias">Férias</option>
                     <option value="Desligado">Desligado</option>
+                </select>
+                <label class="switch-field">
+                    <span>No FC</span>
+                    <input type="checkbox" name="presente_fc">
+                </label>
+                <select name="job">
+                    <option value="">Job / Processo</option>
+                    {% for item in processos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                 </select>
             </div>
 
@@ -154,5 +173,8 @@
     </div>
 </div>
 
+<script>
+window.HC_PROCESSOS = {{ processos|tojson }};
+</script>
 <script src="{{ url_for('static', filename='js/atualizar.js') }}"></script>
 {% endblock %}

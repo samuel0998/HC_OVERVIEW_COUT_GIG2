@@ -44,7 +44,7 @@ const LC_LEVEL_COLORS = {
 };
 
 // ── Estado dos filtros ───────────────────────────────────────────
-const filtros = { area: "", turno: "", status: "", cargo: "" };
+const filtros = { area: "", turno: "", status: "", cargo: "", job: "", presenca: "" };
 const charts  = {};
 
 // ── Utilitários ──────────────────────────────────────────────────
@@ -54,6 +54,8 @@ function buildUrl() {
   if (filtros.turno)  p.set("turno",  filtros.turno);
   if (filtros.status) p.set("status", filtros.status);
   if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  if (filtros.job)    p.set("job",    filtros.job);
+  if (filtros.presenca) p.set("presenca", filtros.presenca);
   return `/api/hc/dashboard?${p.toString()}`;
 }
 
@@ -63,6 +65,8 @@ function listUrl(extra = {}) {
   if (filtros.turno)  p.set("turno",  filtros.turno);
   if (filtros.status) p.set("status", filtros.status);
   if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  if (filtros.job)    p.set("job",    filtros.job);
+  if (filtros.presenca) p.set("presenca", filtros.presenca);
   Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
   return `/atualizar?${p.toString()}`;
 }
@@ -73,6 +77,8 @@ function lcListUrl(extra = {}) {
   if (filtros.turno)  p.set("turno",  filtros.turno);
   if (filtros.status) p.set("status", filtros.status);
   if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  if (filtros.job)    p.set("job",    filtros.job);
+  if (filtros.presenca) p.set("presenca", filtros.presenca);
   Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
   return `/lc?${p.toString()}`;
 }
@@ -337,6 +343,8 @@ async function carregarDashboard() {
   renderPills("filterTurno",  data.filtros_disponiveis.turnos, "turno");
   renderPills("filterStatus", data.filtros_disponiveis.status, "status");
   renderPills("filterCargo",  data.filtros_disponiveis.cargos, "cargo");
+  renderPills("filterPresenca", data.filtros_disponiveis.presencas || [], "presenca");
+  renderPills("filterJob", data.filtros_disponiveis.jobs || [], "job");
 
   // ── HC por Área (horizontal) ────────────────────────────────
   const areaLabels = Object.keys(data.por_area);
@@ -356,8 +364,8 @@ async function carregarDashboard() {
 
   // ── Associados e PITs por turno ─────────────────────────────
   renderGrouped("chartAssociados", data.associados_e_pits,
-    ["Associado", "PIT"],
-    [PALETTE.blue, PALETTE.pink],
+    ["AA", "Associado", "PIT"],
+    [PALETTE.teal, PALETTE.blue, PALETTE.pink],
     (turno, cargo) => {
       window.location.href = listUrl({ turno, cargo });
     }
@@ -381,11 +389,65 @@ async function carregarDashboard() {
 
   // ── HC Operacional por Turno (grouped) ──────────────────────
   renderGrouped("chartOperacionalTurno", data.operacional_por_turno,
-    ["Analista", "Associado", "PIT"],
-    [PALETTE.navy, PALETTE.blue, PALETTE.pink],
+    ["Analista", "AA", "Associado", "PIT"],
+    [PALETTE.navy, PALETTE.teal, PALETTE.blue, PALETTE.pink],
     (turno, cargo) => {
       window.location.href = listUrl({ turno, cargo, status: "OPERACIONAL" });
     }
+  );
+
+  const processos = data.processos || {};
+  const procCards = processos.cards || {};
+  document.getElementById("procAaOperacional").textContent = procCards.aa_operacional || 0;
+  document.getElementById("procAaPresentes").textContent = procCards.aa_presentes || 0;
+  document.getElementById("procAaAlocados").textContent = procCards.aa_alocados || 0;
+  document.getElementById("procAttendance").textContent = `${procCards.attendance_pct || 0}%`;
+  document.getElementById("procSemJob").textContent = procCards.sem_job || 0;
+
+  const procJob = topEntries(processos.por_job, 22);
+  const procJobLabels = Object.keys(procJob);
+  renderBarH("chartProcessoJob", procJobLabels, Object.values(procJob),
+    procJobLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (job) => { window.location.href = listUrl({ job }); }
+  );
+
+  const procAreaLabels = Object.keys(processos.por_area || {});
+  renderDoughnut("chartProcessoArea", procAreaLabels, Object.values(processos.por_area || {}),
+    procAreaLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (area) => { window.location.href = listUrl({ area }); }
+  );
+
+  const attendanceTurno = processos.attendance_por_turno || {};
+  const attTurnoLabels = Object.keys(attendanceTurno);
+  renderBarV("chartAttendanceTurno", attTurnoLabels, attTurnoLabels.map(k => attendanceTurno[k].attendance || 0),
+    attTurnoLabels.map(l => TURNO_COLORS[l] || PALETTE.slate),
+    (turno) => { window.location.href = listUrl({ turno }); }
+  );
+
+  const procTurnoLabels = Object.keys(processos.por_turno || {});
+  renderBarV("chartProcessoTurno", procTurnoLabels, Object.values(processos.por_turno || {}),
+    procTurnoLabels.map(l => TURNO_COLORS[l] || PALETTE.slate),
+    (turno) => { window.location.href = listUrl({ turno }); }
+  );
+
+  const procCargoLabels = Object.keys(processos.por_cargo || {});
+  renderBarV("chartProcessoCargo", procCargoLabels, Object.values(processos.por_cargo || {}),
+    procCargoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (cargo) => { window.location.href = listUrl({ cargo }); }
+  );
+
+  const turnoProcesso = processos.turno_processo || {};
+  const turnoProcessoSeries = seriesFromMap(turnoProcesso);
+  renderGrouped("chartTurnoProcesso", turnoProcesso, turnoProcessoSeries,
+    turnoProcessoSeries.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (turno, job) => { window.location.href = listUrl({ turno, job }); }
+  );
+
+  const attendanceSetor = processos.attendance_por_setor || {};
+  const attSetorLabels = Object.keys(attendanceSetor);
+  renderBarH("chartAttendanceSetor", attSetorLabels, attSetorLabels.map(k => attendanceSetor[k].attendance || 0),
+    attSetorLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
+    (area) => { window.location.href = listUrl({ area }); }
   );
 
   const lc = data.lc || {};
@@ -458,7 +520,7 @@ async function carregarDashboard() {
 }
 
 document.getElementById("btnLimparFiltros").addEventListener("click", () => {
-  filtros.area = filtros.turno = filtros.status = filtros.cargo = "";
+  filtros.area = filtros.turno = filtros.status = filtros.cargo = filtros.job = filtros.presenca = "";
   carregarDashboard();
 });
 
