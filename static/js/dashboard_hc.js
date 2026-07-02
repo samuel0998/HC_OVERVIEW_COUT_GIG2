@@ -404,7 +404,7 @@ async function carregarDashboard() {
   document.getElementById("procAttendance").textContent = `${procCards.attendance_pct || 0}%`;
   document.getElementById("procSemJob").textContent = procCards.sem_job || 0;
 
-  const procJob = topEntries(processos.por_job, 22);
+  const procJob = processos.por_job || {};
   const procJobLabels = Object.keys(procJob);
   renderBarH("chartProcessoJob", procJobLabels, Object.values(procJob),
     procJobLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]),
