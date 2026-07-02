@@ -153,7 +153,9 @@ async function salvarPermissao() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ permission_hcview: acesso, permission_level_hcview: nivel }),
         });
-        const data = await res.json();
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = { erro: raw }; }
         if (!res.ok) { msg.textContent = data.erro || 'Erro.'; msg.style.color = 'red'; return; }
         fecharModal();
         carregarOperadores();

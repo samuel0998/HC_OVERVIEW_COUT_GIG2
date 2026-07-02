@@ -1,6 +1,7 @@
 from flask import Blueprint, current_app, jsonify, redirect, render_template, request, session, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 
 from models import db
 from models.hc_gig2 import HCGig2
@@ -41,8 +42,14 @@ def _criar_operador_do_hc(login):
     operador = Operadores(
         login=login.lower(),
         nome=colab.nome_completo,
-        setor=colab.area,
+        badge="",
+        tag="",
+        setor=colab.area or "",
         treinamento=(colab.status == "Treinamento"),
+        permission_labordash=False,
+        permission_dockview=False,
+        permission_level_labordash=None,
+        permission_level_dockview=None,
         permission_hcview=False,
         permission_level_hcview=None,
     )
@@ -133,5 +140,10 @@ def atualizar_permissao(login_val):
             return jsonify({"erro": "Nivel invalido."}), 400
         operador.permission_level_hcview = nivel or None
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        return jsonify({"erro": f"Erro ao gravar permissao: {str(e)}"}), 500
+
     return jsonify({"mensagem": "Permissao atualizada.", "operador": operador.to_dict()})
