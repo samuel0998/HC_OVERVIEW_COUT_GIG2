@@ -21,6 +21,14 @@ CARGOS  = ["AA", "Associado", "PIT", "Analista", "Supervisor", "Líder", "Técni
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
 STATUS  = ["OPERACIONAL", "Treinamento", "Licença", "Férias", "Desligado", "OFF"]
+PROCESSOS_POR_AREA = {
+    "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
+    "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
+    "TRANSFER OUT": ["Transfer Out Pick", "Transfer Out Dock", "Transfer Support"],
+    "OUTBOUND": ["Pick", "Sort", "Pack Singles", "Pack Multis", "Outbound support", "Container Build", "Container Move", "Container Load"],
+    "INBOUND": ["PS INBOUND"],
+}
+PROCESSOS = [processo for processos in PROCESSOS_POR_AREA.values() for processo in processos]
 RH_EMAIL = "rh_gig2-br@id-logistics.com"
 APP_URL  = "https://hcoverviewcoutgig2-production.up.railway.app/atualizar"
 
@@ -105,6 +113,24 @@ def _formatar_cargo(cargo):
     return cargo_map.get(_cargo_normalizado(texto), texto)
 
 
+def _formatar_job(job):
+    texto = (job or "").strip()
+    if not texto or texto.lower() in ("nan", "none"):
+        return None
+
+    normalizado = _normalizar(texto)
+    for processo in PROCESSOS:
+        if _normalizar(processo) == normalizado:
+            return processo
+    return texto
+
+
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    return _normalizar(value) in ("sim", "s", "true", "1", "yes", "y", "presente", "no fc", "fc")
+
+
 def _turno_inicial(cargo, turno=None):
     if _cargo_normalizado(cargo) == "PIT":
         return "ADM"
@@ -183,7 +209,7 @@ def novo_hc():
 def atualizar():
     if not current_user.can_edit:
         abort(403)
-    return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
+    return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS, processos=PROCESSOS)
 
 
 @hc_bp.route("/dashboard")
@@ -266,6 +292,8 @@ def novo_colaborador():
         area=(data.get("area") or "").strip() or None,
         turno=None,
         status="Treinamento",
+        presente_fc=_parse_bool(data.get("presente_fc")),
+        job=_formatar_job(data.get("job")),
     )
     colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
 
@@ -286,6 +314,8 @@ def novo_colaborador():
             "area": colaborador.area or "",
             "turno": colaborador.turno or "",
             "status": colaborador.status,
+            "presente_fc": colaborador.presente_fc,
+            "job": colaborador.job or "",
         }),
     )
 
@@ -334,6 +364,8 @@ def atualizar_colaborador(item_id):
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     colaborador.status        = novo_status
+    colaborador.presente_fc   = _parse_bool(data.get("presente_fc", colaborador.presente_fc))
+    colaborador.job           = _formatar_job(data.get("job", colaborador.job))
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
@@ -360,6 +392,8 @@ def atualizar_colaborador(item_id):
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
         "status": colaborador.status,
+        "presente_fc": colaborador.presente_fc,
+        "job": colaborador.job or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
     })
 
@@ -424,6 +458,42 @@ def excluir_colaborador(item_id):
 
 
 # ── API: Pendências ────────────────────────────────────────────
+
+
+@hc_bp.route("/api/hc/<int:item_id>/alocacao", methods=["PATCH"])
+@login_required
+def atualizar_alocacao(item_id):
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissao para atualizar alocacao."}), 403
+
+    colaborador = HCGig2.query.get_or_404(item_id)
+    data = request.get_json() or {}
+
+    dados_ant = json.dumps({
+        "presente_fc": colaborador.presente_fc,
+        "job": colaborador.job or "",
+    })
+
+    if "presente_fc" in data:
+        colaborador.presente_fc = _parse_bool(data.get("presente_fc"))
+    if "job" in data:
+        colaborador.job = _formatar_job(data.get("job"))
+
+    dados_nov = json.dumps({
+        "presente_fc": colaborador.presente_fc,
+        "job": colaborador.job or "",
+    })
+
+    _registrar(
+        "edicao",
+        colaborador,
+        f"Chamada/job atualizados: {colaborador.nome_completo}",
+        dados_ant=dados_ant,
+        dados_nov=dados_nov,
+    )
+
+    db.session.commit()
+    return jsonify({"mensagem": "Alocacao atualizada.", "item": colaborador.to_dict()})
 
 
 @hc_bp.route("/api/hc/pendencias", methods=["GET"])
@@ -568,6 +638,8 @@ def importar_csv():
     col_cargo = _find_col(df, "cargo")
     col_area = _find_col(df, "area")
     col_turno = _find_col(df, "turno")
+    col_presente = _find_col(df, "presente") or _find_col(df, "chamada") or _find_col(df, "fc")
+    col_job = _find_col(df, "job") or _find_col(df, "processo")
     col_previsao = _find_col(df, "previsao") or _find_col(df, "previs")
     col_descricao = _find_col(df, "descri")
     col_status_lib = _find_col(df, "libera")
@@ -625,6 +697,9 @@ def importar_csv():
             turno = str(row.get(col_turno, "")).strip() if col_turno else ""
             turno = None if turno.lower() in ("nan", "none", "") else turno
 
+            presente_fc = _parse_bool(row.get(col_presente, False)) if col_presente else False
+            job = _formatar_job(row.get(col_job, "")) if col_job else None
+
             raw_status = str(row.get(col_status, "operacional")).strip() if col_status else "operacional"
             status = STATUS_MAP.get(_normalizar(raw_status), "OPERACIONAL")
 
@@ -647,6 +722,8 @@ def importar_csv():
             item.area = area
             item.turno = _turno_inicial(item.cargo, turno) if status == "Treinamento" else turno
             item.status = status
+            item.presente_fc = presente_fc
+            item.job = job
             item.previsao_afastamento = previsao
             item.causa_afastamento = causa
             item.status_liberacao = status_lib
@@ -714,6 +791,16 @@ def importar_excel():
         turno = str(row[normalizadas["turno"]]).strip() or None
         item.status = str(row[normalizadas["status"]]).strip() or "OPERACIONAL"
         item.turno = _turno_inicial(item.cargo, turno) if item.status == "Treinamento" else turno
+        col_presente = (
+            normalizadas.get("presente_fc")
+            or normalizadas.get("presente fc")
+            or normalizadas.get("presenca")
+            or normalizadas.get("presença")
+            or normalizadas.get("chamada")
+        )
+        col_job = normalizadas.get("job") or normalizadas.get("processo")
+        item.presente_fc = _parse_bool(row[col_presente]) if col_presente else False
+        item.job = _formatar_job(row[col_job]) if col_job else None
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
         causa = row[normalizadas["causa_afastamento"]]
@@ -741,6 +828,8 @@ def exportar_excel():
             "Area": d["area"],
             "Turno": d["turno"],
             "Status": d["status"],
+            "Chamada": "SIM" if d["presente_fc"] else "NAO",
+            "Job": d["job"],
             "Status Liberação": d["status_liberacao"],
             "Previsão Afastamento": "SIM" if d["previsao_afastamento"] else "NÃO",
             "Data Afastamento": d["data_afastamento"] or "",
@@ -839,7 +928,7 @@ def listar_lc():
         "areas": sorted({r.area for r in hc_por_login.values() if r.area}),
         "turnos": sorted({r.turno for r in hc_por_login.values() if r.turno}),
         "status": sorted({r.status for r in hc_por_login.values() if r.status}),
-        "cargos": ["Associado", "PIT"],
+        "cargos": ["AA", "Associado", "PIT"],
     }
 
     return jsonify({
@@ -965,6 +1054,8 @@ def dashboard_data():
     f_turno  = request.args.get("turno", "").strip()
     f_status = request.args.get("status", "").strip()
     f_cargo  = request.args.get("cargo", "").strip()
+    f_job    = request.args.get("job", "").strip()
+    f_presenca = request.args.get("presenca", "").strip().lower()
 
     todos = HCGig2.query.all()
     _aplicar_regra_hc_atual(todos)
@@ -978,9 +1069,19 @@ def dashboard_data():
         registros = [r for r in registros if r.status == f_status]
     if f_cargo:
         registros = [r for r in registros if r.cargo == f_cargo]
+    if f_job:
+        registros = [r for r in registros if (r.job or "") == f_job]
+    if f_presenca in ("presente", "1", "sim", "true"):
+        registros = [r for r in registros if r.presente_fc]
+    elif f_presenca in ("ausente", "0", "nao", "false"):
+        registros = [r for r in registros if not r.presente_fc]
 
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
+    presentes = sum(1 for r in registros if r.presente_fc)
+    alocados = sum(1 for r in registros if r.job)
+    attendance_pct = round((presentes / operacional) * 100, 1) if operacional else 0
+    alocacao_pct = round((alocados / total) * 100, 1) if total else 0
     off        = sum(1 for r in registros if r.status == "OFF")
     treinamento = sum(1 for r in registros if r.status == "Treinamento")
     licenca    = sum(1 for r in registros if r.status == "Licença")
@@ -1009,6 +1110,7 @@ def dashboard_data():
     associados_e_pits = {}
     for turno in TURNOS:
         associados_e_pits[turno] = {
+            "AA": sum(1 for r in registros if r.turno == turno and r.cargo == "AA"),
             "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado"),
             "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"),
         }
@@ -1019,6 +1121,7 @@ def dashboard_data():
             continue
         operacional_por_turno[turno] = {
             "Analista":  sum(1 for r in registros if r.turno == turno and r.cargo == "Analista"  and r.status == "OPERACIONAL"),
+            "AA":        sum(1 for r in registros if r.turno == turno and r.cargo == "AA"        and r.status == "OPERACIONAL"),
             "Associado": sum(1 for r in registros if r.turno == turno and r.cargo == "Associado" and r.status == "OPERACIONAL"),
             "PIT":       sum(1 for r in registros if r.turno == turno and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
         }
@@ -1026,6 +1129,7 @@ def dashboard_data():
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
     turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
     status_disponiveis = sorted({r.status for r in todos})
+    jobs_disponiveis = sorted({r.job for r in todos if r.job})
 
     hc_por_login = {
         (r.login or "").strip().lower(): r
@@ -1066,6 +1170,51 @@ def dashboard_data():
     def _unique_people_count(pares):
         return len({(lc.login or "").strip().lower() for lc, _ in pares if (lc.login or "").strip()})
 
+    def _processo_area(job):
+        for area, processos in PROCESSOS_POR_AREA.items():
+            if job in processos:
+                return area
+        return "Sem setor"
+
+    hc_aa_processos = [
+        r for r in registros
+        if r.cargo in ("AA", "Associado") and r.status == "OPERACIONAL"
+    ]
+    hc_alocados = [r for r in hc_aa_processos if r.job]
+    hc_presentes = [r for r in hc_aa_processos if r.presente_fc]
+    hc_presentes_alocados = [r for r in hc_aa_processos if r.presente_fc and r.job]
+
+    processos_por_job = _count_dict([r.job for r in hc_alocados])
+    processos_por_area = _count_dict([_processo_area(r.job) for r in hc_alocados])
+    processos_por_turno = _count_dict([r.turno for r in hc_alocados])
+    processos_por_cargo = _count_dict([r.cargo for r in hc_alocados])
+    attendance_por_setor = {}
+    attendance_por_turno = {}
+    matriz_turno_processo = {}
+
+    for grupo_nome, destino, chave_fn in (
+        ("setor", attendance_por_setor, lambda r: r.area or "Sem informacao"),
+        ("turno", attendance_por_turno, lambda r: r.turno or "Sem informacao"),
+    ):
+        grupos = {}
+        for r in hc_aa_processos:
+            chave = chave_fn(r)
+            grupos.setdefault(chave, {"total": 0, "presentes": 0, "ausentes": 0, "attendance": 0})
+            grupos[chave]["total"] += 1
+            if r.presente_fc:
+                grupos[chave]["presentes"] += 1
+            else:
+                grupos[chave]["ausentes"] += 1
+        for chave, dados in grupos.items():
+            dados["attendance"] = round((dados["presentes"] / dados["total"]) * 100, 1) if dados["total"] else 0
+        destino.update(dict(sorted(grupos.items(), key=lambda x: x[1]["total"], reverse=True)))
+
+    for r in hc_alocados:
+        turno = r.turno or "Sem informacao"
+        job = r.job or "Sem processo"
+        matriz_turno_processo.setdefault(turno, {})
+        matriz_turno_processo[turno][job] = matriz_turno_processo[turno].get(job, 0) + 1
+
     lc_por_processo = _count_dict([lc.process_name for lc, _ in lc_registros])
     lc_por_level = _count_dict([lc.lc_level for lc, _ in lc_registros])
     lc_por_turno = _count_dict([(hc_ref.turno if hc_ref else None) for _, hc_ref in lc_registros])
@@ -1097,6 +1246,10 @@ def dashboard_data():
         "cards": {
             "hc_total": total,
             "hc_operacional": operacional,
+            "hc_presentes": presentes,
+            "hc_alocados": alocados,
+            "attendance_pct": attendance_pct,
+            "alocacao_pct": alocacao_pct,
             "pct_outbound": pct_outbound,
             "pct_inbound":  pct_inbound,
             "pct_icqa":     pct_icqa,
@@ -1111,9 +1264,30 @@ def dashboard_data():
             "areas":  areas_disponiveis,
             "turnos": turnos_disponiveis,
             "status": status_disponiveis,
-            "cargos": ["Associado", "PIT"],
+            "cargos": ["AA", "Associado", "PIT"],
+            "jobs": jobs_disponiveis or PROCESSOS,
+            "presencas": ["presente", "ausente"],
         },
-        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
+        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo, "job": f_job, "presenca": f_presenca},
+        "processos": {
+            "cards": {
+                "aa_operacional": len(hc_aa_processos),
+                "aa_alocados": len(hc_alocados),
+                "aa_presentes": len(hc_presentes),
+                "presentes_alocados": len(hc_presentes_alocados),
+                "sem_job": max(len(hc_aa_processos) - len(hc_alocados), 0),
+                "ausentes": max(len(hc_aa_processos) - len(hc_presentes), 0),
+                "attendance_pct": round((len(hc_presentes) / len(hc_aa_processos)) * 100, 1) if hc_aa_processos else 0,
+                "alocacao_pct": round((len(hc_alocados) / len(hc_aa_processos)) * 100, 1) if hc_aa_processos else 0,
+            },
+            "por_job": processos_por_job,
+            "por_area": processos_por_area,
+            "por_turno": processos_por_turno,
+            "por_cargo": processos_por_cargo,
+            "attendance_por_setor": attendance_por_setor,
+            "attendance_por_turno": attendance_por_turno,
+            "turno_processo": matriz_turno_processo,
+        },
         "lc": {
             "cards": {
                 "total_registros": len(lc_registros),

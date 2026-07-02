@@ -13,6 +13,8 @@ class HCGig2(db.Model):
     area = db.Column(db.String(50), nullable=True, index=True)
     turno = db.Column(db.String(50), nullable=True, index=True)
     status = db.Column(db.String(20), nullable=False, default="OPERACIONAL", index=True)
+    presente_fc = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    job = db.Column(db.String(80), nullable=True, index=True)
     status_liberacao = db.Column(db.String(100), nullable=True)
     # Licença / Férias
     data_inicio_licenca = db.Column(db.Date, nullable=True)
@@ -91,6 +93,8 @@ class HCGig2(db.Model):
             "area": self.area or "",
             "turno": self.turno or "",
             "status": self.status,
+            "presente_fc": bool(self.presente_fc),
+            "job": self.job or "",
             "status_liberacao": self.status_liberacao or "",
             "data_inicio_licenca": self.data_inicio_licenca.strftime("%Y-%m-%d") if self.data_inicio_licenca else None,
             "data_fim_licenca": self.data_fim_licenca.strftime("%Y-%m-%d") if self.data_fim_licenca else None,
