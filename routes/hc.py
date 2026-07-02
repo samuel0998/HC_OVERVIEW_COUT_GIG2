@@ -125,10 +125,28 @@ def _formatar_job(job):
     return texto
 
 
-def _parse_bool(value):
+def _jobs_por_area(area):
+    area_norm = _normalizar(area).upper()
+    aliases = {
+        "TRANSFERIN": "TRANSFER IN",
+    }
+    area_key = aliases.get(area_norm, area_norm)
+    return PROCESSOS_POR_AREA.get(area_key, [])
+
+
+def _parse_bool(value, default=False):
+    if value is None:
+        return default
     if isinstance(value, bool):
         return value
-    return _normalizar(value) in ("sim", "s", "true", "1", "yes", "y", "presente", "no fc", "fc")
+    texto = _normalizar(value)
+    if not texto or texto in ("nan", "none"):
+        return default
+    if texto in ("nao", "n", "false", "0", "no", "ausente", "fora", "fora do fc", "off"):
+        return False
+    if texto in ("sim", "s", "true", "1", "yes", "y", "presente", "no fc", "fc", "on"):
+        return True
+    return default
 
 
 def _turno_inicial(cargo, turno=None):
@@ -292,7 +310,7 @@ def novo_colaborador():
         area=(data.get("area") or "").strip() or None,
         turno=None,
         status="Treinamento",
-        presente_fc=_parse_bool(data.get("presente_fc")),
+        presente_fc=_parse_bool(data.get("presente_fc"), default=True),
         job=_formatar_job(data.get("job")),
     )
     colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
@@ -364,7 +382,7 @@ def atualizar_colaborador(item_id):
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     colaborador.status        = novo_status
-    colaborador.presente_fc   = _parse_bool(data.get("presente_fc", colaborador.presente_fc))
+    colaborador.presente_fc   = _parse_bool(data.get("presente_fc", colaborador.presente_fc), default=bool(colaborador.presente_fc))
     colaborador.job           = _formatar_job(data.get("job", colaborador.job))
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
@@ -475,7 +493,7 @@ def atualizar_alocacao(item_id):
     })
 
     if "presente_fc" in data:
-        colaborador.presente_fc = _parse_bool(data.get("presente_fc"))
+        colaborador.presente_fc = _parse_bool(data.get("presente_fc"), default=True)
     if "job" in data:
         colaborador.job = _formatar_job(data.get("job"))
 
@@ -697,7 +715,7 @@ def importar_csv():
             turno = str(row.get(col_turno, "")).strip() if col_turno else ""
             turno = None if turno.lower() in ("nan", "none", "") else turno
 
-            presente_fc = _parse_bool(row.get(col_presente, False)) if col_presente else False
+            presente_fc = _parse_bool(row.get(col_presente), default=True) if col_presente else True
             job = _formatar_job(row.get(col_job, "")) if col_job else None
 
             raw_status = str(row.get(col_status, "operacional")).strip() if col_status else "operacional"
@@ -799,7 +817,7 @@ def importar_excel():
             or normalizadas.get("chamada")
         )
         col_job = normalizadas.get("job") or normalizadas.get("processo")
-        item.presente_fc = _parse_bool(row[col_presente]) if col_presente else False
+        item.presente_fc = _parse_bool(row[col_presente], default=True) if col_presente else True
         item.job = _formatar_job(row[col_job]) if col_job else None
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
@@ -1129,7 +1147,8 @@ def dashboard_data():
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
     turnos_disponiveis = sorted({r.turno or "" for r in todos if r.turno})
     status_disponiveis = sorted({r.status for r in todos})
-    jobs_disponiveis = sorted({r.job for r in todos if r.job})
+    jobs_do_setor = _jobs_por_area(f_area) if f_area else PROCESSOS
+    jobs_disponiveis = jobs_do_setor or sorted({r.job for r in todos if r.job})
 
     hc_por_login = {
         (r.login or "").strip().lower(): r
@@ -1184,7 +1203,11 @@ def dashboard_data():
     hc_presentes = [r for r in hc_aa_processos if r.presente_fc]
     hc_presentes_alocados = [r for r in hc_aa_processos if r.presente_fc and r.job]
 
-    processos_por_job = _count_dict([r.job for r in hc_alocados])
+    processos_por_job_raw = _count_dict([r.job for r in hc_alocados])
+    jobs_grafico = jobs_do_setor or list(processos_por_job_raw.keys())
+    processos_por_job = {job: processos_por_job_raw.get(job, 0) for job in jobs_grafico}
+    if not f_area:
+        processos_por_job = dict(sorted(processos_por_job.items(), key=lambda x: x[1], reverse=True))
     processos_por_area = _count_dict([_processo_area(r.job) for r in hc_alocados])
     processos_por_turno = _count_dict([r.turno for r in hc_alocados])
     processos_por_cargo = _count_dict([r.cargo for r in hc_alocados])
