@@ -169,7 +169,7 @@ function renderBarH(id, labels, values, colors, clickFn) {
       },
       scales: {
         x: { suggestedMax: paddedMax(values), grid: { color: "#e8edf3" }, ticks: { color: "#374151" } },
-        y: { grid: { display: false }, ticks: { color: "#374151", font: { size: 11 } } }
+        y: { grid: { display: false }, ticks: { color: "#374151", font: { size: 11 }, autoSkip: false } }
       },
       onClick(evt, elements) {
         if (!elements.length) return;

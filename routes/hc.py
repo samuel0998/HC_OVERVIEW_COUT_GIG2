@@ -93,6 +93,10 @@ def _cargo_normalizado(cargo):
     return _normalizar(cargo).upper()
 
 
+def _cargo_eh(cargo, *valores):
+    return _cargo_normalizado(cargo) in {_cargo_normalizado(valor) for valor in valores}
+
+
 def _formatar_cargo(cargo):
     texto = (cargo or "").strip()
     if not texto or texto.lower() in ("nan", "none"):
@@ -1176,9 +1180,9 @@ def dashboard_data():
     associados_e_pits = {}
     for turno in TURNOS:
         associados_e_pits[turno] = {
-            "AA": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "AA"),
-            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Associado"),
-            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "PIT"),
+            "AA": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA")),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Associado")),
+            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")),
         }
 
     operacional_por_turno = {}
@@ -1186,10 +1190,10 @@ def dashboard_data():
         if turno == "ADM":
             continue
         operacional_por_turno[turno] = {
-            "Analista":  sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Analista"  and r.status == "OPERACIONAL"),
-            "AA":        sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "AA"        and r.status == "OPERACIONAL"),
-            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "Associado" and r.status == "OPERACIONAL"),
-            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and r.cargo == "PIT"       and r.status == "OPERACIONAL"),
+            "Analista":  sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Analista")  and r.status == "OPERACIONAL"),
+            "AA":        sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA")        and r.status == "OPERACIONAL"),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Associado") and r.status == "OPERACIONAL"),
+            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")       and r.status == "OPERACIONAL"),
         }
 
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
@@ -1250,7 +1254,7 @@ def dashboard_data():
 
     hc_aa_processos = [
         r for r in registros
-        if r.cargo in ("AA", "Associado") and r.status == "OPERACIONAL"
+        if _cargo_eh(r.cargo, "AA", "Associado") and r.status == "OPERACIONAL"
     ]
     hc_alocados = [r for r in hc_aa_processos if r.job]
     hc_presentes = [r for r in hc_aa_processos if r.presente_fc]
