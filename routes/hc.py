@@ -311,6 +311,7 @@ def novo_colaborador():
         turno=None,
         status="Treinamento",
         presente_fc=_parse_bool(data.get("presente_fc"), default=True),
+        presenca_manual="presente_fc" in data,
         job=_formatar_job(data.get("job")),
     )
     colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
@@ -382,7 +383,9 @@ def atualizar_colaborador(item_id):
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     colaborador.status        = novo_status
-    colaborador.presente_fc   = _parse_bool(data.get("presente_fc", colaborador.presente_fc), default=bool(colaborador.presente_fc))
+    if "presente_fc" in data:
+        colaborador.presente_fc = _parse_bool(data.get("presente_fc"), default=True)
+        colaborador.presenca_manual = True
     colaborador.job           = _formatar_job(data.get("job", colaborador.job))
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
@@ -494,6 +497,7 @@ def atualizar_alocacao(item_id):
 
     if "presente_fc" in data:
         colaborador.presente_fc = _parse_bool(data.get("presente_fc"), default=True)
+        colaborador.presenca_manual = True
     if "job" in data:
         colaborador.job = _formatar_job(data.get("job"))
 
@@ -741,6 +745,7 @@ def importar_csv():
             item.turno = _turno_inicial(item.cargo, turno) if status == "Treinamento" else turno
             item.status = status
             item.presente_fc = presente_fc
+            item.presenca_manual = bool(col_presente)
             item.job = job
             item.previsao_afastamento = previsao
             item.causa_afastamento = causa
@@ -818,6 +823,7 @@ def importar_excel():
         )
         col_job = normalizadas.get("job") or normalizadas.get("processo")
         item.presente_fc = _parse_bool(row[col_presente], default=True) if col_presente else True
+        item.presenca_manual = bool(col_presente)
         item.job = _formatar_job(row[col_job]) if col_job else None
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento

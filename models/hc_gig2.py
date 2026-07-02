@@ -14,6 +14,7 @@ class HCGig2(db.Model):
     turno = db.Column(db.String(50), nullable=True, index=True)
     status = db.Column(db.String(20), nullable=False, default="OPERACIONAL", index=True)
     presente_fc = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    presenca_manual = db.Column(db.Boolean, nullable=False, default=False)
     job = db.Column(db.String(80), nullable=True, index=True)
     status_liberacao = db.Column(db.String(100), nullable=True)
     # Licença / Férias

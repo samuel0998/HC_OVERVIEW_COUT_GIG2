@@ -147,6 +147,17 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN presente_fc SET DEFAULT TRUE"))
         conn.execute(db.text("UPDATE hc_gig2 SET presente_fc = TRUE WHERE presente_fc IS NULL"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN presente_fc SET NOT NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS presenca_manual BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN presenca_manual SET DEFAULT FALSE"))
+        conn.execute(db.text("UPDATE hc_gig2 SET presenca_manual = FALSE WHERE presenca_manual IS NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN presenca_manual SET NOT NULL"))
+        conn.execute(db.text(
+            "UPDATE hc_gig2 "
+            "SET presente_fc = TRUE "
+            "WHERE presenca_manual = FALSE "
+            "AND status = 'OPERACIONAL' "
+            "AND UPPER(cargo) IN ('AA', 'ASSOCIADO')"
+        ))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS job VARCHAR(80)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"))
