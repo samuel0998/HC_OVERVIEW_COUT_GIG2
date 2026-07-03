@@ -12,6 +12,20 @@
     Ative o acesso e defina o nível para que o operador possa entrar no HC Overview usando seu <strong>login</strong>.
 </div>
 
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+        <div>
+            <h2 style="margin:0;font-size:18px;">Configuracao de Shifts</h2>
+            <p style="margin:4px 0 0;color:var(--muted);font-size:13px;">Na virada do turno, somente a chamada volta para presente.</p>
+        </div>
+        <button class="btn primary btn-sm" onclick="salvarTurnosConfig()">Salvar horarios</button>
+    </div>
+    <div id="turnos-msg" class="mensagem"></div>
+    <div id="turnos-config-grid" class="form-grid">
+        <div style="color:var(--muted);font-size:13px;">Carregando horarios...</div>
+    </div>
+</div>
+
 <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <h2 style="margin:0;font-size:18px;">Operadores Cadastrados</h2>
@@ -74,6 +88,7 @@
 <script>
 let todosOperadores = [];
 let editingLogin = null;
+let turnosConfig = [];
 
 async function carregarOperadores() {
     try {
@@ -85,6 +100,73 @@ async function carregarOperadores() {
     } catch (e) {
         document.getElementById('users-tbody').innerHTML =
             '<tr><td colspan="6" style="color:red;padding:16px;">Erro ao carregar operadores.</td></tr>';
+    }
+}
+
+async function carregarTurnosConfig() {
+    const grid = document.getElementById('turnos-config-grid');
+    const msg = document.getElementById('turnos-msg');
+    msg.textContent = '';
+
+    try {
+        const res = await fetch('/api/turnos-config');
+        const data = await res.json();
+        if (!res.ok) {
+            grid.innerHTML = `<div style="color:red;">${data.erro || 'Erro ao carregar horarios.'}</div>`;
+            return;
+        }
+        turnosConfig = data;
+        renderTurnosConfig();
+    } catch (e) {
+        grid.innerHTML = '<div style="color:red;">Erro ao carregar horarios dos turnos.</div>';
+    }
+}
+
+function renderTurnosConfig() {
+    const grid = document.getElementById('turnos-config-grid');
+    if (!turnosConfig.length) {
+        grid.innerHTML = '<div style="color:var(--muted);font-size:13px;">Nenhum turno configurado.</div>';
+        return;
+    }
+
+    grid.innerHTML = turnosConfig.map(cfg => `
+        <div>
+            <label class="field-label">${cfg.turno}</label>
+            <input type="time" data-turno="${cfg.turno}" class="turno-reset-input" value="${cfg.hora_reset}">
+        </div>
+    `).join('');
+}
+
+async function salvarTurnosConfig() {
+    const msg = document.getElementById('turnos-msg');
+    msg.textContent = '';
+    msg.style.color = '';
+
+    const configs = Array.from(document.querySelectorAll('.turno-reset-input')).map(input => ({
+        turno: input.dataset.turno,
+        hora_reset: input.value,
+    }));
+
+    try {
+        const res = await fetch('/api/turnos-config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configs }),
+        });
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = { erro: raw }; }
+        if (!res.ok) {
+            msg.textContent = data.erro || 'Erro ao salvar horarios.';
+            msg.style.color = 'red';
+            return;
+        }
+        msg.textContent = data.mensagem || 'Horarios salvos.';
+        msg.style.color = 'green';
+        carregarTurnosConfig();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicacao.';
+        msg.style.color = 'red';
     }
 }
 
@@ -168,6 +250,7 @@ document.getElementById('modal-perm').addEventListener('click', function(e) {
     if (e.target === this) fecharModal();
 });
 
+carregarTurnosConfig();
 carregarOperadores();
 </script>
 {% endblock %}

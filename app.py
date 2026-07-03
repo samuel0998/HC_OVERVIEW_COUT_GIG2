@@ -193,8 +193,16 @@ def _bootstrap_databases(app):
         try:
             _create_operational_tables_for_fc(fc)
             _migrate_hc_table_for_fc(fc)
+            app.config["ACTIVE_FC"] = fc
+            db.session.remove()
+            from models.turno_config import ensure_default_turno_config
+            ensure_default_turno_config()
+            db.session.commit()
         except Exception as e:
+            db.session.rollback()
             print(f"[MIGRATION:{fc}] ERRO: {e}")
+        finally:
+            db.session.remove()
 
     try:
         _migrate_operadores_table()
@@ -255,6 +263,7 @@ def create_app():
         from models.operadores import Operadores  # noqa: F401
         from models.historico import HistoricoOperacional  # noqa: F401
         from models.registro_atividade import RegistroAtividade  # noqa: F401
+        from models.turno_config import HCTurnoConfig  # noqa: F401
 
         _bootstrap_databases(app)
 

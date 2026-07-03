@@ -2,9 +2,10 @@ import json
 import os
 import smtplib
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from email.mime.text import MIMEText
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from flask import Blueprint, abort, jsonify, render_template, request, send_file
@@ -14,6 +15,7 @@ from sqlalchemy import or_
 from models import db
 from models.hc_gig2 import HCGig2
 from models.lc_atual import LCAtual
+from models.turno_config import HCTurnoConfig, ensure_default_turno_config
 
 hc_bp = Blueprint("hc", __name__)
 
@@ -208,8 +210,42 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
     return alterou
 
 
+def _reset_chamada_por_virada_de_turno():
+    configs_criadas = ensure_default_turno_config()
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo"))
+    configs = HCTurnoConfig.query.all()
+    configs_vencidas = []
+
+    for config in configs:
+        try:
+            hora, minuto = [int(parte) for parte in config.hora_reset.split(":", 1)]
+        except Exception:
+            continue
+
+        horario_reset = agora.replace(hour=hora, minute=minuto, second=0, microsecond=0)
+        reset_key = f"{agora.date().isoformat()}:{config.turno}:{config.hora_reset}"
+        if agora >= horario_reset and config.last_reset_key != reset_key:
+            configs_vencidas.append((config, reset_key))
+
+    if not configs_vencidas:
+        if configs_criadas:
+            db.session.commit()
+        return False
+
+    for registro in HCGig2.query.filter(HCGig2.status == "OPERACIONAL").all():
+        registro.presente_fc = True
+        registro.presenca_manual = False
+
+    for config, reset_key in configs_vencidas:
+        config.last_reset_key = reset_key
+
+    db.session.commit()
+    return True
+
+
 def _pendencias_count():
     """Return count of operators with pending dates or shift allocation."""
+    _reset_chamada_por_virada_de_turno()
     _aplicar_regra_hc_atual(HCGig2.query.all())
     return HCGig2.query.filter(
         or_(
@@ -284,6 +320,7 @@ def historico_page():
 @hc_bp.route("/api/hc", methods=["GET"])
 @login_required
 def listar_colaboradores():
+    _reset_chamada_por_virada_de_turno()
     termo = request.args.get("q", "").strip()
     query = HCGig2.query
 
@@ -1104,6 +1141,7 @@ def exportar_lc_excel():
 @hc_bp.route("/api/hc/dashboard", methods=["GET"])
 @login_required
 def dashboard_data():
+    _reset_chamada_por_virada_de_turno()
     f_area   = request.args.get("area", "").strip()
     f_turno  = request.args.get("turno", "").strip()
     f_status = request.args.get("status", "").strip()
