@@ -51,10 +51,10 @@ def _criar_operador_do_hc(login):
         "treinamento": colab.status == "Treinamento",
         "permission_labordash": False,
         "permission_dockview": False,
-        "permission_level_labordash": None,
-        "permission_level_dockview": None,
+        "permission_level_labordash": "",
+        "permission_level_dockview": "",
         "permission_hcview": False,
-        "permission_level_hcview": None,
+        "permission_level_hcview": "",
     }
 
     def quote_ident(identifier):
