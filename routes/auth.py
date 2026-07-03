@@ -60,6 +60,14 @@ def _criar_operador_do_hc(login):
     def quote_ident(identifier):
         return '"' + identifier.replace('"', '""') + '"'
 
+    def valor_padrao_coluna(coluna):
+        tipo = (coluna["data_type"] or "").lower()
+        if "bool" in tipo:
+            return False
+        if any(t in tipo for t in ("integer", "numeric", "double", "real")):
+            return 0
+        return ""
+
     with db.engines["GIG2"].begin() as conn:
         colunas = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable, column_default "
@@ -74,15 +82,12 @@ def _criar_operador_do_hc(login):
         for coluna in colunas:
             nome = coluna["column_name"]
             if nome in valores_base:
-                valores[nome] = valores_base[nome]
+                valor = valores_base[nome]
+                if valor is None and coluna["is_nullable"] == "NO" and not coluna["column_default"]:
+                    valor = valor_padrao_coluna(coluna)
+                valores[nome] = valor
             elif coluna["is_nullable"] == "NO" and not coluna["column_default"]:
-                tipo = (coluna["data_type"] or "").lower()
-                if "bool" in tipo:
-                    valores[nome] = False
-                elif any(t in tipo for t in ("integer", "numeric", "double", "real")):
-                    valores[nome] = 0
-                else:
-                    valores[nome] = ""
+                valores[nome] = valor_padrao_coluna(coluna)
 
         if "login" not in valores:
             raise RuntimeError("Coluna login nao encontrada na tabela operadores.")

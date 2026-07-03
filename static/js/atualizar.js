@@ -343,6 +343,9 @@ arquivoImport.addEventListener("change", async () => {
   if (!res.ok) return showMessage(data.erro || "Erro na importação.", true);
 
   let msg = `${data.mensagem} Inseridos: ${data.inseridos}`;
+  if (data.processos_preservados) {
+    msg += ` | Processos preservados: ${data.processos_preservados}`;
+  }
   showMessage(msg);
 
   if (data.erros && data.erros.length) {

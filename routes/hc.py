@@ -121,7 +121,7 @@ def _formatar_cargo(cargo):
 
 def _formatar_job(job):
     texto = (job or "").strip()
-    if not texto or texto.lower() in ("nan", "none"):
+    if not texto or _normalizar(texto) in ("nan", "none", "sem job", "sem processo"):
         return None
 
     normalizado = _normalizar(texto)
@@ -129,6 +129,35 @@ def _formatar_job(job):
         if _normalizar(processo) == normalizado:
             return processo
     return texto
+
+
+def _mapear_jobs_existentes():
+    jobs_por_login = {}
+    jobs_por_nome = {}
+
+    for item in HCGig2.query.filter(HCGig2.job.isnot(None)).all():
+        job = _formatar_job(item.job)
+        if not job:
+            continue
+
+        login_key = (item.login or "").strip().lower()
+        nome_key = _normalizar(item.nome_completo or "")
+        if login_key:
+            jobs_por_login[login_key] = job
+        if nome_key:
+            jobs_por_nome[nome_key] = job
+
+    return jobs_por_login, jobs_por_nome
+
+
+def _job_importado_ou_preservado(job_importado, login, nome, jobs_por_login, jobs_por_nome):
+    if job_importado:
+        return job_importado, False
+
+    login_key = (login or "").strip().lower()
+    nome_key = _normalizar(nome or "")
+    job_existente = jobs_por_login.get(login_key) or jobs_por_nome.get(nome_key)
+    return job_existente, bool(job_existente)
 
 
 def _formatar_turno_extra(turno):
@@ -750,10 +779,13 @@ def importar_csv():
         "desligado": "Desligado",
     }
 
+    jobs_por_login, jobs_por_nome = _mapear_jobs_existentes()
+
     # Apaga todos os colaboradores existentes antes de inserir os novos
     HCGig2.query.delete()
 
     inseridos = 0
+    processos_preservados = 0
     erros = []
     logins_vistos = set()
 
@@ -783,6 +815,9 @@ def importar_csv():
 
             presente_fc = _parse_bool(row.get(col_presente), default=True) if col_presente else True
             job = _formatar_job(row.get(col_job, "")) if col_job else None
+            job, preservou_job = _job_importado_ou_preservado(job, login, nome, jobs_por_login, jobs_por_nome)
+            if preservou_job:
+                processos_preservados += 1
             hora_extra_turno = _formatar_turno_extra(row.get(col_he, "")) if col_he else None
 
             raw_status = str(row.get(col_status, "operacional")).strip() if col_status else "operacional"
@@ -820,7 +855,11 @@ def importar_csv():
             erros.append(f"Linha {idx + 2}: {str(e)}")
 
     db.session.commit()
-    result = {"mensagem": "Base renovada com sucesso.", "inseridos": inseridos}
+    result = {
+        "mensagem": "Base renovada com sucesso.",
+        "inseridos": inseridos,
+        "processos_preservados": processos_preservados,
+    }
     if erros:
         result["erros"] = erros
     return jsonify(result)
@@ -844,6 +883,7 @@ def importar_excel():
 
     inseridos = 0
     atualizados = 0
+    processos_preservados = 0
 
     for _, row in df.iterrows():
         login = str(row[normalizadas["login"]]).strip()
@@ -872,6 +912,7 @@ def importar_excel():
         else:
             atualizados += 1
 
+        job_existente = _formatar_job(item.job)
         item.nome_completo = str(row[normalizadas["nome_completo"]]).strip()
         item.cargo = _formatar_cargo(row[normalizadas["cargo"]])
         item.area = str(row[normalizadas["area"]]).strip() or None
@@ -889,7 +930,10 @@ def importar_excel():
         col_he = normalizadas.get("hora_extra_turno") or normalizadas.get("hora extra") or normalizadas.get("he turno") or normalizadas.get("turno extra")
         item.presente_fc = _parse_bool(row[col_presente], default=True) if col_presente else True
         item.presenca_manual = bool(col_presente)
-        item.job = _formatar_job(row[col_job]) if col_job else None
+        job_importado = _formatar_job(row[col_job]) if col_job else None
+        item.job = job_importado or job_existente
+        if not job_importado and job_existente:
+            processos_preservados += 1
         item.hora_extra_turno = _formatar_turno_extra(row[col_he]) if col_he else None
         item.previsao_afastamento = previsao_bool
         item.data_afastamento = data_afastamento
