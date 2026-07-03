@@ -57,35 +57,44 @@ def _criar_operador_do_hc(login):
         "permission_level_hcview": None,
     }
 
-    colunas = db.session.execute(db.text(
-        "SELECT column_name, data_type, is_nullable, column_default "
-        "FROM information_schema.columns "
-        "WHERE table_name = 'operadores'"
-    )).mappings().all()
-
-    valores = {}
-    for coluna in colunas:
-        nome = coluna["column_name"]
-        if nome in valores_base:
-            valores[nome] = valores_base[nome]
-        elif coluna["is_nullable"] == "NO" and not coluna["column_default"]:
-            tipo = (coluna["data_type"] or "").lower()
-            if "bool" in tipo:
-                valores[nome] = False
-            elif any(t in tipo for t in ("integer", "numeric", "double", "real")):
-                valores[nome] = 0
-            else:
-                valores[nome] = ""
-
     def quote_ident(identifier):
         return '"' + identifier.replace('"', '""') + '"'
 
-    colunas_insert = list(valores.keys())
-    sql = (
-        f"INSERT INTO operadores ({', '.join(quote_ident(c) for c in colunas_insert)}) "
-        f"VALUES ({', '.join(':' + c for c in colunas_insert)})"
-    )
-    db.session.execute(db.text(sql), valores)
+    with db.engines["GIG2"].begin() as conn:
+        colunas = conn.execute(db.text(
+            "SELECT column_name, data_type, is_nullable, column_default "
+            "FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'operadores'"
+        )).mappings().all()
+
+        if not colunas:
+            raise RuntimeError("Tabela operadores nao encontrada no banco GIG2.")
+
+        valores = {}
+        for coluna in colunas:
+            nome = coluna["column_name"]
+            if nome in valores_base:
+                valores[nome] = valores_base[nome]
+            elif coluna["is_nullable"] == "NO" and not coluna["column_default"]:
+                tipo = (coluna["data_type"] or "").lower()
+                if "bool" in tipo:
+                    valores[nome] = False
+                elif any(t in tipo for t in ("integer", "numeric", "double", "real")):
+                    valores[nome] = 0
+                else:
+                    valores[nome] = ""
+
+        if "login" not in valores:
+            raise RuntimeError("Coluna login nao encontrada na tabela operadores.")
+
+        colunas_insert = list(valores.keys())
+        sql = (
+            f"INSERT INTO operadores ({', '.join(quote_ident(c) for c in colunas_insert)}) "
+            f"VALUES ({', '.join(':' + c for c in colunas_insert)})"
+        )
+        conn.execute(db.text(sql), valores)
+
+    db.session.expire_all()
     return Operadores.query.get(login_key)
 
 
