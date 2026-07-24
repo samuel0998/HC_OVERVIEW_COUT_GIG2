@@ -1185,13 +1185,10 @@ def exportar_lc_excel():
 @hc_bp.route("/api/hc/dashboard", methods=["GET"])
 @login_required
 def dashboard_data():
-    _reset_chamada_por_virada_de_turno()
     f_area   = request.args.get("area", "").strip()
     f_turno  = request.args.get("turno", "").strip()
     f_status = request.args.get("status", "").strip()
     f_cargo  = request.args.get("cargo", "").strip()
-    f_job    = request.args.get("job", "").strip()
-    f_presenca = request.args.get("presenca", "").strip().lower()
 
     todos = HCGig2.query.all()
     _aplicar_regra_hc_atual(todos)
@@ -1200,28 +1197,14 @@ def dashboard_data():
     if f_area:
         registros = [r for r in registros if (r.area or "") == f_area]
     if f_turno:
-        registros = [
-            r for r in registros
-            if (r.turno or "") == f_turno
-            or (r.hora_extra_turno == f_turno and r.status == "OPERACIONAL" and r.presente_fc)
-        ]
+        registros = [r for r in registros if (r.turno or "") == f_turno]
     if f_status:
         registros = [r for r in registros if r.status == f_status]
     if f_cargo:
         registros = [r for r in registros if r.cargo == f_cargo]
-    if f_job:
-        registros = [r for r in registros if (r.job or "") == f_job]
-    if f_presenca in ("presente", "1", "sim", "true"):
-        registros = [r for r in registros if r.presente_fc]
-    elif f_presenca in ("ausente", "0", "nao", "false"):
-        registros = [r for r in registros if not r.presente_fc]
 
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
-    presentes = sum(1 for r in registros if r.presente_fc)
-    alocados = sum(1 for r in registros if r.job)
-    attendance_pct = round((presentes / operacional) * 100, 1) if operacional else 0
-    alocacao_pct = round((alocados / total) * 100, 1) if total else 0
     off        = sum(1 for r in registros if r.status == "OFF")
     treinamento = sum(1 for r in registros if r.status == "Treinamento")
     licenca    = sum(1 for r in registros if r.status == "Licença")
@@ -1236,20 +1219,11 @@ def dashboard_data():
     por_turno = {}
 
     def _conta_no_turno(registro, turno):
-        if registro.turno == turno:
-            return True
-        return bool(
-            registro.hora_extra_turno == turno
-            and registro.status == "OPERACIONAL"
-            and registro.presente_fc
-        )
+        return registro.turno == turno
 
     for r in registros:
         por_area[r.area or "—"]   = por_area.get(r.area or "—", 0) + 1
         por_cargo[r.cargo]        = por_cargo.get(r.cargo, 0) + 1
-        if r.hora_extra_turno and r.status == "OPERACIONAL" and r.presente_fc:
-            chave_he = r.hora_extra_turno
-            por_turno[chave_he] = por_turno.get(chave_he, 0) + 1
         por_turno[r.turno or "—"] = por_turno.get(r.turno or "—", 0) + 1
 
     por_area  = dict(sorted(por_area.items(),  key=lambda x: x[1], reverse=True))
@@ -1279,15 +1253,8 @@ def dashboard_data():
         }
 
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
-    turnos_disponiveis = sorted({
-        turno
-        for r in todos
-        for turno in (r.turno, r.hora_extra_turno)
-        if turno
-    })
+    turnos_disponiveis = sorted({r.turno for r in todos if r.turno})
     status_disponiveis = sorted({r.status for r in todos})
-    jobs_do_setor = _jobs_por_area(f_area) if f_area else PROCESSOS
-    jobs_disponiveis = jobs_do_setor or sorted({r.job for r in todos if r.job})
 
     hc_por_login = {
         (r.login or "").strip().lower(): r
@@ -1328,63 +1295,6 @@ def dashboard_data():
     def _unique_people_count(pares):
         return len({(lc.login or "").strip().lower() for lc, _ in pares if (lc.login or "").strip()})
 
-    def _processo_area(job):
-        for area, processos in PROCESSOS_POR_AREA.items():
-            if job in processos:
-                return area
-        return "Sem setor"
-
-    hc_aa_processos = [
-        r for r in registros
-        if _cargo_eh(r.cargo, "AA", "Associado") and r.status == "OPERACIONAL"
-    ]
-    hc_alocados = [r for r in hc_aa_processos if r.job]
-    hc_presentes = [r for r in hc_aa_processos if r.presente_fc]
-    hc_presentes_alocados = [r for r in hc_aa_processos if r.presente_fc and r.job]
-
-    processos_por_job_raw = _count_dict([r.job for r in hc_alocados])
-    jobs_grafico = jobs_do_setor or list(processos_por_job_raw.keys())
-    processos_por_job = {job: processos_por_job_raw.get(job, 0) for job in jobs_grafico}
-    if not f_area:
-        processos_por_job = dict(sorted(processos_por_job.items(), key=lambda x: x[1], reverse=True))
-    processos_por_area = _count_dict([_processo_area(r.job) for r in hc_alocados])
-    turnos_alocados = []
-    for r in hc_alocados:
-        turnos_alocados.append(r.turno)
-        if r.hora_extra_turno and r.presente_fc:
-            turnos_alocados.append(r.hora_extra_turno)
-    processos_por_turno = _count_dict(turnos_alocados)
-    processos_por_cargo = _count_dict([r.cargo for r in hc_alocados])
-    attendance_por_setor = {}
-    attendance_por_turno = {}
-    matriz_turno_processo = {}
-
-    for grupo_nome, destino, chave_fn in (
-        ("setor", attendance_por_setor, lambda r: r.area or "Sem informacao"),
-        ("turno", attendance_por_turno, lambda r: r.turno or "Sem informacao"),
-    ):
-        grupos = {}
-        for r in hc_aa_processos:
-            chave = chave_fn(r)
-            grupos.setdefault(chave, {"total": 0, "presentes": 0, "ausentes": 0, "attendance": 0})
-            grupos[chave]["total"] += 1
-            if r.presente_fc:
-                grupos[chave]["presentes"] += 1
-            else:
-                grupos[chave]["ausentes"] += 1
-        for chave, dados in grupos.items():
-            dados["attendance"] = round((dados["presentes"] / dados["total"]) * 100, 1) if dados["total"] else 0
-        destino.update(dict(sorted(grupos.items(), key=lambda x: x[1]["total"], reverse=True)))
-
-    for r in hc_alocados:
-        job = r.job or "Sem processo"
-        turnos_job = [r.turno or "Sem informacao"]
-        if r.hora_extra_turno and r.presente_fc:
-            turnos_job.append(r.hora_extra_turno)
-        for turno in turnos_job:
-            matriz_turno_processo.setdefault(turno, {})
-            matriz_turno_processo[turno][job] = matriz_turno_processo[turno].get(job, 0) + 1
-
     lc_por_processo = _count_dict([lc.process_name for lc, _ in lc_registros])
     lc_por_level = _count_dict([lc.lc_level for lc, _ in lc_registros])
     lc_por_turno = _count_dict([(hc_ref.turno if hc_ref else None) for _, hc_ref in lc_registros])
@@ -1416,10 +1326,6 @@ def dashboard_data():
         "cards": {
             "hc_total": total,
             "hc_operacional": operacional,
-            "hc_presentes": presentes,
-            "hc_alocados": alocados,
-            "attendance_pct": attendance_pct,
-            "alocacao_pct": alocacao_pct,
             "pct_outbound": pct_outbound,
             "pct_inbound":  pct_inbound,
             "pct_icqa":     pct_icqa,
@@ -1435,29 +1341,8 @@ def dashboard_data():
             "turnos": turnos_disponiveis,
             "status": status_disponiveis,
             "cargos": ["AA", "Associado", "PIT"],
-            "jobs": jobs_disponiveis or PROCESSOS,
-            "presencas": ["presente", "ausente"],
         },
-        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo, "job": f_job, "presenca": f_presenca},
-        "processos": {
-            "cards": {
-                "aa_operacional": len(hc_aa_processos),
-                "aa_alocados": len(hc_alocados),
-                "aa_presentes": len(hc_presentes),
-                "presentes_alocados": len(hc_presentes_alocados),
-                "sem_job": max(len(hc_aa_processos) - len(hc_alocados), 0),
-                "ausentes": max(len(hc_aa_processos) - len(hc_presentes), 0),
-                "attendance_pct": round((len(hc_presentes) / len(hc_aa_processos)) * 100, 1) if hc_aa_processos else 0,
-                "alocacao_pct": round((len(hc_alocados) / len(hc_aa_processos)) * 100, 1) if hc_aa_processos else 0,
-            },
-            "por_job": processos_por_job,
-            "por_area": processos_por_area,
-            "por_turno": processos_por_turno,
-            "por_cargo": processos_por_cargo,
-            "attendance_por_setor": attendance_por_setor,
-            "attendance_por_turno": attendance_por_turno,
-            "turno_processo": matriz_turno_processo,
-        },
+        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
         "lc": {
             "cards": {
                 "total_registros": len(lc_registros),

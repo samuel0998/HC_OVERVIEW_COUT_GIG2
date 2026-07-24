@@ -6,8 +6,6 @@ const filtroCargo     = document.getElementById("filtroCargo");
 const filtroArea      = document.getElementById("filtroArea");
 const filtroTurno     = document.getElementById("filtroTurno");
 const filtroStatus    = document.getElementById("filtroStatus");
-const filtroPresenca  = document.getElementById("filtroPresenca");
-const filtroJob       = document.getElementById("filtroJob");
 const mensagem        = document.getElementById("mensagem");
 const formEditar      = document.getElementById("formEditar");
 const modal           = document.getElementById("modalEdicao");
@@ -31,8 +29,6 @@ if (_p.get("area"))   filtroArea.value   = _p.get("area");
 if (_p.get("turno"))  filtroTurno.value  = _p.get("turno");
 if (_p.get("cargo"))  filtroCargo.value  = _p.get("cargo");
 if (_p.get("login"))  buscaLogin.value   = _p.get("login");
-if (_p.get("job"))    filtroJob.value    = _p.get("job");
-if (_p.get("presenca")) filtroPresenca.value = _p.get("presenca");
 
 // ── Mensagem ─────────────────────────────────────────────────────
 function showMessage(text, isError = false) {
@@ -56,26 +52,6 @@ const STATUS_CLASS = {
   "Desligado":   "desligado",
 };
 
-function escapeAttr(value) {
-  return String(value || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
-
-function jobOptions(selected) {
-  const processos = window.HC_PROCESSOS || [];
-  return [
-    `<option value="">Sem job</option>`,
-    ...processos.map(p => `<option value="${escapeAttr(p)}" ${p === selected ? "selected" : ""}>${p}</option>`)
-  ].join("");
-}
-
-function turnoExtraOptions(selected) {
-  const turnos = window.HC_TURNOS || [];
-  return [
-    `<option value="">Sem HE</option>`,
-    ...turnos.map(t => `<option value="${escapeAttr(t)}" ${t === selected ? "selected" : ""}>${t}</option>`)
-  ].join("");
-}
-
 // ── Carregar todos os dados ───────────────────────────────────────
 async function carregarTabela() {
   const res = await fetch("/api/hc");
@@ -91,8 +67,6 @@ function renderTabela() {
   const fArea   = filtroArea.value;
   const fTurno  = filtroTurno.value;
   const fStatus = filtroStatus.value;
-  const fPresenca = filtroPresenca.value;
-  const fJob = filtroJob.value;
 
   const filtrado = cache.filter(item => {
     if (qNome  && !item.nome_completo.toLowerCase().includes(qNome))  return false;
@@ -101,9 +75,6 @@ function renderTabela() {
     if (fArea   && (item.area  || "")      !== fArea)   return false;
     if (fTurno  && (item.turno || "")      !== fTurno)  return false;
     if (fStatus && item.status             !== fStatus) return false;
-    if (fPresenca === "presente" && !item.presente_fc) return false;
-    if (fPresenca === "ausente" && item.presente_fc) return false;
-    if (fJob && (item.job || "") !== fJob) return false;
     return true;
   });
 
@@ -122,22 +93,6 @@ function renderTabela() {
       <td>${item.area  || "-"}</td>
       <td>${item.turno || "-"}</td>
       <td><span class="badge ${sc}">${item.status}</span></td>
-      <td>
-        <label class="switch-mini" title="Chamada">
-          <input type="checkbox" ${item.presente_fc ? "checked" : ""} onchange="salvarAlocacao(${item.id}, { presente_fc: this.checked })">
-          <span></span>
-        </label>
-      </td>
-      <td>
-        <select class="job-select" onchange="salvarAlocacao(${item.id}, { job: this.value })">
-          ${jobOptions(item.job || "")}
-        </select>
-      </td>
-      <td>
-        <select class="job-select he-select" onchange="salvarAlocacao(${item.id}, { hora_extra_turno: this.value })">
-          ${turnoExtraOptions(item.hora_extra_turno || "")}
-        </select>
-      </td>
       <td class="td-comment">${comentario}</td>
       <td>
         <button class="btn btn-sm" onclick="abrirEdicao(${item.id})">Editar</button>
@@ -194,9 +149,6 @@ window.abrirEdicao = function (id) {
   formEditar.area.value           = item.area  || "";
   formEditar.turno.value          = item.turno || "";
   formEditar.status.value         = item.status;
-  formEditar.presente_fc.checked  = !!item.presente_fc;
-  formEditar.job.value            = item.job || "";
-  formEditar.hora_extra_turno.value = item.hora_extra_turno || "";
 
   // Reset checkboxes
   document.getElementById("semDataInicio").checked = false;
@@ -218,24 +170,6 @@ window.abrirEdicao = function (id) {
 };
 
 // ── Salvar edição ─────────────────────────────────────────────────
-window.salvarAlocacao = async function (id, payload) {
-  const res = await fetch(`/api/hc/${id}/alocacao`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  const result = await res.json();
-  if (!res.ok) {
-    showMessage(result.erro || "Erro ao atualizar alocacao.", true);
-    carregarTabela();
-    return;
-  }
-
-  const idx = cache.findIndex(x => x.id === id);
-  if (idx >= 0) cache[idx] = result.item;
-  renderTabela();
-};
-
 formEditar.addEventListener("submit", async (e) => {
   e.preventDefault();
   const id     = formEditar.id.value;
@@ -248,9 +182,6 @@ formEditar.addEventListener("submit", async (e) => {
     area:   formEditar.area.value,
     turno:  formEditar.turno.value,
     status,
-    presente_fc: formEditar.presente_fc.checked,
-    job: formEditar.job.value,
-    hora_extra_turno: formEditar.hora_extra_turno.value,
   };
 
   if (status === "Licença" || status === "Férias") {
@@ -324,8 +255,6 @@ filtroCargo.addEventListener("change", renderTabela);
 filtroArea.addEventListener("change",  renderTabela);
 filtroTurno.addEventListener("change", renderTabela);
 filtroStatus.addEventListener("change", renderTabela);
-filtroPresenca.addEventListener("change", renderTabela);
-filtroJob.addEventListener("change", renderTabela);
 
 // ── Exportar ──────────────────────────────────────────────────────
 btnExportar.addEventListener("click", () => { window.location.href = "/api/hc/export"; });
