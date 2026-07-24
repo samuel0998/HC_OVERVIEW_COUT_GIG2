@@ -1015,7 +1015,6 @@ def listar_lc():
     f_turno = request.args.get("turno", "").strip()
     f_status = request.args.get("status", "").strip()
     f_cargo = request.args.get("cargo", "").strip()
-    sem_hc = request.args.get("sem_hc", "").strip().lower() in ("1", "true", "sim")
     f_produtividade = request.args.get("produtividade", "").strip().upper()
 
     hc_por_login = {
@@ -1025,6 +1024,7 @@ def listar_lc():
     }
 
     registros = LCAtual.query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    registros = [r for r in registros if (r.login or "").strip().lower() in hc_por_login]
     logins_produtivos = {(r.login or "").strip().lower() for r in registros if (r.login or "").strip()}
     hc_aa_operacionais = {
         login_key: hc_ref for login_key, hc_ref in hc_por_login.items()
@@ -1038,8 +1038,6 @@ def listar_lc():
         login_key = (r.login or "").strip().lower()
         hc_ref = hc_por_login.get(login_key)
 
-        if sem_hc and hc_ref:
-            continue
         if f_login and f_login not in login_key:
             continue
         if f_process and r.process_name != f_process:
@@ -1086,7 +1084,7 @@ def listar_lc():
         dados.append(item)
 
     # AA/Associado operacional no HC e ausente do reporte semanal de LC.
-    if not sem_hc and f_produtividade != "PRODUTIVO":
+    if f_produtividade != "PRODUTIVO":
         for login_key, hc_ref in hc_por_login.items():
             if login_key in logins_produtivos:
                 continue
@@ -1191,7 +1189,13 @@ def importar_lc_excel():
 
         inseridos = 0
         ignorados = 0
+        descartados_sem_hc = 0
         erros = []
+        logins_hc = {
+            (item.login or "").strip().lower()
+            for item in HCGig2.query.all()
+            if (item.login or "").strip()
+        }
 
         for idx, row in df.iterrows():
             try:
@@ -1208,6 +1212,10 @@ def importar_lc_excel():
 
                 if not login or not process_name or not lc_level:
                     erros.append(f"Linha {idx + 2}: login, Process Name e LC Level sao obrigatorios.")
+                    continue
+
+                if login.lower() not in logins_hc:
+                    descartados_sem_hc += 1
                     continue
 
                 db.session.add(LCAtual(
@@ -1231,6 +1239,7 @@ def importar_lc_excel():
         "mensagem": "Reporte semanal de LC renovado com sucesso.",
         "inseridos": inseridos,
         "ignorados": ignorados,
+        "descartados_sem_hc": descartados_sem_hc,
     }
     if erros:
         result["erros"] = erros
@@ -1241,6 +1250,12 @@ def importar_lc_excel():
 @login_required
 def exportar_lc_excel():
     registros = LCAtual.query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    logins_hc = {
+        (item.login or "").strip().lower()
+        for item in HCGig2.query.all()
+        if (item.login or "").strip()
+    }
+    registros = [r for r in registros if (r.login or "").strip().lower() in logins_hc]
     dados = [{
         "Login": r.login,
         "Process Name": r.process_name,
@@ -1350,15 +1365,11 @@ def dashboard_data():
 
     lc_todos = LCAtual.query.all()
     lc_registros = []
-    lc_sem_hc = 0
     lc_logins = {(lc.login or "").strip().lower() for lc in lc_todos if (lc.login or "").strip()}
 
     for lc in lc_todos:
         hc_ref = hc_por_login.get((lc.login or "").strip().lower())
         if not hc_ref:
-            if not f_area and not f_turno and not f_status:
-                lc_registros.append((lc, None))
-            lc_sem_hc += 1
             continue
 
         if f_area and (hc_ref.area or "") != f_area:

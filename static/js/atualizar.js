@@ -311,7 +311,7 @@ arquivoImportLC.addEventListener("change", async () => {
   const data = await res.json();
   if (!res.ok) return showMessage(data.erro || "Erro na importacao de LC.", true);
 
-  showMessage(`${data.mensagem} Inseridos: ${data.inseridos}`);
+  showMessage(`${data.mensagem} Inseridos: ${data.inseridos}. Fora do HC descartados: ${data.descartados_sem_hc || 0}`);
 
   const container = document.getElementById("erros-import-lc");
   if (container && data.erros && data.erros.length) {

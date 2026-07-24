@@ -9,7 +9,6 @@ const filtroTurnoLC = document.getElementById("filtroTurnoLC");
 const filtroStatusLC = document.getElementById("filtroStatusLC");
 const filtroCargoLC = document.getElementById("filtroCargoLC");
 const filtroProdutividade = document.getElementById("filtroProdutividade");
-const filtroSemHC = document.getElementById("filtroSemHC");
 const btnLimparLC = document.getElementById("btnLimparLC");
 
 const params = new URLSearchParams(window.location.search);
@@ -35,7 +34,6 @@ function optionize(select, values, current, label) {
 
 function applyInitialFilters(filtros) {
   buscaLC.value = params.get("q") || params.get("login") || "";
-  filtroSemHC.checked = ["1", "true", "sim"].includes((params.get("sem_hc") || "").toLowerCase());
   filtroProdutividade.value = (params.get("produtividade") || "").toUpperCase();
 
   optionize(filtroProcesso, filtros.processos || [], params.get("process_name") || params.get("process") || "", "Todos os processos");
@@ -56,7 +54,6 @@ function buildApiUrl() {
   if (filtroStatusLC.value) p.set("status", filtroStatusLC.value);
   if (filtroCargoLC.value) p.set("cargo", filtroCargoLC.value);
   if (filtroProdutividade.value) p.set("produtividade", filtroProdutividade.value);
-  if (filtroSemHC.checked) p.set("sem_hc", "1");
   return `/api/lc?${p.toString()}`;
 }
 
@@ -115,7 +112,6 @@ function reloadLC() {
 [buscaLC, filtroProcesso, filtroLevel, filtroAreaLC, filtroTurnoLC, filtroStatusLC, filtroCargoLC, filtroProdutividade].forEach(el => {
   el.addEventListener(el.tagName === "INPUT" ? "input" : "change", reloadLC);
 });
-filtroSemHC.addEventListener("change", reloadLC);
 
 btnLimparLC.addEventListener("click", () => {
   buscaLC.value = "";
@@ -126,7 +122,6 @@ btnLimparLC.addEventListener("click", () => {
   filtroStatusLC.value = "";
   filtroCargoLC.value = "";
   filtroProdutividade.value = "";
-  filtroSemHC.checked = false;
   reloadLC();
 });
 
