@@ -4,7 +4,7 @@
 
 <div class="page-header">
     <a href="{{ url_for('hc.dashboard') }}" class="btn back-btn">&larr; Dashboard</a>
-    <h2 class="page-title">Lista LC Atual</h2>
+    <h2 class="page-title">Reporte Semanal de LC</h2>
 </div>
 
 <div class="card">
@@ -30,6 +30,11 @@
             <option value="Associado">Associado</option>
             <option value="PIT">PIT</option>
         </select>
+        <select id="filtroProdutividade" class="filter-select">
+            <option value="">Produtivos e improdutivos</option>
+            <option value="PRODUTIVO">Somente produtivos</option>
+            <option value="IMPRODUTIVO">Somente improdutivos</option>
+        </select>
         <label class="check lc-check">
             <input type="checkbox" id="filtroSemHC">
             Sem HC
@@ -37,6 +42,7 @@
         <button id="btnLimparLC" class="btn">Limpar</button>
     </div>
 
+    <div id="resumoLC" class="total-registros"></div>
     <div id="totalLC" class="total-registros"></div>
 
     <div class="table-wrap lc-table-wrap">
@@ -48,11 +54,13 @@
                     <th>Nome</th>
                     <th>Processo</th>
                     <th>LC Level</th>
+                    <th>Rate na LC</th>
+                    <th>Semana</th>
                     <th>Cargo</th>
                     <th>Area</th>
                     <th>Turno</th>
                     <th>Status HC</th>
-                    <th>HC</th>
+                    <th>Produtividade</th>
                 </tr>
             </thead>
             <tbody id="tabelaLC"></tbody>

@@ -67,6 +67,22 @@ def _clean_excel_value(value):
     return "" if text.lower() in ("nan", "none") else text
 
 
+def _read_weekly_lc_upload(arquivo):
+    """Localiza o cabecalho mesmo quando o reporte traz linhas de titulo/notas."""
+    arquivo.seek(0)
+    preview = pd.read_excel(arquivo, header=None, dtype=str, nrows=20)
+    header_row = None
+    for idx, row in preview.iterrows():
+        colunas = {_normalizar(value) for value in row if _clean_excel_value(value)}
+        if "login" in colunas and "process name" in colunas and "lc level" in colunas:
+            header_row = idx
+            break
+    if header_row is None:
+        raise ValueError("Cabecalho nao encontrado. Esperado: Login, Process Name e LC Level.")
+    arquivo.seek(0)
+    return pd.read_excel(arquivo, header=header_row, dtype=str)
+
+
 def _read_csv_upload(arquivo):
     tentativas = [
         ("utf-8-sig", {"sep": None, "engine": "python"}),
@@ -1000,6 +1016,7 @@ def listar_lc():
     f_status = request.args.get("status", "").strip()
     f_cargo = request.args.get("cargo", "").strip()
     sem_hc = request.args.get("sem_hc", "").strip().lower() in ("1", "true", "sim")
+    f_produtividade = request.args.get("produtividade", "").strip().upper()
 
     hc_por_login = {
         (r.login or "").strip().lower(): r
@@ -1008,6 +1025,13 @@ def listar_lc():
     }
 
     registros = LCAtual.query.order_by(LCAtual.login.asc(), LCAtual.process_name.asc()).all()
+    logins_produtivos = {(r.login or "").strip().lower() for r in registros if (r.login or "").strip()}
+    hc_aa_operacionais = {
+        login_key: hc_ref for login_key, hc_ref in hc_por_login.items()
+        if hc_ref.status == "OPERACIONAL" and _cargo_eh(hc_ref.cargo, "AA", "Associado")
+    }
+    total_produtivos = len(set(hc_aa_operacionais) & logins_produtivos)
+    total_improdutivos = len(set(hc_aa_operacionais) - logins_produtivos)
     dados = []
 
     for r in registros:
@@ -1039,7 +1063,11 @@ def listar_lc():
             "turno": hc_ref.turno if hc_ref else "",
             "status": hc_ref.status if hc_ref else "",
             "hc_encontrado": bool(hc_ref),
+            "produtividade": "PRODUTIVO",
         }
+
+        if f_produtividade == "IMPRODUTIVO":
+            continue
 
         if termo:
             haystack = " ".join([
@@ -1057,6 +1085,47 @@ def listar_lc():
 
         dados.append(item)
 
+    # AA/Associado operacional no HC e ausente do reporte semanal de LC.
+    if not sem_hc and f_produtividade != "PRODUTIVO":
+        for login_key, hc_ref in hc_por_login.items():
+            if login_key in logins_produtivos:
+                continue
+            if hc_ref.status != "OPERACIONAL" or not _cargo_eh(hc_ref.cargo, "AA", "Associado"):
+                continue
+            item = {
+                "id": None,
+                "login": hc_ref.login or "",
+                "process_name": "",
+                "lc_level": "",
+                "week": "",
+                "fc": "",
+                "rate_na_lc": "",
+                "created_at": None,
+                "updated_at": None,
+                "nome_completo": hc_ref.nome_completo or "",
+                "cargo": hc_ref.cargo or "",
+                "area": hc_ref.area or "",
+                "turno": hc_ref.turno or "",
+                "status": hc_ref.status or "",
+                "hc_encontrado": True,
+                "produtividade": "IMPRODUTIVO",
+            }
+            if f_process or f_level:
+                continue
+            if f_login and f_login not in login_key:
+                continue
+            if f_area and (hc_ref.area or "") != f_area:
+                continue
+            if f_turno and (hc_ref.turno or "") != f_turno:
+                continue
+            if f_status and (hc_ref.status or "") != f_status:
+                continue
+            if f_cargo and (hc_ref.cargo or "") != f_cargo:
+                continue
+            if termo and termo not in " ".join(str(v) for v in item.values()).lower():
+                continue
+            dados.append(item)
+
     filtros = {
         "processos": sorted({r.process_name for r in registros if r.process_name}),
         "levels": sorted({r.lc_level for r in registros if r.lc_level}),
@@ -1064,11 +1133,16 @@ def listar_lc():
         "turnos": sorted({r.turno for r in hc_por_login.values() if r.turno}),
         "status": sorted({r.status for r in hc_por_login.values() if r.status}),
         "cargos": ["AA", "Associado", "PIT"],
+        "semanas": sorted({r.week for r in registros if r.week}),
     }
 
     return jsonify({
         "registros": dados,
         "total": len(dados),
+        "resumo": {
+            "produtivos": total_produtivos,
+            "improdutivos": total_improdutivos,
+        },
         "filtros": filtros,
     })
 
@@ -1084,13 +1158,16 @@ def importar_lc_excel():
         return jsonify({"erro": "Envie um arquivo Excel."}), 400
 
     try:
-        df = pd.read_excel(arquivo, dtype=str)
+        df = _read_weekly_lc_upload(arquivo)
     except Exception as e:
         return jsonify({"erro": f"Erro ao ler Excel de LC: {str(e)}"}), 400
 
     col_login = _find_col(df, "login")
     col_process = _find_col(df, "process name") or _find_col(df, "process")
     col_lc_level = _find_col(df, "lc level") or _find_col(df, "level")
+    col_week = _find_col(df, "week")
+    col_fc = _find_col(df, "fc")
+    col_rate_na_lc = _find_col(df, "rate na lc")
 
     if not col_login and len(df.columns) > 1:
         col_login = df.columns[1]
@@ -1121,6 +1198,9 @@ def importar_lc_excel():
                 login = _clean_excel_value(row.get(col_login))
                 process_name = _clean_excel_value(row.get(col_process))
                 lc_level = _clean_excel_value(row.get(col_lc_level))
+                week = _clean_excel_value(row.get(col_week)) if col_week else ""
+                fc = _clean_excel_value(row.get(col_fc)) if col_fc else ""
+                rate_na_lc = _clean_excel_value(row.get(col_rate_na_lc)) if col_rate_na_lc else ""
 
                 if not login and not process_name and not lc_level:
                     ignorados += 1
@@ -1134,6 +1214,9 @@ def importar_lc_excel():
                     login=login,
                     process_name=process_name,
                     lc_level=lc_level,
+                    week=week,
+                    fc=fc,
+                    rate_na_lc=rate_na_lc,
                 ))
                 inseridos += 1
             except Exception as e:
@@ -1145,7 +1228,7 @@ def importar_lc_excel():
         return jsonify({"erro": f"Erro ao gravar LC no banco: {str(e)}"}), 500
 
     result = {
-        "mensagem": "LC atual renovada com sucesso.",
+        "mensagem": "Reporte semanal de LC renovado com sucesso.",
         "inseridos": inseridos,
         "ignorados": ignorados,
     }
@@ -1162,6 +1245,9 @@ def exportar_lc_excel():
         "Login": r.login,
         "Process Name": r.process_name,
         "LC Level": r.lc_level,
+        "Week": r.week,
+        "FC": r.fc,
+        "Rate na LC": r.rate_na_lc,
     } for r in registros]
 
     df = pd.DataFrame(dados)
@@ -1265,6 +1351,7 @@ def dashboard_data():
     lc_todos = LCAtual.query.all()
     lc_registros = []
     lc_sem_hc = 0
+    lc_logins = {(lc.login or "").strip().lower() for lc in lc_todos if (lc.login or "").strip()}
 
     for lc in lc_todos:
         hc_ref = hc_por_login.get((lc.login or "").strip().lower())
@@ -1321,6 +1408,12 @@ def dashboard_data():
 
     lc_top_login = _count_dict([lc.login for lc, _ in lc_registros])
     lc_top_login = dict(list(lc_top_login.items())[:15])
+    lc_improdutivos = sum(
+        1 for r in registros
+        if r.status == "OPERACIONAL"
+        and _cargo_eh(r.cargo, "AA", "Associado")
+        and (r.login or "").strip().lower() not in lc_logins
+    )
 
     return jsonify({
         "cards": {
@@ -1348,7 +1441,7 @@ def dashboard_data():
                 "total_registros": len(lc_registros),
                 "pessoas_com_lc": _unique_people_count(lc_registros),
                 "processos": len(lc_por_processo),
-                "sem_hc": lc_sem_hc,
+                "sem_hc": lc_improdutivos,
             },
             "por_processo": lc_por_processo,
             "por_level": lc_por_level,

@@ -178,6 +178,14 @@ def _migrate_hc_table_for_fc(fc):
     print(f"=== [MIGRATION:{fc}] Concluida com sucesso ===")
 
 
+def _migrate_lc_table_for_fc(fc):
+    engine = db.engines[fc]
+    with engine.begin() as conn:
+        conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS week VARCHAR(20)"))
+        conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS fc VARCHAR(20)"))
+        conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS rate_na_lc VARCHAR(50)"))
+
+
 def _migrate_operadores_table():
     db.metadatas["GIG2"].create_all(bind=db.engines["GIG2"])
     with db.engines["GIG2"].begin() as conn:
@@ -193,6 +201,7 @@ def _bootstrap_databases(app):
         try:
             _create_operational_tables_for_fc(fc)
             _migrate_hc_table_for_fc(fc)
+            _migrate_lc_table_for_fc(fc)
             app.config["ACTIVE_FC"] = fc
             db.session.remove()
             from models.turno_config import ensure_default_turno_config
