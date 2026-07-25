@@ -80,13 +80,11 @@ function renderTabela(registros) {
       <td>${item.nome_completo || "-"}</td>
       <td>${item.process_name || "-"}</td>
       <td><span class="badge treinamento">${item.lc_level || "-"}</span></td>
-      <td>${item.rate_na_lc || "-"}</td>
-      <td>${item.week || "-"}</td>
       <td>${item.cargo || "-"}</td>
       <td>${item.area || "-"}</td>
       <td>${item.turno || "-"}</td>
       <td>${item.status ? `<span class="badge ${STATUS_CLASS[item.status] || "off"}">${item.status}</span>` : "-"}</td>
-      <td><span class="badge ${item.produtividade === "PRODUTIVO" ? "operacional" : "off"}">${item.produtividade}</span></td>
+      <td><span class="badge ${item.produtividade === "PRODUTIVO" ? "operacional" : "off"}">${item.produtividade === "PRODUTIVO" ? "COM LC" : "SEM LC"}</span></td>
     `;
     tabelaLC.appendChild(tr);
   });
@@ -101,7 +99,7 @@ async function carregarLC(initial = false) {
   if (initial) applyInitialFilters(data.filtros || {});
   renderTabela(data.registros || []);
   const resumo = data.resumo || {};
-  resumoLC.textContent = `AA produtivos na semana: ${resumo.produtivos || 0} | AA improdutivos no HC: ${resumo.improdutivos || 0}`;
+  resumoLC.textContent = `AA com LC cadastrada: ${resumo.produtivos || 0} | AA do HC sem LC cadastrada: ${resumo.improdutivos || 0}`;
   syncUrl();
 }
 

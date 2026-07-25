@@ -67,8 +67,8 @@ def _clean_excel_value(value):
     return "" if text.lower() in ("nan", "none") else text
 
 
-def _read_weekly_lc_upload(arquivo):
-    """Localiza o cabecalho mesmo quando o reporte traz linhas de titulo/notas."""
+def _read_lc_upload(arquivo):
+    """Localiza o cabecalho da base de LC mesmo quando ha titulo antes da tabela."""
     arquivo.seek(0)
     preview = pd.read_excel(arquivo, header=None, dtype=str, nrows=20)
     header_row = None
@@ -1083,7 +1083,7 @@ def listar_lc():
 
         dados.append(item)
 
-    # AA/Associado operacional no HC e ausente do reporte semanal de LC.
+    # AA/Associado operacional no HC e ausente da base atual de LC.
     if f_produtividade != "PRODUTIVO":
         for login_key, hc_ref in hc_por_login.items():
             if login_key in logins_produtivos:
@@ -1095,9 +1095,6 @@ def listar_lc():
                 "login": hc_ref.login or "",
                 "process_name": "",
                 "lc_level": "",
-                "week": "",
-                "fc": "",
-                "rate_na_lc": "",
                 "created_at": None,
                 "updated_at": None,
                 "nome_completo": hc_ref.nome_completo or "",
@@ -1131,7 +1128,6 @@ def listar_lc():
         "turnos": sorted({r.turno for r in hc_por_login.values() if r.turno}),
         "status": sorted({r.status for r in hc_por_login.values() if r.status}),
         "cargos": ["AA", "Associado", "PIT"],
-        "semanas": sorted({r.week for r in registros if r.week}),
     }
 
     return jsonify({
@@ -1156,16 +1152,13 @@ def importar_lc_excel():
         return jsonify({"erro": "Envie um arquivo Excel."}), 400
 
     try:
-        df = _read_weekly_lc_upload(arquivo)
+        df = _read_lc_upload(arquivo)
     except Exception as e:
         return jsonify({"erro": f"Erro ao ler Excel de LC: {str(e)}"}), 400
 
     col_login = _find_col(df, "login")
     col_process = _find_col(df, "process name") or _find_col(df, "process")
     col_lc_level = _find_col(df, "lc level") or _find_col(df, "level")
-    col_week = _find_col(df, "week")
-    col_fc = _find_col(df, "fc")
-    col_rate_na_lc = _find_col(df, "rate na lc")
 
     if not col_login and len(df.columns) > 1:
         col_login = df.columns[1]
@@ -1202,9 +1195,6 @@ def importar_lc_excel():
                 login = _clean_excel_value(row.get(col_login))
                 process_name = _clean_excel_value(row.get(col_process))
                 lc_level = _clean_excel_value(row.get(col_lc_level))
-                week = _clean_excel_value(row.get(col_week)) if col_week else ""
-                fc = _clean_excel_value(row.get(col_fc)) if col_fc else ""
-                rate_na_lc = _clean_excel_value(row.get(col_rate_na_lc)) if col_rate_na_lc else ""
 
                 if not login and not process_name and not lc_level:
                     ignorados += 1
@@ -1222,9 +1212,6 @@ def importar_lc_excel():
                     login=login,
                     process_name=process_name,
                     lc_level=lc_level,
-                    week=week,
-                    fc=fc,
-                    rate_na_lc=rate_na_lc,
                 ))
                 inseridos += 1
             except Exception as e:
@@ -1236,7 +1223,7 @@ def importar_lc_excel():
         return jsonify({"erro": f"Erro ao gravar LC no banco: {str(e)}"}), 500
 
     result = {
-        "mensagem": "Reporte semanal de LC renovado com sucesso.",
+        "mensagem": "Base de LC renovada com sucesso.",
         "inseridos": inseridos,
         "ignorados": ignorados,
         "descartados_sem_hc": descartados_sem_hc,
@@ -1260,9 +1247,6 @@ def exportar_lc_excel():
         "Login": r.login,
         "Process Name": r.process_name,
         "LC Level": r.lc_level,
-        "Week": r.week,
-        "FC": r.fc,
-        "Rate na LC": r.rate_na_lc,
     } for r in registros]
 
     df = pd.DataFrame(dados)
