@@ -1,5 +1,4 @@
 import json
-import threading
 from datetime import date, timedelta
 
 from flask import Flask, jsonify, redirect, request, url_for
@@ -196,7 +195,7 @@ def _migrate_operadores_table():
 
 
 def _bootstrap_databases(app):
-    fc_keys = [fc for fc in app.config["FC_DATABASES"] if fc != "IXD_CNF2"]
+    fc_keys = list(app.config["FC_DATABASES"].keys())
 
     for fc in fc_keys:
         try:
@@ -232,31 +231,6 @@ def _bootstrap_databases(app):
             db.session.remove()
 
     app.config.pop("ACTIVE_FC", None)
-
-
-def _bootstrap_ixd_database(app):
-    """Provisiona o IXD sem bloquear o health check do servidor web."""
-    fc = "IXD_CNF2"
-    if fc not in app.config["FC_DATABASES"]:
-        return
-
-    with app.app_context():
-        try:
-            _create_operational_tables_for_fc(fc)
-            _migrate_hc_table_for_fc(fc)
-            _migrate_lc_table_for_fc(fc)
-            app.config["ACTIVE_FC"] = fc
-            db.session.remove()
-            from models.turno_config import ensure_default_turno_config
-            ensure_default_turno_config()
-            db.session.commit()
-            processar_status_automatico()
-        except Exception as e:
-            db.session.rollback()
-            print(f"[MIGRATION:{fc}] ERRO: {e}")
-        finally:
-            db.session.remove()
-            app.config.pop("ACTIVE_FC", None)
 
 
 def create_app():
@@ -304,7 +278,6 @@ def create_app():
 
     app.register_blueprint(hc_bp)
     app.register_blueprint(auth_bp)
-    threading.Thread(target=_bootstrap_ixd_database, args=(app,), daemon=True).start()
     return app
 
 
