@@ -12,6 +12,23 @@ from models.turno_config import DEFAULT_TURNO_RESET, HCTurnoConfig, ensure_defau
 auth_bp = Blueprint("auth", __name__)
 
 
+def _inicializar_fc_sob_demanda(fc):
+    fc_data = current_app.config["FC_DATABASES"].get(fc, {})
+    if fc_data.get("bootstrap_on_startup", True):
+        return None
+
+    try:
+        db.metadatas[None].create_all(bind=db.engines[fc])
+        ensure_default_turno_config()
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Falha ao inicializar a instancia %s", fc)
+        return f"Nao foi possivel conectar na instancia {fc_data.get('label', fc)}."
+
+    return None
+
+
 def _hc_usuario_dict(colab):
     login = (colab.login or "").strip().lower()
     return {
@@ -126,9 +143,11 @@ def login():
             elif not operador.permission_hcview:
                 erro = "Voce nao tem permissao para acessar o HC Overview."
             else:
-                login_user(operador)
-                next_page = request.args.get("next")
-                return redirect(next_page or url_for("hc.home"))
+                erro = _inicializar_fc_sob_demanda(selected_fc)
+                if not erro:
+                    login_user(operador)
+                    next_page = request.args.get("next")
+                    return redirect(next_page or url_for("hc.home"))
 
     return render_template(
         "login.html",

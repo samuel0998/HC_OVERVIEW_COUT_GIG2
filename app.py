@@ -195,7 +195,11 @@ def _migrate_operadores_table():
 
 
 def _bootstrap_databases(app):
-    fc_keys = list(app.config["FC_DATABASES"].keys())
+    fc_keys = [
+        fc
+        for fc, fc_data in app.config["FC_DATABASES"].items()
+        if fc_data.get("bootstrap_on_startup", True)
+    ]
 
     for fc in fc_keys:
         try:
