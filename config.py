@@ -1,6 +1,19 @@
 import os
 
 
+def _postgres_uri(env_name, fallback):
+    """Retorna somente URLs PostgreSQL validas; referencias nao resolvidas usam o fallback."""
+    value = (os.getenv(env_name) or "").strip().strip('"').strip("'")
+
+    if value.startswith("postgres://"):
+        value = "postgresql://" + value[len("postgres://"):]
+
+    if value.startswith(("postgresql://", "postgresql+psycopg2://")):
+        return value
+
+    return fallback
+
+
 def _build_fc_databases():
     databases = {
         "GIG2": {
@@ -31,7 +44,7 @@ def _build_fc_databases():
 
     databases["IXD_CNF2"] = {
         "label": "IXD - CNF2",
-        "uri": os.getenv(
+        "uri": _postgres_uri(
             "DATABASE_URL_IXD_CNF2",
             "postgresql://postgres:zSeySxWQzrZPWknNRoMfoxxdIYXfpSBp@sakura.proxy.rlwy.net:37193/railway?connect_timeout=5",
         ),
