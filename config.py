@@ -29,13 +29,14 @@ def _build_fc_databases():
         },
     }
 
-    databases["IXD_CNF2"] = {
-        "label": "IXD - CNF2",
-        "uri": os.getenv(
-            "DATABASE_URL_IXD_CNF2",
-            "postgresql://postgres:zSeySxWQzrZPWknNRoMfoxxdIYXfpSBp@sakura.proxy.rlwy.net:37193/railway?connect_timeout=2",
-        ),
-    }
+    # A instancia IXD - CNF2 so fica disponivel quando a credencial e
+    # injetada pelo ambiente. O segredo nunca deve ser versionado no codigo.
+    ixd_cnf2_uri = os.getenv("DATABASE_URL_IXD_CNF2")
+    if ixd_cnf2_uri:
+        databases["IXD_CNF2"] = {
+            "label": "IXD - CNF2",
+            "uri": ixd_cnf2_uri,
+        }
 
     return databases
 
