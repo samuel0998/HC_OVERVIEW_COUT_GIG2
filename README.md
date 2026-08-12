@@ -1,4 +1,4 @@
-# HC GIG2 - Headcount Overview
+# HC Overview
 
 Projeto Flask pronto para Railway com PostgreSQL.
 
@@ -12,6 +12,7 @@ Projeto Flask pronto para Railway com PostgreSQL.
 ## Variáveis de ambiente
 Use no Railway:
 - `DATABASE_URL`
+- `DATABASE_URL_IXD_CNF2=${{ IXD - CNF2.DATABASE_PRIVATE_URL }}` para habilitar a instancia `IXD - CNF2`
 - `SECRET_KEY`
 
 ## Rodando local

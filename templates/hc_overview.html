@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}HC GIG2 | Home{% endblock %}
+{% block title %}HC {{ active_fc_label }} | Home{% endblock %}
 {% block content %}
 
 {% if pendencias_count and pendencias_count > 0 %}
@@ -15,14 +15,14 @@
 {% endif %}
 
 <div class="home-hero">
-    <h2>Bem-vindo ao Sistema HC GIG2</h2>
+    <h2>Bem-vindo ao Sistema HC {{ active_fc_label }}</h2>
     <p>Selecione uma opção para continuar</p>
 </div>
 <div class="home-buttons">
     {% if current_user.can_edit %}
     <a href="{{ url_for('hc.novo_hc') }}" class="home-btn">
         <div class="home-btn-icon">+</div>
-        <div class="home-btn-label">Novo HC GIG2</div>
+        <div class="home-btn-label">Novo HC {{ active_fc_label }}</div>
         <div class="home-btn-desc">Cadastrar novo colaborador</div>
     </a>
     <a href="{{ url_for('hc.atualizar') }}" class="home-btn">
