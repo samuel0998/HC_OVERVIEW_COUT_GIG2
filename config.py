@@ -33,7 +33,7 @@ def _build_fc_databases():
         "label": "IXD - CNF2",
         "uri": os.getenv(
             "DATABASE_URL_IXD_CNF2",
-            "postgresql://postgres:zSeySxWQzrZPWknNRoMfoxxdIYXfpSBp@sakura.proxy.rlwy.net:37193/railway?connect_timeout=5",
+            "postgresql://postgres:zSeySxWQzrZPWknNRoMfoxxdIYXfpSBp@sakura.proxy.rlwy.net:37193/railway?connect_timeout=2",
         ),
     }
 
