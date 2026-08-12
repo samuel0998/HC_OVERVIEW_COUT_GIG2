@@ -196,9 +196,13 @@ def _migrate_operadores_table():
 
 def _bootstrap_databases(app):
     fc_keys = list(app.config["FC_DATABASES"].keys())
+    available_fc_keys = []
 
     for fc in fc_keys:
         try:
+            if fc == "IXD_CNF2":
+                with db.engines[fc].connect() as conn:
+                    conn.execute(db.text("SELECT 1"))
             _create_operational_tables_for_fc(fc)
             _migrate_hc_table_for_fc(fc)
             _migrate_lc_table_for_fc(fc)
@@ -207,6 +211,7 @@ def _bootstrap_databases(app):
             from models.turno_config import ensure_default_turno_config
             ensure_default_turno_config()
             db.session.commit()
+            available_fc_keys.append(fc)
         except Exception as e:
             db.session.rollback()
             print(f"[MIGRATION:{fc}] ERRO: {e}")
@@ -218,7 +223,7 @@ def _bootstrap_databases(app):
     except Exception as e:
         print(f"[MIGRATION:GIG2] ERRO na tabela central de operadores: {e}")
 
-    for fc in fc_keys:
+    for fc in available_fc_keys:
         try:
             app.config["ACTIVE_FC"] = fc
             db.session.remove()
