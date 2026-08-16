@@ -44,35 +44,35 @@ const LC_LEVEL_COLORS = {
 };
 
 // ── Estado dos filtros ───────────────────────────────────────────
-const filtros = { area: "", turno: "", status: "", cargo: "" };
+// Cada campo guarda uma lista de valores selecionados (OR entre eles).
+// Clique normal = seleção única | Ctrl/Cmd+clique = modo multi-filtro.
+const filtros = { area: [], turno: [], status: [], cargo: [] };
 const charts  = {};
 
 // ── Utilitários ──────────────────────────────────────────────────
+function appendFiltros(p) {
+  if (filtros.area.length)   p.set("area",   filtros.area.join(","));
+  if (filtros.turno.length)  p.set("turno",  filtros.turno.join(","));
+  if (filtros.status.length) p.set("status", filtros.status.join(","));
+  if (filtros.cargo.length)  p.set("cargo",  filtros.cargo.join(","));
+}
+
 function buildUrl() {
   const p = new URLSearchParams();
-  if (filtros.area)   p.set("area",   filtros.area);
-  if (filtros.turno)  p.set("turno",  filtros.turno);
-  if (filtros.status) p.set("status", filtros.status);
-  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  appendFiltros(p);
   return `/api/hc/dashboard?${p.toString()}`;
 }
 
 function listUrl(extra = {}) {
   const p = new URLSearchParams();
-  if (filtros.area)   p.set("area",   filtros.area);
-  if (filtros.turno)  p.set("turno",  filtros.turno);
-  if (filtros.status) p.set("status", filtros.status);
-  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  appendFiltros(p);
   Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
   return `/atualizar?${p.toString()}`;
 }
 
 function lcListUrl(extra = {}) {
   const p = new URLSearchParams();
-  if (filtros.area)   p.set("area",   filtros.area);
-  if (filtros.turno)  p.set("turno",  filtros.turno);
-  if (filtros.status) p.set("status", filtros.status);
-  if (filtros.cargo)  p.set("cargo",  filtros.cargo);
+  appendFiltros(p);
   Object.entries(extra).forEach(([k, v]) => { if (v) p.set(k, v); });
   return `/lc?${p.toString()}`;
 }
@@ -290,10 +290,23 @@ function renderPills(containerId, valores, campo) {
   el.innerHTML = "";
   valores.forEach(v => {
     const btn = document.createElement("button");
-    btn.className = "filter-pill" + (filtros[campo] === v ? " active" : "");
+    btn.className = "filter-pill" + (filtros[campo].includes(v) ? " active" : "");
     btn.textContent = v;
-    btn.onclick = () => {
-      filtros[campo] = filtros[campo] === v ? "" : v;
+    btn.title = "Ctrl+clique para selecionar vários";
+    btn.onclick = (e) => {
+      const multi = e.ctrlKey || e.metaKey;
+      const selecionados = filtros[campo];
+      const jaSelecionado = selecionados.includes(v);
+
+      if (multi) {
+        // Modo multi-filtro: adiciona/remove este valor sem mexer nos demais.
+        filtros[campo] = jaSelecionado
+          ? selecionados.filter(x => x !== v)
+          : [...selecionados, v];
+      } else {
+        // Clique normal: seleção única (clicar de novo limpa).
+        filtros[campo] = (jaSelecionado && selecionados.length === 1) ? [] : [v];
+      }
       carregarDashboard();
     };
     el.appendChild(btn);
@@ -458,7 +471,7 @@ async function carregarDashboard() {
 }
 
 document.getElementById("btnLimparFiltros").addEventListener("click", () => {
-  filtros.area = filtros.turno = filtros.status = filtros.cargo = "";
+  filtros.area = []; filtros.turno = []; filtros.status = []; filtros.cargo = [];
   carregarDashboard();
 });
 

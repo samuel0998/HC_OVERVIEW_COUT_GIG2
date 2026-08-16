@@ -285,6 +285,20 @@ tbody tr:hover { background: #f0f6ff; }
   cursor: pointer;
 }
 .btn-clear:hover { border-color: var(--primary); color: var(--primary); }
+.filter-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: -8px 0 14px;
+  line-height: 1.4;
+}
+.filter-hint kbd {
+  background: #f0f4f8;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: inherit;
+}
 .filter-group { margin-bottom: 14px; }
 .filter-group label {
   display: block;

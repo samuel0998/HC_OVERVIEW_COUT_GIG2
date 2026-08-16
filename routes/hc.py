@@ -197,6 +197,13 @@ def _jobs_por_area(area):
     return PROCESSOS_POR_AREA.get(area_key, [])
 
 
+def _parse_multi_filtro(value):
+    """Aceita filtro simples ou multi-filtro (valores separados por vírgula)."""
+    if not value:
+        return []
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
 def _parse_bool(value, default=False):
     if value is None:
         return default
@@ -1270,23 +1277,24 @@ def exportar_lc_excel():
 @hc_bp.route("/api/hc/dashboard", methods=["GET"])
 @login_required
 def dashboard_data():
-    f_area   = request.args.get("area", "").strip()
-    f_turno  = request.args.get("turno", "").strip()
-    f_status = request.args.get("status", "").strip()
-    f_cargo  = request.args.get("cargo", "").strip()
+    # Cada filtro aceita múltiplos valores separados por vírgula (multi-filtro via Ctrl+clique no front).
+    f_area   = _parse_multi_filtro(request.args.get("area", ""))
+    f_turno  = _parse_multi_filtro(request.args.get("turno", ""))
+    f_status = _parse_multi_filtro(request.args.get("status", ""))
+    f_cargo  = _parse_multi_filtro(request.args.get("cargo", ""))
 
     todos = HCGig2.query.all()
     _aplicar_regra_hc_atual(todos)
 
     registros = todos
     if f_area:
-        registros = [r for r in registros if (r.area or "") == f_area]
+        registros = [r for r in registros if (r.area or "") in f_area]
     if f_turno:
-        registros = [r for r in registros if (r.turno or "") == f_turno]
+        registros = [r for r in registros if (r.turno or "") in f_turno]
     if f_status:
-        registros = [r for r in registros if r.status == f_status]
+        registros = [r for r in registros if r.status in f_status]
     if f_cargo:
-        registros = [r for r in registros if r.cargo == f_cargo]
+        registros = [r for r in registros if r.cargo in f_cargo]
 
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
@@ -1356,13 +1364,13 @@ def dashboard_data():
         if not hc_ref:
             continue
 
-        if f_area and (hc_ref.area or "") != f_area:
+        if f_area and (hc_ref.area or "") not in f_area:
             continue
-        if f_turno and (hc_ref.turno or "") != f_turno:
+        if f_turno and (hc_ref.turno or "") not in f_turno:
             continue
-        if f_status and hc_ref.status != f_status:
+        if f_status and hc_ref.status not in f_status:
             continue
-        if f_cargo and hc_ref.cargo != f_cargo:
+        if f_cargo and hc_ref.cargo not in f_cargo:
             continue
 
         lc_registros.append((lc, hc_ref))
