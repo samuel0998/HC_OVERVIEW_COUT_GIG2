@@ -267,6 +267,7 @@ def create_app():
         return {
             "active_fc": fc_key,
             "active_fc_label": fc_data.get("label", fc_key),
+            "active_fc_logo": fc_data.get("logo", "lion_logo.png"),
             "fc_options": app.config["FC_DATABASES"],
         }
 

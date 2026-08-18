@@ -12,7 +12,7 @@
             <div class="login-logos">
                 <img src="{{ url_for('static', filename='images/amazon_logo.png') }}" alt="Amazon" class="logo-amazon">
                 <img src="{{ url_for('static', filename='images/id_logo.png') }}" alt="ID" class="logo-id">
-                <img src="{{ url_for('static', filename='images/lion_logo.png') }}" alt="HC Overview" class="logo-lion">
+                <img id="loginFcLogo" src="{{ url_for('static', filename='images/' + active_fc_logo) }}" alt="HC Overview" class="logo-lion">
             </div>
             <div class="login-title">
                 <h1>HEADCOUNT OVERVIEW</h1>
@@ -28,7 +28,7 @@
                     <label for="fc">FC</label>
                     <select id="fc" name="fc" required>
                         {% for key, item in fc_options.items() %}
-                        <option value="{{ key }}" {% if key == selected_fc %}selected{% endif %}>{{ item.label }}</option>
+                        <option value="{{ key }}" data-logo="{{ url_for('static', filename='images/' + item.get('logo', 'lion_logo.png')) }}" {% if key == selected_fc %}selected{% endif %}>{{ item.label }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -42,5 +42,11 @@
             <p class="login-version">v1.1.0</p>
         </div>
     </div>
+    <script>
+        document.getElementById('fc').addEventListener('change', function () {
+            const logo = this.options[this.selectedIndex].getAttribute('data-logo');
+            if (logo) document.getElementById('loginFcLogo').src = logo;
+        });
+    </script>
 </body>
 </html>

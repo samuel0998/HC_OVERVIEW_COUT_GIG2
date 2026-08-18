@@ -18,6 +18,7 @@ def _build_fc_databases():
     databases = {
         "GIG2": {
             "label": "GIG2",
+            "logo": "lion_logo.png",
             "uri": os.getenv(
                 "DATABASE_URL_GIG2",
                 os.getenv(
@@ -28,6 +29,7 @@ def _build_fc_databases():
         },
         "CNF2": {
             "label": "CNF2",
+            "logo": "bbb_logo.png",
             "uri": os.getenv(
                 "DATABASE_URL_CNF2",
                 "postgresql://postgres:AeBVwsTaDRTwwpkWJZHaiNFNvkIDKEEM@centerbeam.proxy.rlwy.net:29864/railway",
@@ -35,6 +37,7 @@ def _build_fc_databases():
         },
         "CWB1": {
             "label": "CWB1",
+            "logo": "lion_logo.png",
             "uri": os.getenv(
                 "DATABASE_URL_CWB1",
                 "postgresql://postgres:QkVRaLlNIxaMFPJcghGxgWewwDSughzm@yamabiko.proxy.rlwy.net:30053/railway",
@@ -44,6 +47,8 @@ def _build_fc_databases():
 
     databases["IXD_CNF2"] = {
         "label": "IXD - CNF2",
+        # Instancia IXD do mesmo FC fisico do CNF2 -> usa a mesma logo (bbb).
+        "logo": "bbb_logo.png",
         "uri": _postgres_uri(
             "DATABASE_URL_IXD_CNF2",
             "postgresql://postgres:zSeySxWQzrZPWknNRoMfoxxdIYXfpSBp@sakura.proxy.rlwy.net:37193/railway?connect_timeout=5",
