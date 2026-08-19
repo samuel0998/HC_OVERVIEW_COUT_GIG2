@@ -229,6 +229,18 @@ def _pendencia_turno_expr():
     return db.and_(HCGig2.status == "OPERACIONAL", HCGig2.cargo == "PIT", HCGig2.turno.is_(None))
 
 
+def _pendencia_filtro():
+    """Quem precisa de uma data definida. O prazo de terça é só alerta visual: mesmo
+    depois de virar OFF automaticamente, o colaborador continua aqui até alguém
+    definir a data (off_origem guarda de onde ele veio)."""
+    return or_(
+        db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
+        db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
+        db.and_(HCGig2.status == "OFF", HCGig2.off_origem.isnot(None)),
+        _pendencia_turno_expr(),
+    )
+
+
 def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
     """Log an activity to registro_atividade."""
     from models.registro_atividade import RegistroAtividade
@@ -299,13 +311,7 @@ def _pendencias_count():
     """Return count of operators with pending dates or shift allocation."""
     _reset_chamada_por_virada_de_turno()
     _aplicar_regra_hc_atual(HCGig2.query.all())
-    return HCGig2.query.filter(
-        or_(
-            db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
-            db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
-            _pendencia_turno_expr(),
-        )
-    ).count()
+    return HCGig2.query.filter(_pendencia_filtro()).count()
 
 
 # ── Page routes ────────────────────────────────────────────────
@@ -463,6 +469,7 @@ def atualizar_colaborador(item_id):
         "turno": colaborador.turno or "",
         "status": colaborador.status,
         "status_agendado": colaborador.status_agendado or "",
+        "off_origem": colaborador.off_origem or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
     })
 
@@ -499,6 +506,8 @@ def atualizar_colaborador(item_id):
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
 
     hoje = date.today()
+    # Qualquer edição manual resolve uma eventual pendência de "OFF por prazo vencido".
+    colaborador.off_origem = None
 
     # Licença/Férias/Desligado só passam a valer de fato quando a data marcada chega;
     # até lá o colaborador continua com o status atual e a mudança fica "agendada".
@@ -682,13 +691,7 @@ def listar_pendencias():
     proxima_terca = hoje + timedelta(days=days_to_tuesday)
     prazo_vencido = weekday > 1
 
-    pendentes = HCGig2.query.filter(
-        or_(
-            db.and_(HCGig2.status.in_(["Licença", "Férias"]), HCGig2.data_inicio_licenca.is_(None)),
-            db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
-            _pendencia_turno_expr(),
-        )
-    ).order_by(HCGig2.nome_completo.asc()).all()
+    pendentes = HCGig2.query.filter(_pendencia_filtro()).order_by(HCGig2.nome_completo.asc()).all()
 
     return jsonify({
         "pendencias": [

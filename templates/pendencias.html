@@ -102,6 +102,7 @@
 
     function getPendDesc(p) {
         if (p.pendencia_tipo === 'turno') return 'PIT operacional aguardando alocação de turno';
+        if (p.status === 'OFF' && p.off_origem) return `${p.off_origem} vencida — prazo de terça estourado, ainda sem data definida`;
         if (p.status === 'Desligado') return 'Desligamento sem data definida';
         if (p.status === 'Licença') return 'Licença sem data de início/fim';
         if (p.status === 'Férias') return 'Férias sem data de início/fim';

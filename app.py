@@ -83,7 +83,10 @@ def processar_status_automatico():
             ))
 
         if prazo_vencido:
+            # O prazo de terca e so um alerta: quem vira OFF por falta de data continua
+            # aparecendo em Pendencias (off_origem guarda de onde veio) ate alguem definir a data.
             if op.status in ("Licenca", "Licença", "Ferias", "Férias") and not op.data_inicio_licenca:
+                op.off_origem = "Licença" if op.status in ("Licenca", "Licença") else "Férias"
                 op.status = "OFF"
                 registros.append(RegistroAtividade(
                     tipo="edicao_status",
@@ -92,11 +95,12 @@ def processar_status_automatico():
                     operador_nome=op.nome_completo,
                     usuario_login="sistema",
                     usuario_nome="Automacao",
-                    descricao=f"Status -> OFF: pendencia '{status_ant}' sem data definida (prazo terca-feira vencido)",
+                    descricao=f"Status -> OFF: pendencia '{status_ant}' sem data definida (prazo terca-feira vencido; continua em Pendencias)",
                     dados_anteriores=json.dumps({"status": status_ant}),
-                    dados_novos=json.dumps({"status": "OFF"}),
+                    dados_novos=json.dumps({"status": "OFF", "off_origem": op.off_origem}),
                 ))
             elif op.status == "Desligado" and not op.data_desligamento:
+                op.off_origem = "Desligado"
                 op.status = "OFF"
                 registros.append(RegistroAtividade(
                     tipo="edicao_status",
@@ -105,9 +109,9 @@ def processar_status_automatico():
                     operador_nome=op.nome_completo,
                     usuario_login="sistema",
                     usuario_nome="Automacao",
-                    descricao="Status -> OFF: pendencia de desligamento sem data (prazo terca-feira vencido)",
+                    descricao="Status -> OFF: pendencia de desligamento sem data (prazo terca-feira vencido; continua em Pendencias)",
                     dados_anteriores=json.dumps({"status": status_ant}),
-                    dados_novos=json.dumps({"status": "OFF"}),
+                    dados_novos=json.dumps({"status": "OFF", "off_origem": op.off_origem}),
                 ))
 
     for op in para_arquivar:
@@ -183,6 +187,8 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN causa_afastamento TYPE VARCHAR(500)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_agendado VARCHAR(20)"))
         print(f"[MIGRATION:{fc}] Coluna status_agendado verificada (Ferias/Licenca/Desligado agendados).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS off_origem VARCHAR(20)"))
+        print(f"[MIGRATION:{fc}] Coluna off_origem verificada (OFF por prazo vencido continua em Pendencias).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

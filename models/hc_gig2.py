@@ -21,6 +21,10 @@ class HCGig2(db.Model):
     # Status agendado: guarda "Licença" | "Férias" | "Desligado" quando a data marcada
     # ainda não chegou. O status atual (acima) só muda para esse valor quando a data vira.
     status_agendado = db.Column(db.String(20), nullable=True)
+    # Guarda "Licença" | "Férias" | "Desligado" quando o status atual virou OFF por
+    # pendência de data vencida (prazo de terça). Enquanto preenchido, o colaborador
+    # continua aparecendo em Pendências mesmo já estando OFF — o prazo é só alerta visual.
+    off_origem = db.Column(db.String(20), nullable=True)
     # Licença / Férias
     data_inicio_licenca = db.Column(db.Date, nullable=True)
     data_fim_licenca = db.Column(db.Date, nullable=True)
@@ -51,6 +55,7 @@ class HCGig2(db.Model):
             self.data_afastamento,
             self.causa_afastamento,
             self.status_agendado,
+            self.off_origem,
         )
         self.data_inicio_licenca = None
         self.data_fim_licenca = None
@@ -58,6 +63,7 @@ class HCGig2(db.Model):
         self.data_afastamento = None
         self.causa_afastamento = None
         self.status_agendado = None
+        self.off_origem = None
         return anterior != (
             self.data_inicio_licenca,
             self.data_fim_licenca,
@@ -65,6 +71,7 @@ class HCGig2(db.Model):
             self.data_afastamento,
             self.causa_afastamento,
             self.status_agendado,
+            self.off_origem,
         )
 
     def _ativar_status_agendado(self, hoje):
@@ -101,9 +108,19 @@ class HCGig2(db.Model):
                 self.status = "OPERACIONAL"
                 self.turno = None
         elif self._status_afastamento_ativo():
-            if self.data_fim_licenca and hoje >= self.data_fim_licenca:
+            if self.data_inicio_licenca and hoje < self.data_inicio_licenca:
+                # Registro legado: o status foi gravado direto (regra antiga) antes da
+                # data de início chegar. Autocorrige para o modelo de status agendado,
+                # sem perder data/causa já cadastradas.
+                self.status_agendado = self.status
+                self.status = "OPERACIONAL"
+            elif self.data_fim_licenca and hoje >= self.data_fim_licenca:
                 self.status = "OPERACIONAL"
                 alterou_bloqueios = self.limpar_bloqueios_afastamento()
+        elif self.status == "Desligado" and self.data_desligamento and hoje < self.data_desligamento:
+            # Mesmo caso acima, mas para desligamento gravado antes da hora.
+            self.status_agendado = "Desligado"
+            self.status = "OPERACIONAL"
         elif self.status == "OPERACIONAL":
             # Nao limpa datas/causa se houver uma Ferias/Licenca/Desligamento agendado
             # para o futuro aguardando a data chegar (ver _ativar_status_agendado).
@@ -124,6 +141,7 @@ class HCGig2(db.Model):
             "turno": self.turno or "",
             "status": self.status,
             "status_agendado": self.status_agendado or "",
+            "off_origem": self.off_origem or "",
             "presente_fc": bool(self.presente_fc),
             "job": self.job or "",
             "hora_extra_turno": self.hora_extra_turno or "",
