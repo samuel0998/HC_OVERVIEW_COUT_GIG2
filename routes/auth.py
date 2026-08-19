@@ -17,8 +17,17 @@ def _inicializar_fc_sob_demanda(fc):
     if fc_data.get("bootstrap_on_startup", True):
         return None
 
+    # Import tardio para evitar ciclo (app.py importa routes.auth no carregamento).
+    # create_all() sozinho so cria tabelas que ainda nao existem — nao adiciona
+    # colunas novas em tabelas ja existentes. Instancias sob demanda (ex.: IXD_CNF2)
+    # precisam rodar as MESMAS migracoes ALTER TABLE que as demais rodam no boot,
+    # senao ficam com o esquema desatualizado e toda consulta quebra (500).
+    from app import _create_operational_tables_for_fc, _migrate_hc_table_for_fc, _migrate_lc_table_for_fc
+
     try:
-        db.metadatas[None].create_all(bind=db.engines[fc])
+        _create_operational_tables_for_fc(fc)
+        _migrate_hc_table_for_fc(fc)
+        _migrate_lc_table_for_fc(fc)
         ensure_default_turno_config()
         db.session.commit()
     except Exception:
