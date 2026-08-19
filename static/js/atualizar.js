@@ -59,6 +59,13 @@ async function carregarTabela() {
   renderTabela();
 }
 
+// ── Datas agendadas (Férias/Licença/Desligado marcados para o futuro) ─────
+function formatarDataBR(iso) {
+  if (!iso) return "";
+  const [ano, mes, dia] = iso.split("-");
+  return `${dia}/${mes}/${ano}`;
+}
+
 // ── Renderizar com filtros locais ─────────────────────────────────
 function renderTabela() {
   const qNome  = buscaNome.value.toLowerCase();
@@ -84,6 +91,11 @@ function renderTabela() {
     const comentario = item.causa_afastamento
       ? `<span title="${item.causa_afastamento}" class="comment-cell">${item.causa_afastamento}</span>`
       : `<span class="comment-empty">—</span>`;
+    let agendado = "";
+    if (item.status_agendado) {
+      const dataRef = item.status_agendado === "Desligado" ? item.data_desligamento : item.data_inicio_licenca;
+      agendado = `<div class="scheduled-note">🕐 ${item.status_agendado} agendado(a) para ${formatarDataBR(dataRef) || "data indefinida"}</div>`;
+    }
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${idx + 1}</td>
@@ -92,7 +104,7 @@ function renderTabela() {
       <td>${item.cargo}</td>
       <td>${item.area  || "-"}</td>
       <td>${item.turno || "-"}</td>
-      <td><span class="badge ${sc}">${item.status}</span></td>
+      <td><span class="badge ${sc}">${item.status}</span>${agendado}</td>
       <td class="td-comment">${comentario}</td>
       <td>
         <button class="btn btn-sm" onclick="abrirEdicao(${item.id})">Editar</button>

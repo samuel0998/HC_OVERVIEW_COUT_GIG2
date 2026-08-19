@@ -462,6 +462,7 @@ def atualizar_colaborador(item_id):
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
         "status": colaborador.status,
+        "status_agendado": colaborador.status_agendado or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
     })
 
@@ -483,34 +484,54 @@ def atualizar_colaborador(item_id):
         if not descricao:
             return jsonify({"erro": "Descrição é obrigatória para Desligamento."}), 400
 
-    status_anterior = colaborador.status
+    status_anterior          = colaborador.status
+    status_agendado_anterior = colaborador.status_agendado
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
     colaborador.cargo         = _formatar_cargo(data.get("cargo") or colaborador.cargo)
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
-    colaborador.status        = novo_status
     if "presente_fc" in data:
         colaborador.presente_fc = _parse_bool(data.get("presente_fc"), default=True)
         colaborador.presenca_manual = True
     colaborador.job           = _formatar_job(data.get("job", colaborador.job))
     colaborador.hora_extra_turno = _formatar_turno_extra(data.get("hora_extra_turno", colaborador.hora_extra_turno))
-    if colaborador.status == "Treinamento":
-        colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
 
+    hoje = date.today()
+
+    # Licença/Férias/Desligado só passam a valer de fato quando a data marcada chega;
+    # até lá o colaborador continua com o status atual e a mudança fica "agendada".
     if novo_status in ("Licença", "Férias"):
-        colaborador.data_inicio_licenca = _parse_date(data.get("data_inicio_licenca"))
-        colaborador.data_fim_licenca    = _parse_date(data.get("data_fim_licenca"))
+        data_inicio = _parse_date(data.get("data_inicio_licenca"))
+        data_fim    = _parse_date(data.get("data_fim_licenca"))
+        colaborador.data_inicio_licenca = data_inicio
+        colaborador.data_fim_licenca    = data_fim
         colaborador.data_desligamento   = None
+        if data_inicio and data_inicio > hoje:
+            colaborador.status_agendado = novo_status
+        else:
+            colaborador.status = novo_status
+            colaborador.status_agendado = None
     elif novo_status == "Desligado":
-        colaborador.data_desligamento   = _parse_date(data.get("data_desligamento"))
+        data_deslig = _parse_date(data.get("data_desligamento"))
+        colaborador.data_desligamento   = data_deslig
         colaborador.data_inicio_licenca = None
         colaborador.data_fim_licenca    = None
+        if data_deslig and data_deslig > hoje:
+            colaborador.status_agendado = "Desligado"
+        else:
+            colaborador.status = novo_status
+            colaborador.status_agendado = None
     else:
+        colaborador.status            = novo_status
+        colaborador.status_agendado   = None
         colaborador.data_inicio_licenca = None
         colaborador.data_fim_licenca    = None
         colaborador.data_desligamento   = None
+
+    if colaborador.status == "Treinamento":
+        colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
 
     colaborador.aplicar_status_por_data()
 
@@ -521,6 +542,7 @@ def atualizar_colaborador(item_id):
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
         "status": colaborador.status,
+        "status_agendado": colaborador.status_agendado or "",
         "presente_fc": colaborador.presente_fc,
         "job": colaborador.job or "",
         "hora_extra_turno": colaborador.hora_extra_turno or "",
@@ -528,8 +550,22 @@ def atualizar_colaborador(item_id):
     })
 
     status_final = colaborador.status
-    tipo = "edicao_status" if status_anterior != status_final else "edicao"
-    msg_status = f" (status: {status_anterior} → {status_final})" if status_anterior != status_final else ""
+    partes_status = []
+    if status_anterior != status_final:
+        partes_status.append(f"status: {status_anterior} → {status_final}")
+    if status_agendado_anterior != colaborador.status_agendado:
+        if colaborador.status_agendado:
+            data_ref = (
+                colaborador.data_desligamento
+                if colaborador.status_agendado == "Desligado"
+                else colaborador.data_inicio_licenca
+            )
+            data_txt = data_ref.strftime("%d/%m/%Y") if data_ref else "data indefinida"
+            partes_status.append(f"{colaborador.status_agendado} agendado(a) para {data_txt}")
+        else:
+            partes_status.append("agendamento cancelado")
+    msg_status = f" ({'; '.join(partes_status)})" if partes_status else ""
+    tipo = "edicao_status" if partes_status else "edicao"
     _registrar(
         tipo,
         colaborador,

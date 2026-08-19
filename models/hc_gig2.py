@@ -18,6 +18,9 @@ class HCGig2(db.Model):
     job = db.Column(db.String(80), nullable=True, index=True)
     hora_extra_turno = db.Column(db.String(50), nullable=True, index=True)
     status_liberacao = db.Column(db.String(100), nullable=True)
+    # Status agendado: guarda "Licença" | "Férias" | "Desligado" quando a data marcada
+    # ainda não chegou. O status atual (acima) só muda para esse valor quando a data vira.
+    status_agendado = db.Column(db.String(20), nullable=True)
     # Licença / Férias
     data_inicio_licenca = db.Column(db.Date, nullable=True)
     data_fim_licenca = db.Column(db.Date, nullable=True)
@@ -47,25 +50,47 @@ class HCGig2(db.Model):
             self.previsao_afastamento,
             self.data_afastamento,
             self.causa_afastamento,
+            self.status_agendado,
         )
         self.data_inicio_licenca = None
         self.data_fim_licenca = None
         self.previsao_afastamento = False
         self.data_afastamento = None
         self.causa_afastamento = None
+        self.status_agendado = None
         return anterior != (
             self.data_inicio_licenca,
             self.data_fim_licenca,
             self.previsao_afastamento,
             self.data_afastamento,
             self.causa_afastamento,
+            self.status_agendado,
         )
+
+    def _ativar_status_agendado(self, hoje):
+        """Vira Licença/Férias/Desligado somente quando a data marcada chega."""
+        if not self.status_agendado:
+            return False
+
+        if self.status_agendado in ("Licença", "Férias"):
+            if self.data_inicio_licenca and hoje >= self.data_inicio_licenca:
+                self.status = self.status_agendado
+                self.status_agendado = None
+                return True
+        elif self.status_agendado == "Desligado":
+            if self.data_desligamento and hoje >= self.data_desligamento:
+                self.status = "Desligado"
+                self.status_agendado = None
+                return True
+
+        return False
 
     def aplicar_status_por_data(self, hoje=None):
         hoje = hoje or date.today()
         status_anterior = self.status
 
         alterou_bloqueios = False
+        self._ativar_status_agendado(hoje)
 
         if self.status == "Treinamento":
             cargo = self._cargo_normalizado()
@@ -80,7 +105,10 @@ class HCGig2(db.Model):
                 self.status = "OPERACIONAL"
                 alterou_bloqueios = self.limpar_bloqueios_afastamento()
         elif self.status == "OPERACIONAL":
-            alterou_bloqueios = self.limpar_bloqueios_afastamento()
+            # Nao limpa datas/causa se houver uma Ferias/Licenca/Desligamento agendado
+            # para o futuro aguardando a data chegar (ver _ativar_status_agendado).
+            if not self.status_agendado:
+                alterou_bloqueios = self.limpar_bloqueios_afastamento()
         elif self.status == "Desligado":
             pass  # Desligado não reverte automaticamente
 
@@ -95,6 +123,7 @@ class HCGig2(db.Model):
             "area": self.area or "",
             "turno": self.turno or "",
             "status": self.status,
+            "status_agendado": self.status_agendado or "",
             "presente_fc": bool(self.presente_fc),
             "job": self.job or "",
             "hora_extra_turno": self.hora_extra_turno or "",

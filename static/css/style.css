@@ -209,6 +209,10 @@ tbody tr:hover { background: #f0f6ff; }
 .badge.ferias     { background: #e0f2fe; color: #0277bd; }
 .badge.desligado  { background: #f3e8ff; color: #6a1b9a; }
 
+.scheduled-note {
+  margin-top: 4px; font-size: 11px; color: #92400e; white-space: nowrap;
+}
+
 /* ── BOTÃO PEQUENO ── */
 .btn-sm { padding: 6px 10px; font-size: 12px; }
 

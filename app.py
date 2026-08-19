@@ -32,12 +32,29 @@ def processar_status_automatico():
 
     for op in todos:
         status_ant = op.status
+        status_agendado_ant = op.status_agendado
 
-        if op.status == "Desligado" and op.data_desligamento and hoje >= op.data_desligamento:
+        desligamento_efetivo = op.status == "Desligado" or op.status_agendado == "Desligado"
+        if desligamento_efetivo and op.data_desligamento and hoje >= op.data_desligamento:
             para_arquivar.append(op)
             continue
 
         alterou_por_data = op.aplicar_status_por_data(hoje)
+
+        if status_agendado_ant and not op.status_agendado and op.status == status_agendado_ant:
+            registros.append(RegistroAtividade(
+                tipo="edicao_status",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao=f"Ativacao automatica: '{status_agendado_ant}' passou a valer (data marcada atingida)",
+                dados_anteriores=json.dumps({"status": status_ant, "status_agendado": status_agendado_ant}),
+                dados_novos=json.dumps({"status": op.status}),
+            ))
+            continue
+
         if status_ant in ("Licenca", "Licença", "Ferias", "Férias") and op.status == "OPERACIONAL" and alterou_por_data:
             registros.append(RegistroAtividade(
                 tipo="edicao_status",
@@ -164,6 +181,8 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_fim_licenca DATE"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_desligamento DATE"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN causa_afastamento TYPE VARCHAR(500)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_agendado VARCHAR(20)"))
+        print(f"[MIGRATION:{fc}] Coluna status_agendado verificada (Ferias/Licenca/Desligado agendados).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "
