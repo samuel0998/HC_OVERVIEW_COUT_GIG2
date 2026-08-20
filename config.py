@@ -37,7 +37,7 @@ def _build_fc_databases():
         },
         "CWB1": {
             "label": "CWB1",
-            "logo": "lion_logo.png",
+            "logo": "gralha_logo.jpg",
             "uri": os.getenv(
                 "DATABASE_URL_CWB1",
                 "postgresql://postgres:QkVRaLlNIxaMFPJcghGxgWewwDSughzm@yamabiko.proxy.rlwy.net:30053/railway",
