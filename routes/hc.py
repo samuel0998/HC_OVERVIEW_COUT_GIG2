@@ -1506,7 +1506,7 @@ def dashboard_data():
             "areas":  areas_disponiveis,
             "turnos": turnos_disponiveis,
             "status": status_disponiveis,
-            "cargos": ["AA", "Associado", "PIT"],
+            "cargos": ["AA", "Associado", "PIT", "Analista"],
         },
         "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
         "lc": {
