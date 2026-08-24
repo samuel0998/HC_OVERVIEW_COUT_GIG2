@@ -12,14 +12,14 @@ from flask import Blueprint, abort, jsonify, render_template, request, send_file
 from flask_login import current_user, login_required
 from sqlalchemy import or_
 
-from models import db
+from models import db, get_current_fc
 from models.hc_gig2 import HCGig2
 from models.lc_atual import LCAtual
 from models.turno_config import HCTurnoConfig, ensure_default_turno_config
 
 hc_bp = Blueprint("hc", __name__)
 
-CARGOS  = ["AA", "Associado", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
+CARGOS  = ["AA", "Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
 STATUS  = ["OPERACIONAL", "Treinamento", "Licença", "Férias", "Desligado", "OFF"]
@@ -50,6 +50,19 @@ def _parse_date(value):
 
 def _normalizar(s):
     return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode("ascii").lower().strip()
+
+
+def _identificador_fc_exportacao():
+    """Retorna o site ativo em formato seguro para nomes de arquivo e aba."""
+    fc_ativo = get_current_fc()
+    if fc_ativo.startswith("IXD_"):
+        fc_ativo = "IXD"
+
+    identificador = "".join(
+        caractere if caractere.isalnum() else "_"
+        for caractere in _normalizar(fc_ativo)
+    )
+    return "_".join(parte for parte in identificador.split("_") if parte) or "hc"
 
 
 def _find_col(df, keyword):
@@ -1013,6 +1026,23 @@ def exportar_excel():
     registros = HCGig2.query.order_by(HCGig2.nome_completo.asc()).all()
     _aplicar_regra_hc_atual(registros)
 
+    nome = request.args.get("nome", "").strip().lower()
+    login = request.args.get("login", "").strip().lower()
+    cargo = request.args.get("cargo", "").strip()
+    area = request.args.get("area", "").strip()
+    turno = request.args.get("turno", "").strip()
+    status = request.args.get("status", "").strip()
+
+    registros = [
+        r for r in registros
+        if (not nome or nome in (r.nome_completo or "").lower())
+        and (not login or login in (r.login or "").lower())
+        and (not cargo or (r.cargo or "") == cargo)
+        and (not area or (r.area or "") == area)
+        and (not turno or (r.turno or "") == turno)
+        and (not status or (r.status or "") == status)
+    ]
+
     dados = []
     for r in registros:
         d = r.to_dict()
@@ -1037,15 +1067,16 @@ def exportar_excel():
 
     df = pd.DataFrame(dados)
 
+    fc_exportacao = _identificador_fc_exportacao()
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="HC_GIG2")
+        df.to_excel(writer, index=False, sheet_name=f"HC_{fc_exportacao.upper()}")
     output.seek(0)
 
     return send_file(
         output,
         as_attachment=True,
-        download_name="hc_gig2.xlsx",
+        download_name=f"hc_{fc_exportacao}.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 

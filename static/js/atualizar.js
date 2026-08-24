@@ -269,7 +269,24 @@ filtroTurno.addEventListener("change", renderTabela);
 filtroStatus.addEventListener("change", renderTabela);
 
 // ── Exportar ──────────────────────────────────────────────────────
-btnExportar.addEventListener("click", () => { window.location.href = "/api/hc/export"; });
+btnExportar.addEventListener("click", () => {
+  const params = new URLSearchParams();
+  const filtros = {
+    nome: buscaNome.value.trim(),
+    login: buscaLogin.value.trim(),
+    cargo: filtroCargo.value,
+    area: filtroArea.value,
+    turno: filtroTurno.value,
+    status: filtroStatus.value,
+  };
+
+  Object.entries(filtros).forEach(([chave, valor]) => {
+    if (valor) params.set(chave, valor);
+  });
+
+  const query = params.toString();
+  window.location.href = `/api/hc/export${query ? `?${query}` : ""}`;
+});
 btnExportarLC.addEventListener("click", () => { window.location.href = "/api/lc/export"; });
 
 // ── Importar CSV ──────────────────────────────────────────────────
