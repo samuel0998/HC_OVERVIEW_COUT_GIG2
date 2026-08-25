@@ -1,6 +1,12 @@
 const formNovo = document.getElementById("formNovo");
 const mensagem = document.getElementById("mensagem");
 
+// ── URL params (vindos de um ticket de premissa ON em Pendências) ─
+const _p = new URLSearchParams(window.location.search);
+if (_p.get("cargo")) formNovo.cargo.value = _p.get("cargo");
+if (_p.get("area"))  formNovo.area.value  = _p.get("area");
+if (_p.get("turno")) formNovo.turno.value = _p.get("turno");
+
 function showMessage(text, isError = false) {
   mensagem.textContent = text;
   mensagem.style.color = isError ? "#b91c1c" : "#166534";

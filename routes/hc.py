@@ -5,6 +5,7 @@ import unicodedata
 from datetime import date, datetime, timedelta
 from email.mime.text import MIMEText
 from io import BytesIO
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -15,6 +16,7 @@ from sqlalchemy import or_
 from models import db, get_current_fc
 from models.hc_gig2 import HCGig2
 from models.lc_atual import LCAtual
+from models.ticket import TICKET_TYPES, Ticket
 from models.turno_config import HCTurnoConfig, ensure_default_turno_config
 
 hc_bp = Blueprint("hc", __name__)
@@ -325,6 +327,79 @@ def _pendencias_count():
     _reset_chamada_por_virada_de_turno()
     _aplicar_regra_hc_atual(HCGig2.query.all())
     return HCGig2.query.filter(_pendencia_filtro()).count()
+
+
+# ── Tickets de premissas (LS, LT, TOFF, RP, ON) ──────────────────
+
+
+def _match_valor_conhecido(valor, lista):
+    """Casa o valor vindo do ticket (sector_key/shift_name/labor_type) com uma opcao
+    conhecida do sistema (AREAS/TURNOS/CARGOS), ignorando acentos/caixa. Sem match
+    confiavel, retorna vazio em vez de forcar um filtro/valor errado no List."""
+    if not valor:
+        return ""
+    alvo = _normalizar(valor)
+    for item in lista:
+        if _normalizar(item) == alvo:
+            return item
+    return ""
+
+
+def _ticket_resolver_url(t):
+    """Link de 'Resolver Pendencia': ON manda para Novo HC, os demais para o List
+    (Atualizar) ja filtrado pelo turno/setor de quem precisa agir."""
+    if t.premise_type == "ON":
+        pares = [
+            ("area", _match_valor_conhecido(t.sector_key, AREAS)),
+            ("turno", _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS)),
+            ("cargo", _match_valor_conhecido(t.labor_type, CARGOS)),
+        ]
+        pares = [p for p in pares if p[1]]
+        return "/novo" + (f"?{urlencode(pares)}" if pares else "")
+
+    if t.is_transferencia:
+        area  = _match_valor_conhecido(t.source_sector_key, AREAS)
+        turno = _match_valor_conhecido(t.source_shift_name or t.source_shift_key, TURNOS)
+    else:
+        area  = _match_valor_conhecido(t.sector_key, AREAS)
+        turno = _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS)
+
+    pares = [p for p in (("area", area), ("turno", turno)) if p[1]]
+    return "/atualizar" + (f"?{urlencode(pares)}" if pares else "")
+
+
+def _tickets_visiveis():
+    """Tickets em aberto (nao finalizados/nao resolvidos) visiveis para o usuario
+    logado: EXPERT ve tudo (acompanhamento); demais niveis veem so' os tickets em
+    que sao o owner (quem precisa agir). ON e' exclusivo de EXPERT (premissa de RH
+    sem owner)."""
+    try:
+        tickets = (
+            Ticket.query
+            .filter(Ticket.premise_type.in_(TICKET_TYPES))
+            .filter(Ticket.premise_status != "FINALIZADA")
+            .all()
+        )
+    except Exception:
+        db.session.rollback()
+        return None  # tabela 'tickets' indisponivel nesta FC (integracao externa nao provisionada)
+
+    login_atual = (current_user.login or "").strip().lower()
+    visiveis = []
+    for t in tickets:
+        if t.hcview_resolvido:
+            continue
+        if current_user.is_admin:
+            visiveis.append(t)
+            continue
+        if t.premise_type == "ON":
+            continue
+        owner = (t.owner_login or "").strip().lower()
+        if owner and owner == login_atual:
+            visiveis.append(t)
+
+    visiveis.sort(key=lambda t: t.prazo or t.work_date or date.max)
+    return visiveis
 
 
 # ── Page routes ────────────────────────────────────────────────
@@ -718,6 +793,57 @@ def listar_pendencias():
         "prazo": proxima_terca.strftime("%d/%m/%Y"),
         "prazo_vencido": prazo_vencido,
     })
+
+
+@hc_bp.route("/api/hc/tickets-pendentes", methods=["GET"])
+@login_required
+def listar_tickets_pendentes():
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissao."}), 403
+
+    visiveis = _tickets_visiveis()
+    if visiveis is None:
+        return jsonify({"tickets": [], "total": 0, "integracao_disponivel": False})
+
+    itens = []
+    for t in visiveis:
+        item = t.to_dict()
+        item["resolver_url"] = _ticket_resolver_url(t)
+        itens.append(item)
+
+    return jsonify({"tickets": itens, "total": len(itens), "integracao_disponivel": True})
+
+
+@hc_bp.route("/api/hc/tickets/<int:premise_id>/resolver", methods=["POST"])
+@login_required
+def resolver_ticket(premise_id):
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissao."}), 403
+
+    ticket = Ticket.query.get_or_404(premise_id)
+    eh_expert = current_user.is_admin
+
+    if ticket.premise_type == "ON":
+        if not eh_expert:
+            return jsonify({"erro": "Somente nivel EXPERT pode concluir premissas ON."}), 403
+    elif not eh_expert:
+        owner = (ticket.owner_login or "").strip().lower()
+        if owner and owner != (current_user.login or "").strip().lower():
+            return jsonify({"erro": "Somente o responsavel pelo ticket ou um EXPERT pode concluir."}), 403
+
+    ticket.hcview_resolvido = True
+    ticket.hcview_resolvido_em = datetime.utcnow()
+    ticket.hcview_resolvido_por_login = current_user.login
+    ticket.hcview_resolvido_por_nome = current_user.nome
+
+    _registrar(
+        "ticket_resolvido",
+        None,
+        f"Ticket {ticket.tipo_label} #{ticket.premise_id} marcado como concluido por {current_user.nome}.",
+    )
+
+    db.session.commit()
+    return jsonify({"mensagem": "Ticket marcado como concluido.", "item": ticket.to_dict()})
 
 
 # ── API: Histórico ─────────────────────────────────────────────

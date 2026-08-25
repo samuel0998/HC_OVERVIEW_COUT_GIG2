@@ -153,7 +153,10 @@ def processar_status_automatico():
 
 def _create_operational_tables_for_fc(fc):
     engine = db.engines[fc]
-    db.metadatas[None].create_all(bind=engine)
+    # 'tickets' e' de propriedade de uma ferramenta externa (espelha gig2_hc_premises) -
+    # o HC Overview nunca cria essa tabela, so' altera (ver _migrate_tickets_table_for_fc).
+    tabelas = [t for t in db.metadatas[None].tables.values() if t.name != "tickets"]
+    db.metadatas[None].create_all(bind=engine, tables=tabelas)
     print(f"[MIGRATION:{fc}] Tabelas operacionais verificadas.")
 
 
@@ -203,6 +206,40 @@ def _migrate_hc_table_for_fc(fc):
     print(f"=== [MIGRATION:{fc}] Concluida com sucesso ===")
 
 
+def _migrate_tickets_table_for_fc(fc):
+    """So' adiciona colunas hcview_* de controle - nunca cria a tabela 'tickets' (ela e'
+    populada por uma ferramenta externa que espelha gig2_hc_premises). Se a tabela ainda
+    nao existir nessa FC, pula sem erro: a integracao de tickets fica indisponivel ali
+    ate a ferramenta externa provisiona-la."""
+    engine = db.engines[fc]
+    with engine.begin() as conn:
+        existe = conn.execute(db.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'tickets'"
+        )).first()
+        if not existe:
+            print(f"[MIGRATION:{fc}] Tabela 'tickets' ainda nao provisionada nesta base (integracao externa). Pulando.")
+            return
+
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_em TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_por_login VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_por_nome VARCHAR(150)"))
+
+        result = conn.execute(db.text(
+            "SELECT column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            "WHERE table_name = 'tickets' AND column_name LIKE 'hcview_%' "
+            "ORDER BY ordinal_position"
+        ))
+        colunas = result.fetchall()
+
+    print(f"=== [MIGRATION:{fc}] Colunas hcview_* na tabela tickets ===")
+    for col in colunas:
+        print(f"  {col[0]:30s} | {col[1]:20s} | nullable={col[2]}")
+    print(f"=== [MIGRATION:{fc}] Concluida com sucesso ===")
+
+
 def _migrate_lc_table_for_fc(fc):
     engine = db.engines[fc]
     with engine.begin() as conn:
@@ -231,6 +268,7 @@ def _bootstrap_databases(app):
             _create_operational_tables_for_fc(fc)
             _migrate_hc_table_for_fc(fc)
             _migrate_lc_table_for_fc(fc)
+            _migrate_tickets_table_for_fc(fc)
             app.config["ACTIVE_FC"] = fc
             db.session.remove()
             from models.turno_config import ensure_default_turno_config
@@ -303,6 +341,7 @@ def create_app():
         from models.historico import HistoricoOperacional  # noqa: F401
         from models.registro_atividade import RegistroAtividade  # noqa: F401
         from models.turno_config import HCTurnoConfig  # noqa: F401
+        from models.ticket import Ticket  # noqa: F401
 
         _bootstrap_databases(app)
 

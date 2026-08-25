@@ -52,6 +52,38 @@
     <div class="total-registros" id="pend-total-label"></div>
 </div>
 
+<div class="card" style="margin-top:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h2 style="margin:0;font-size:18px;">Tickets de premissas (LS · LT · TOFF · RP · ON)</h2>
+        <span id="ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
+    </div>
+    <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. Sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
+        {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto (inclusive ON, sem owner).
+        {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
+    </p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Tipo</th>
+                    <th>Origem → Destino</th>
+                    <th>Qtd</th>
+                    <th>Responsável</th>
+                    <th>Data solicitada</th>
+                    <th>Prazo</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody id="ticket-tbody">
+                <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="total-registros" id="ticket-total-label"></div>
+</div>
+
 <script>
 (function () {
     async function carregarPendencias() {
@@ -110,6 +142,82 @@
     }
 
     carregarPendencias();
+})();
+
+(function () {
+    async function carregarTickets() {
+        try {
+            const res = await fetch('/api/hc/tickets-pendentes');
+            const data = await res.json();
+            document.getElementById('ticket-loading').textContent = '';
+
+            const tbody = document.getElementById('ticket-tbody');
+
+            if (data.integracao_disponivel === false) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
+                document.getElementById('ticket-total-label').textContent = '';
+                return;
+            }
+
+            if (data.tickets.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket de premissa em aberto. Tudo em dia!</td></tr>';
+                document.getElementById('ticket-total-label').textContent = '';
+                return;
+            }
+
+            tbody.innerHTML = data.tickets.map(t => {
+                const rota = t.is_transferencia
+                    ? `${t.source_sector_key || '—'} (${t.source_shift_name || t.source_shift_key || '—'}) &rarr; ${t.sector_key || '—'} (${t.shift_name || t.shift_key || '—'})`
+                    : `${t.sector_key || '—'} (${t.shift_name || t.shift_key || '—'})`;
+
+                let statusBadge;
+                if (t.resolvido) {
+                    statusBadge = '<span class="badge operacional">Concluído</span>';
+                } else if (t.nao_conforme) {
+                    statusBadge = '<span class="badge off">Não conforme</span>';
+                } else {
+                    statusBadge = '<span class="badge licenca">Pendente</span>';
+                }
+
+                const responsavel = t.owner_nome || t.owner_login || t.responsible_name || '—';
+
+                return `<tr>
+                    <td>${t.tipo_label}</td>
+                    <td style="font-size:13px;">${rota}</td>
+                    <td>${t.amount}</td>
+                    <td>${responsavel}</td>
+                    <td>${t.work_date || '—'}</td>
+                    <td>${t.prazo || '—'}</td>
+                    <td>${statusBadge}</td>
+                    <td style="white-space:nowrap;">
+                        ${!t.resolvido ? `<a href="${t.resolver_url}" target="_blank" class="btn btn-sm primary">Resolver Pendência</a>
+                        <button type="button" class="btn btn-sm" onclick="marcarTicketConcluido(${t.premise_id})">Marcar concluído</button>` : '—'}
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('ticket-total-label').textContent = `${data.total} ticket(s) em aberto`;
+        } catch (e) {
+            document.getElementById('ticket-loading').textContent = 'Erro ao carregar.';
+        }
+    }
+
+    window.marcarTicketConcluido = async function (premiseId) {
+        if (!confirm('Confirma que a premissa foi executada e o ticket pode ser marcado como concluído?')) return;
+        try {
+            const res = await fetch(`/api/hc/tickets/${premiseId}/resolver`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.erro || 'Erro ao concluir ticket.');
+                return;
+            }
+            carregarTickets();
+        } catch (e) {
+            alert('Erro ao concluir ticket.');
+        }
+    };
+
+    carregarTickets();
 })();
 </script>
 {% endblock %}
