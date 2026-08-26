@@ -323,10 +323,12 @@ def _reset_chamada_por_virada_de_turno():
 
 
 def _pendencias_count():
-    """Return count of operators with pending dates or shift allocation."""
+    """Conta pendencias cadastrais e tickets visiveis para o usuario atual."""
     _reset_chamada_por_virada_de_turno()
     _aplicar_regra_hc_atual(HCGig2.query.all())
-    return HCGig2.query.filter(_pendencia_filtro()).count()
+    total = HCGig2.query.filter(_pendencia_filtro()).count()
+    tickets = _tickets_visiveis()
+    return total + (len(tickets) if tickets is not None else 0)
 
 
 # ── Tickets de premissas (LS, LT, TOFF, RP, ON) ──────────────────
@@ -338,11 +340,80 @@ def _match_valor_conhecido(valor, lista):
     confiavel, retorna vazio em vez de forcar um filtro/valor errado no List."""
     if not valor:
         return ""
-    alvo = _normalizar(valor)
+    alvo = _area_normalizada(valor) if lista is AREAS else _normalizar(valor)
     for item in lista:
-        if _normalizar(item) == alvo:
+        conhecido = _area_normalizada(item) if lista is AREAS else _normalizar(item)
+        if conhecido == alvo:
             return item
     return ""
+
+
+def _area_normalizada(valor):
+    alvo = _normalizar(valor).replace("-", " ").replace("_", " ")
+    alvo = " ".join(alvo.split())
+    compacto = alvo.replace(" ", "")
+    aliases = {
+        "in": "inbound",
+        "ib": "inbound",
+        "out": "outbound",
+        "ob": "outbound",
+        "transin": "transferin",
+        "transferinbound": "transferin",
+        "transout": "transferout",
+        "transferoutbound": "transferout",
+        "cret": "cret",
+    }
+    return aliases.get(compacto, compacto)
+
+
+def _area_corresponde(valor_hc, valor_ticket):
+    return not valor_ticket or _area_normalizada(valor_hc) == _area_normalizada(valor_ticket)
+
+
+def _turno_corresponde(valor_hc, valor_ticket):
+    if not valor_ticket:
+        return True
+    hc = _normalizar(valor_hc)
+    ticket = _normalizar(valor_ticket)
+    if hc == ticket:
+        return True
+    # A ferramenta de premissas pode enviar apenas Day/Night, enquanto o HC
+    # distingue BLUE/RED. Nesse caso a parte do dia ainda e uma correspondencia valida.
+    if ticket in ("day", "night"):
+        return hc.endswith(ticket)
+    return False
+
+
+def _cargo_ticket_corresponde(cargo_hc, cargo_ticket):
+    cargo = _cargo_normalizado(cargo_hc)
+    esperado = _cargo_normalizado(cargo_ticket)
+    if not esperado or esperado in ("ALL", "TODOS", "HC"):
+        return cargo in ("AA", "ASSOCIADO", "PIT")
+    if esperado in ("AA", "ASSOCIATE", "ASSOCIADO"):
+        return cargo in ("AA", "ASSOCIADO")
+    return cargo == esperado
+
+
+def _ticket_owner_contexto(t):
+    """Area/turno reais do owner no HC; usa os dados do ticket como fallback."""
+    owner_login = (t.owner_login or "").strip().lower()
+    owner_hc = None
+    if owner_login:
+        owner_hc = HCGig2.query.filter(
+            db.func.lower(db.func.trim(HCGig2.login)) == owner_login
+        ).first()
+
+    if owner_hc:
+        return owner_hc.area or "", owner_hc.turno or ""
+    if t.is_transferencia:
+        return (
+            _match_valor_conhecido(t.source_sector_key, AREAS),
+            _match_valor_conhecido(t.source_shift_name or t.source_shift_key, TURNOS),
+        )
+    return (
+        _match_valor_conhecido(t.sector_key, AREAS),
+        _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS),
+    )
 
 
 def _ticket_resolver_url(t):
@@ -353,19 +424,169 @@ def _ticket_resolver_url(t):
             ("area", _match_valor_conhecido(t.sector_key, AREAS)),
             ("turno", _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS)),
             ("cargo", _match_valor_conhecido(t.labor_type, CARGOS)),
+            ("ticket_id", t.premise_id),
         ]
         pares = [p for p in pares if p[1]]
         return "/novo" + (f"?{urlencode(pares)}" if pares else "")
 
-    if t.is_transferencia:
-        area  = _match_valor_conhecido(t.source_sector_key, AREAS)
-        turno = _match_valor_conhecido(t.source_shift_name or t.source_shift_key, TURNOS)
-    else:
-        area  = _match_valor_conhecido(t.sector_key, AREAS)
-        turno = _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS)
+    area, turno = _ticket_owner_contexto(t)
 
-    pares = [p for p in (("area", area), ("turno", turno)) if p[1]]
+    pares = [p for p in (("area", area), ("turno", turno), ("ticket_id", t.premise_id)) if p[1]]
     return "/atualizar" + (f"?{urlencode(pares)}" if pares else "")
+
+
+def _json_dict(valor):
+    if not valor:
+        return {}
+    try:
+        dados = json.loads(valor)
+        return dados if isinstance(dados, dict) else {}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _registro_cumpre_ticket(t, registro, owner_area="", owner_turno=""):
+    """Valida uma acao auditada do HC contra a regra concreta do ticket."""
+    antes = _json_dict(registro.dados_anteriores)
+    depois = _json_dict(registro.dados_novos)
+    tipo = (t.premise_type or "").upper()
+
+    if tipo == "ON":
+        if registro.tipo != "adicao":
+            return False
+        return (
+            _area_corresponde(depois.get("area"), t.sector_key)
+            and _turno_corresponde(depois.get("turno"), t.shift_name or t.shift_key)
+            and _cargo_ticket_corresponde(depois.get("cargo"), t.labor_type)
+        )
+
+    cargo_antes = antes.get("cargo") or depois.get("cargo")
+    if tipo in ("LS", "LT", "LM"):
+        if registro.tipo not in ("edicao", "edicao_status"):
+            return False
+        origem_area = t.source_sector_key or owner_area
+        origem_turno = t.source_shift_name or t.source_shift_key or owner_turno
+        mudou_alocacao = (
+            _normalizar(antes.get("area")) != _normalizar(depois.get("area"))
+            or _normalizar(antes.get("turno")) != _normalizar(depois.get("turno"))
+        )
+        return (
+            mudou_alocacao
+            and _cargo_ticket_corresponde(cargo_antes, t.source_labor_type or t.labor_type)
+            and _area_corresponde(antes.get("area"), origem_area)
+            and _turno_corresponde(antes.get("turno"), origem_turno)
+            and _area_corresponde(depois.get("area"), t.sector_key)
+            and _turno_corresponde(depois.get("turno"), t.shift_name or t.shift_key)
+        )
+
+    if tipo in ("TOFF", "RP"):
+        if registro.tipo not in ("edicao", "edicao_status"):
+            return False
+        desligado_antes = antes.get("status") == "Desligado" or antes.get("status_agendado") == "Desligado"
+        desligado_depois = depois.get("status") == "Desligado" or depois.get("status_agendado") == "Desligado"
+        return (
+            not desligado_antes
+            and desligado_depois
+            and _cargo_ticket_corresponde(cargo_antes, t.labor_type)
+            and _area_corresponde(antes.get("area"), owner_area or t.sector_key)
+            and _turno_corresponde(antes.get("turno"), owner_turno or t.shift_name or t.shift_key)
+        )
+
+    return False
+
+
+def _ids_acoes_ja_consumidas():
+    from models.registro_atividade import RegistroAtividade
+
+    ids = set()
+    registros = RegistroAtividade.query.filter(
+        RegistroAtividade.tipo == "ticket_resolvido",
+        RegistroAtividade.dados_novos.isnot(None),
+    ).all()
+    for registro in registros:
+        dados = _json_dict(registro.dados_novos)
+        ids.update(dados.get("acao_ids") or [])
+    return ids
+
+
+def _acoes_validas_ticket(t):
+    from models.registro_atividade import RegistroAtividade
+
+    query = RegistroAtividade.query
+    owner_login = (t.owner_login or "").strip().lower()
+    if (t.premise_type or "").upper() != "ON":
+        if not owner_login:
+            return []
+        query = query.filter(db.func.lower(RegistroAtividade.usuario_login) == owner_login)
+
+    inicio = t.created_at
+    if not inicio:
+        data_inicio = t.start_date or (t.work_date - timedelta(days=30) if t.work_date else date.today())
+        inicio = datetime.combine(data_inicio, datetime.min.time())
+    query = query.filter(RegistroAtividade.timestamp >= inicio)
+
+    owner_area, owner_turno = _ticket_owner_contexto(t)
+    acoes_consumidas = _ids_acoes_ja_consumidas()
+    encontrados = []
+    operadores_vistos = set()
+    for registro in query.order_by(RegistroAtividade.timestamp.asc()).all():
+        if registro.id in acoes_consumidas:
+            continue
+        if not _registro_cumpre_ticket(t, registro, owner_area, owner_turno):
+            continue
+        # Quantidade representa pessoas, portanto a mesma pessoa nao pode contar duas vezes.
+        chave = registro.operador_id or registro.operador_login or registro.id
+        if chave in operadores_vistos:
+            continue
+        operadores_vistos.add(chave)
+        encontrados.append(registro)
+    return encontrados
+
+
+def _concluir_ticket_se_validado(t):
+    if t.hcview_resolvido:
+        return True, max(t.amount or 1, 1), max(t.amount or 1, 1)
+
+    necessarias = max(t.amount or 1, 1)
+    acoes = _acoes_validas_ticket(t)
+    progresso = len(acoes)
+    if progresso < necessarias:
+        return False, progresso, necessarias
+
+    acao_final = acoes[necessarias - 1]
+    t.hcview_resolvido = True
+    t.hcview_resolvido_em = acao_final.timestamp or datetime.utcnow()
+    t.hcview_resolvido_por_login = acao_final.usuario_login
+    t.hcview_resolvido_por_nome = acao_final.usuario_nome
+
+    from models.registro_atividade import RegistroAtividade
+    db.session.add(RegistroAtividade(
+        tipo="ticket_resolvido",
+        usuario_login=acao_final.usuario_login,
+        usuario_nome=acao_final.usuario_nome,
+        descricao=(
+            f"Ticket {t.tipo_label} #{t.premise_id} concluido automaticamente: "
+            f"{progresso}/{necessarias} acao(oes) validada(s)."
+        ),
+        dados_novos=json.dumps({
+            "ticket_id": t.premise_id,
+            "acao_ids": [acao.id for acao in acoes[:necessarias]],
+        }),
+    ))
+    return True, progresso, necessarias
+
+
+def _sincronizar_tickets_por_acoes(tickets):
+    alterou = False
+    ordenados = sorted(tickets, key=lambda t: t.created_at.isoformat() if t.created_at else "")
+    for ticket in ordenados:
+        if ticket.hcview_resolvido:
+            continue
+        resolvido, _, _ = _concluir_ticket_se_validado(ticket)
+        alterou = alterou or resolvido
+    if alterou:
+        db.session.commit()
+    return alterou
 
 
 def _tickets_visiveis():
@@ -377,12 +598,22 @@ def _tickets_visiveis():
         tickets = (
             Ticket.query
             .filter(Ticket.premise_type.in_(TICKET_TYPES))
-            .filter(Ticket.premise_status != "FINALIZADA")
+            .filter(or_(
+                Ticket.premise_status.is_(None),
+                db.func.upper(Ticket.premise_status) != "FINALIZADA",
+            ))
             .all()
         )
     except Exception:
         db.session.rollback()
         return None  # tabela 'tickets' indisponivel nesta FC (integracao externa nao provisionada)
+
+    try:
+        _sincronizar_tickets_por_acoes(tickets)
+    except Exception:
+        # A leitura dos tickets continua disponivel mesmo que um historico legado
+        # incompleto nao possa ser validado automaticamente.
+        db.session.rollback()
 
     login_atual = (current_user.login or "").strip().lower()
     visiveis = []
@@ -780,6 +1011,8 @@ def listar_pendencias():
     prazo_vencido = weekday > 1
 
     pendentes = HCGig2.query.filter(_pendencia_filtro()).order_by(HCGig2.nome_completo.asc()).all()
+    tickets = _tickets_visiveis()
+    total_tickets = len(tickets) if tickets is not None else 0
 
     return jsonify({
         "pendencias": [
@@ -789,7 +1022,9 @@ def listar_pendencias():
             }
             for p in pendentes
         ],
-        "total": len(pendentes),
+        "total": len(pendentes) + total_tickets,
+        "total_colaboradores": len(pendentes),
+        "total_tickets": total_tickets,
         "prazo": proxima_terca.strftime("%d/%m/%Y"),
         "prazo_vencido": prazo_vencido,
     })
@@ -809,6 +1044,8 @@ def listar_tickets_pendentes():
     for t in visiveis:
         item = t.to_dict()
         item["resolver_url"] = _ticket_resolver_url(t)
+        item["progresso"] = len(_acoes_validas_ticket(t))
+        item["quantidade_necessaria"] = max(t.amount or 1, 1)
         itens.append(item)
 
     return jsonify({"tickets": itens, "total": len(itens), "integracao_disponivel": True})
@@ -828,22 +1065,25 @@ def resolver_ticket(premise_id):
             return jsonify({"erro": "Somente nivel EXPERT pode concluir premissas ON."}), 403
     elif not eh_expert:
         owner = (ticket.owner_login or "").strip().lower()
-        if owner and owner != (current_user.login or "").strip().lower():
+        if not owner or owner != (current_user.login or "").strip().lower():
             return jsonify({"erro": "Somente o responsavel pelo ticket ou um EXPERT pode concluir."}), 403
 
-    ticket.hcview_resolvido = True
-    ticket.hcview_resolvido_em = datetime.utcnow()
-    ticket.hcview_resolvido_por_login = current_user.login
-    ticket.hcview_resolvido_por_nome = current_user.nome
-
-    _registrar(
-        "ticket_resolvido",
-        None,
-        f"Ticket {ticket.tipo_label} #{ticket.premise_id} marcado como concluido por {current_user.nome}.",
-    )
+    resolvido, progresso, necessarias = _concluir_ticket_se_validado(ticket)
+    if not resolvido:
+        return jsonify({
+            "erro": (
+                "A acao correspondente ainda nao foi localizada no historico do HC. "
+                f"Progresso validado: {progresso}/{necessarias}."
+            ),
+            "progresso": progresso,
+            "quantidade_necessaria": necessarias,
+        }), 409
 
     db.session.commit()
-    return jsonify({"mensagem": "Ticket marcado como concluido.", "item": ticket.to_dict()})
+    return jsonify({
+        "mensagem": f"Ticket concluido: {progresso}/{necessarias} acao(oes) validada(s).",
+        "item": ticket.to_dict(),
+    })
 
 
 # ── API: Histórico ─────────────────────────────────────────────

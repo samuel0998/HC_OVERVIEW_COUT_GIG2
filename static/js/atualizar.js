@@ -24,6 +24,7 @@ let excluirId = null;
 
 // ── URL params (vindos do dashboard ou links externos) ───────────
 const _p = new URLSearchParams(window.location.search);
+const ticketId = _p.get("ticket_id");
 if (_p.get("status")) filtroStatus.value = _p.get("status");
 if (_p.get("area"))   filtroArea.value   = _p.get("area");
 if (_p.get("turno"))  filtroTurno.value  = _p.get("turno");
@@ -214,8 +215,21 @@ formEditar.addEventListener("submit", async (e) => {
   const result = await res.json();
   if (!res.ok) return showMessage(result.erro || "Erro ao atualizar.", true);
 
+  let ticketMensagem = "";
+  if (ticketId) {
+    try {
+      const validacaoRes = await fetch(`/api/hc/tickets/${encodeURIComponent(ticketId)}/resolver`, { method: "POST" });
+      const validacao = await validacaoRes.json();
+      ticketMensagem = validacaoRes.ok
+        ? ` ${validacao.mensagem}`
+        : ` Ticket ainda pendente: ${validacao.erro || "ação não validada."}`;
+    } catch (erro) {
+      ticketMensagem = " A alteração foi salva, mas não foi possível validar o ticket agora.";
+    }
+  }
+
   modal.classList.add("hidden");
-  showMessage(result.mensagem);
+  showMessage(`${result.mensagem}${ticketMensagem}`);
   carregarTabela();
 });
 

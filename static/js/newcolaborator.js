@@ -3,6 +3,7 @@ const mensagem = document.getElementById("mensagem");
 
 // ── URL params (vindos de um ticket de premissa ON em Pendências) ─
 const _p = new URLSearchParams(window.location.search);
+const ticketId = _p.get("ticket_id");
 if (_p.get("cargo")) formNovo.cargo.value = _p.get("cargo");
 if (_p.get("area"))  formNovo.area.value  = _p.get("area");
 if (_p.get("turno")) formNovo.turno.value = _p.get("turno");
@@ -41,6 +42,19 @@ formNovo.addEventListener("submit", async (e) => {
   const result = await res.json();
   if (!res.ok) return showMessage(result.erro || "Erro ao salvar.", true);
 
+  let ticketMensagem = "";
+  if (ticketId) {
+    try {
+      const validacaoRes = await fetch(`/api/hc/tickets/${encodeURIComponent(ticketId)}/resolver`, { method: "POST" });
+      const validacao = await validacaoRes.json();
+      ticketMensagem = validacaoRes.ok
+        ? ` ${validacao.mensagem}`
+        : ` Ticket ainda pendente: ${validacao.erro || "ação não validada."}`;
+    } catch (erro) {
+      ticketMensagem = " O cadastro foi salvo, mas não foi possível validar o ticket agora.";
+    }
+  }
+
   formNovo.reset();
-  showMessage(result.mensagem);
+  showMessage(`${result.mensagem}${ticketMensagem}`);
 });

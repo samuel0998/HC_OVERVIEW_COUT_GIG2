@@ -58,7 +58,7 @@
         <span id="ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
-        Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. Sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
+        Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. A conclusão é validada pelas ações registradas no HC; sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
         {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto (inclusive ON, sem owner).
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
     </p>
@@ -126,7 +126,7 @@
                 </tr>`;
             }).join('');
 
-            document.getElementById('pend-total-label').textContent = `${data.total} colaborador(es) com pendência`;
+            document.getElementById('pend-total-label').textContent = `${data.total_colaboradores} colaborador(es) com pendência cadastral`;
         } catch (e) {
             document.getElementById('pend-loading').textContent = 'Erro ao carregar.';
         }
@@ -191,7 +191,8 @@
                     <td>${statusBadge}</td>
                     <td style="white-space:nowrap;">
                         ${!t.resolvido ? `<a href="${t.resolver_url}" target="_blank" class="btn btn-sm primary">Resolver Pendência</a>
-                        <button type="button" class="btn btn-sm" onclick="marcarTicketConcluido(${t.premise_id})">Marcar concluído</button>` : '—'}
+                        <button type="button" class="btn btn-sm" onclick="validarTicketConcluido(${t.premise_id})">Validar conclusão</button>
+                        <small style="display:block;margin-top:5px;color:var(--muted);">Ações: ${t.progresso}/${t.quantidade_necessaria}</small>` : '—'}
                     </td>
                 </tr>`;
             }).join('');
@@ -202,8 +203,7 @@
         }
     }
 
-    window.marcarTicketConcluido = async function (premiseId) {
-        if (!confirm('Confirma que a premissa foi executada e o ticket pode ser marcado como concluído?')) return;
+    window.validarTicketConcluido = async function (premiseId) {
         try {
             const res = await fetch(`/api/hc/tickets/${premiseId}/resolver`, { method: 'POST' });
             const data = await res.json();
