@@ -61,6 +61,12 @@
         Solicitações de <strong>VTO</strong> (Voluntary Time Off) e <strong>VTE</strong> (Voluntary Time Extension) abertas por AA/PIT.
         Responsável: <strong>RME cadastrado</strong>. Ao resolver, clique em <em>Resolver Pendência</em> para ir direto ao colaborador.
     </p>
+    {% if current_user.is_admin %}
+    <div style="margin-bottom:12px;">
+        <button class="btn btn-sm" onclick="migrarPortalTickets()" style="font-size:12px;">&#9881; Criar tabela (primeira vez)</button>
+        <span id="migrar-status" style="font-size:12px;color:var(--muted);margin-left:8px;"></span>
+    </div>
+    {% endif %}
     <div class="table-wrap">
         <table>
             <thead>
@@ -178,6 +184,19 @@
 
     carregarRhTickets();
 })();
+
+async function migrarPortalTickets() {
+    const el = document.getElementById('migrar-status');
+    if (el) el.textContent = 'Executando...';
+    try {
+        const res = await fetch('/api/admin/migrar-portal-tickets', { method: 'POST' });
+        const data = await res.json();
+        if (el) el.textContent = data.mensagem || data.erro || 'Concluído.';
+        if (res.ok) setTimeout(() => location.reload(), 1200);
+    } catch (e) {
+        if (el) el.textContent = 'Erro ao executar.';
+    }
+}
 </script>
 
 <div class="card" style="margin-top:20px;">

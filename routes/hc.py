@@ -1179,6 +1179,21 @@ def trigger_processar_status():
         return jsonify({"erro": str(e)}), 500
 
 
+@hc_bp.route("/api/admin/migrar-portal-tickets", methods=["POST"])
+@login_required
+def migrar_portal_tickets():
+    if not current_user.is_admin:
+        return jsonify({"erro": "Acesso negado."}), 403
+    from app import _migrate_portal_ticket_claims_for_fc
+    from models import get_current_fc
+    fc = get_current_fc()
+    try:
+        _migrate_portal_ticket_claims_for_fc(fc)
+        return jsonify({"mensagem": f"Tabela portal_ticket_claims criada/verificada para {fc}."})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
 # ── API: Email ────────────────────────────────────────────────
 
 
@@ -1766,13 +1781,16 @@ def exportar_lc_excel():
 @login_required
 def listar_rh_tickets():
     from models.portal_ticket_claims import PortalTicketClaim
-    tickets = (
-        PortalTicketClaim.query
-        .filter(PortalTicketClaim.status == "PENDENTE")
-        .order_by(PortalTicketClaim.created_at.asc())
-        .all()
-    )
-    # Filtra por RME responsável se não for admin
+    try:
+        tickets = (
+            PortalTicketClaim.query
+            .filter(PortalTicketClaim.status == "PENDENTE")
+            .order_by(PortalTicketClaim.created_at.asc())
+            .all()
+        )
+    except Exception:
+        db.session.rollback()
+        return jsonify([])
     login_atual = (current_user.login or "").strip().lower()
     if not current_user.is_admin:
         tickets = [
