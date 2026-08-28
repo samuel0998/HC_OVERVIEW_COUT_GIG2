@@ -170,23 +170,21 @@ def processar_status_automatico():
 
     agora = datetime.utcnow()
     vtes_pendentes = PortalTicketClaim.query.filter(
-        PortalTicketClaim.tipo == "VTE",
-        PortalTicketClaim.status == "RESOLVIDO",
-        PortalTicketClaim.vte_revertido == False,  # noqa: E712
+        PortalTicketClaim.premise_type == "VTE",
+        PortalTicketClaim.hcview_resolvido == True,  # noqa: E712
+        PortalTicketClaim.hcview_vte_revertido == False,  # noqa: E712
     ).all()
 
     revertidos = 0
     for vte in vtes_pendentes:
-        if not vte.resolvido_em:
+        if not vte.hcview_resolvido_em:
             continue
-        if agora < vte.resolvido_em + timedelta(hours=12):
+        if agora < vte.hcview_resolvido_em + timedelta(hours=12):
             continue
-        hc = HCGig2.query.filter(
-            db.func.lower(db.func.trim(HCGig2.login)) == vte.solicitante_login.lower()
-        ).first()
-        if hc:
-            hc.area = vte.area_origem
-            hc.turno = vte.turno_origem
+        hc = HCGig2.query.get(vte.associado_id) if vte.associado_id else None
+        if hc and vte.hcview_area_origem:
+            hc.area = vte.hcview_area_origem
+            hc.turno = vte.hcview_turno_origem
             registros.append(RegistroAtividade(
                 tipo="edicao",
                 operador_id=hc.id,
@@ -194,11 +192,11 @@ def processar_status_automatico():
                 operador_nome=hc.nome_completo,
                 usuario_login="sistema",
                 usuario_nome="Automacao",
-                descricao=f"VTE revertido automaticamente: retorno para {vte.area_origem}/{vte.turno_origem}",
-                dados_anteriores=json.dumps({"area": vte.setor_destino, "turno": vte.turno_destino}),
+                descricao=f"VTE revertido automaticamente: retorno para {vte.hcview_area_origem}/{vte.hcview_turno_origem}",
+                dados_anteriores=json.dumps({"area": vte.sector_key, "turno": vte.shift_name}),
                 dados_novos=json.dumps({"area": hc.area, "turno": hc.turno}),
             ))
-        vte.vte_revertido = True
+        vte.hcview_vte_revertido = True
         revertidos += 1
 
     if revertidos:
@@ -218,35 +216,26 @@ def _create_operational_tables_for_fc(fc):
 
 
 def _migrate_portal_ticket_claims_for_fc(fc):
+    """So' adiciona colunas hcview_* - nunca cria nem recria a tabela (ferramenta externa).
+    Se a tabela nao existir nessa FC, pula sem erro."""
     engine = db.engines[fc]
     with engine.begin() as conn:
-        conn.execute(db.text("""
-            CREATE TABLE IF NOT EXISTS portal_ticket_claims (
-                id SERIAL PRIMARY KEY,
-                tipo VARCHAR(10) NOT NULL,
-                solicitante_login VARCHAR(50) NOT NULL,
-                solicitante_nome VARCHAR(150) NOT NULL,
-                solicitante_cargo VARCHAR(50),
-                solicitante_area VARCHAR(50),
-                solicitante_turno VARCHAR(50),
-                data_solicitacao DATE NOT NULL,
-                agendado_para TIMESTAMP,
-                setor_destino VARCHAR(50),
-                turno_destino VARCHAR(50),
-                rme_responsavel_login VARCHAR(50),
-                rme_responsavel_nome VARCHAR(150),
-                status VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
-                resolvido_em TIMESTAMP,
-                resolvido_por_login VARCHAR(50),
-                resolvido_por_nome VARCHAR(150),
-                observacao TEXT,
-                area_origem VARCHAR(50),
-                turno_origem VARCHAR(50),
-                vte_revertido BOOLEAN DEFAULT FALSE,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW()
-            )
-        """))
-    print(f"[MIGRATION:{fc}] portal_ticket_claims verificada.")
+        existe = conn.execute(db.text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'portal_ticket_claims'"
+        )).first()
+        if not existe:
+            print(f"[MIGRATION:{fc}] Tabela 'portal_ticket_claims' nao encontrada. Pulando.")
+            return
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_resolvido BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_resolvido_em TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_resolvido_por_login VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_resolvido_por_nome VARCHAR(150)"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_observacao TEXT"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_area_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_turno_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE portal_ticket_claims ADD COLUMN IF NOT EXISTS hcview_vte_revertido BOOLEAN DEFAULT FALSE"))
+    print(f"[MIGRATION:{fc}] portal_ticket_claims colunas hcview_* verificadas.")
 
 
 def _migrate_hc_table_for_fc(fc):
