@@ -72,7 +72,18 @@ class TicketValidationTest(unittest.TestCase):
         premissa = ticket("TOFF", premise_id=42, is_transferencia=False)
         self.assertEqual(
             _ticket_resolver_url(premissa),
-            "/atualizar?area=INBOUND&turno=BLUE+DAY&ticket_id=42",
+            "/atualizar?area=INBOUND&turno=BLUE+DAY&cargo=AA&ticket_id=42",
+        )
+
+    @patch("routes.hc._ticket_owner_contexto", return_value=("INBOUND", "RED DAY"))
+    def test_resolver_url_transfer_uses_source_cargo(self, _contexto):
+        premissa = ticket(
+            "LS", premise_id=7, is_transferencia=True,
+            source_labor_type="PIT", labor_type="AA",
+        )
+        self.assertEqual(
+            _ticket_resolver_url(premissa),
+            "/atualizar?area=INBOUND&turno=RED+DAY&cargo=PIT&ticket_id=7",
         )
 
 

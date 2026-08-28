@@ -30,6 +30,10 @@ class HCGig2(db.Model):
     data_fim_licenca = db.Column(db.Date, nullable=True)
     # Desligamento
     data_desligamento = db.Column(db.Date, nullable=True)
+    # Ausência: status de 24h que tira o colaborador da capacidade operacional só no
+    # dia marcado. A partir do dia seguinte, a rotina de status automático devolve
+    # para OPERACIONAL (ver aplicar_status_por_data e processar_status_automatico).
+    data_inicio_ausencia = db.Column(db.Date, nullable=True)
     # Campos legados mantidos para compatibilidade
     previsao_afastamento = db.Column(db.Boolean, nullable=False, default=False)
     data_afastamento = db.Column(db.Date, nullable=True)
@@ -107,6 +111,14 @@ class HCGig2(db.Model):
             elif cargo == "PIT" and dias >= 5:
                 self.status = "OPERACIONAL"
                 self.turno = None
+        elif self.status in ("Ausência", "Ausencia"):
+            # Ausência vale só pelo dia marcado (24h). Sem data registrada, assume hoje.
+            # A partir do dia seguinte, volta automaticamente para OPERACIONAL.
+            if not self.data_inicio_ausencia:
+                self.data_inicio_ausencia = hoje
+            elif hoje > self.data_inicio_ausencia:
+                self.status = "OPERACIONAL"
+                self.data_inicio_ausencia = None
         elif self._status_afastamento_ativo():
             if self.data_inicio_licenca and hoje < self.data_inicio_licenca:
                 # Registro legado: o status foi gravado direto (regra antiga) antes da
@@ -126,6 +138,7 @@ class HCGig2(db.Model):
             # para o futuro aguardando a data chegar (ver _ativar_status_agendado).
             if not self.status_agendado:
                 alterou_bloqueios = self.limpar_bloqueios_afastamento()
+            self.data_inicio_ausencia = None
         elif self.status == "Desligado":
             pass  # Desligado não reverte automaticamente
 
@@ -149,6 +162,7 @@ class HCGig2(db.Model):
             "data_inicio_licenca": self.data_inicio_licenca.strftime("%Y-%m-%d") if self.data_inicio_licenca else None,
             "data_fim_licenca": self.data_fim_licenca.strftime("%Y-%m-%d") if self.data_fim_licenca else None,
             "data_desligamento": self.data_desligamento.strftime("%Y-%m-%d") if self.data_desligamento else None,
+            "data_inicio_ausencia": self.data_inicio_ausencia.strftime("%Y-%m-%d") if self.data_inicio_ausencia else None,
             "previsao_afastamento": self.previsao_afastamento,
             "data_afastamento": self.data_afastamento.strftime("%Y-%m-%d") if self.data_afastamento else None,
             "causa_afastamento": self.causa_afastamento or "",

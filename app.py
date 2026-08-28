@@ -69,6 +69,20 @@ def processar_status_automatico():
             ))
             continue
 
+        if status_ant in ("Ausência", "Ausencia") and op.status == "OPERACIONAL" and alterou_por_data:
+            registros.append(RegistroAtividade(
+                tipo="edicao_status",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao="Retorno automatico para OPERACIONAL - ausencia de 24h encerrada",
+                dados_anteriores=json.dumps({"status": status_ant}),
+                dados_novos=json.dumps({"status": "OPERACIONAL"}),
+            ))
+            continue
+
         if status_ant == "Treinamento" and op.status == "OPERACIONAL" and alterou_por_data:
             registros.append(RegistroAtividade(
                 tipo="edicao_status",
@@ -192,6 +206,8 @@ def _migrate_hc_table_for_fc(fc):
         print(f"[MIGRATION:{fc}] Coluna status_agendado verificada (Ferias/Licenca/Desligado agendados).")
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS off_origem VARCHAR(20)"))
         print(f"[MIGRATION:{fc}] Coluna off_origem verificada (OFF por prazo vencido continua em Pendencias).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_ausencia DATE"))
+        print(f"[MIGRATION:{fc}] Coluna data_inicio_ausencia verificada (status Ausencia dura 24h e volta a OPERACIONAL no dia seguinte).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

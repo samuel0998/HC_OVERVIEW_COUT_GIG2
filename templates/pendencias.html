@@ -70,6 +70,7 @@
                     <th>Origem → Destino</th>
                     <th>Qtd</th>
                     <th>Responsável</th>
+                    <th>Cargo</th>
                     <th>Data solicitada</th>
                     <th>Prazo</th>
                     <th>Status</th>
@@ -77,7 +78,7 @@
                 </tr>
             </thead>
             <tbody id="ticket-tbody">
-                <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+                <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
             </tbody>
         </table>
     </div>
@@ -154,21 +155,21 @@
             const tbody = document.getElementById('ticket-tbody');
 
             if (data.integracao_disponivel === false) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
 
             if (data.tickets.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket de premissa em aberto. Tudo em dia!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket de premissa em aberto. Tudo em dia!</td></tr>';
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
 
             tbody.innerHTML = data.tickets.map(t => {
                 const rota = t.is_transferencia
-                    ? `${t.source_sector_key || '—'} (${t.source_shift_name || t.source_shift_key || '—'}) &rarr; ${t.sector_key || '—'} (${t.shift_name || t.shift_key || '—'})`
-                    : `${t.sector_key || '—'} (${t.shift_name || t.shift_key || '—'})`;
+                    ? `${t.source_sector_key || '—'} (${t.origem_escala || '—'}) &rarr; ${t.sector_key || '—'} (${t.destino_escala || '—'})`
+                    : `${t.sector_key || '—'} (${t.destino_escala || '—'})`;
 
                 let statusBadge;
                 if (t.resolvido) {
@@ -186,6 +187,7 @@
                     <td style="font-size:13px;">${rota}</td>
                     <td>${t.amount}</td>
                     <td>${responsavel}</td>
+                    <td>${t.cargo_label || '—'}</td>
                     <td>${t.work_date || '—'}</td>
                     <td>${t.prazo || '—'}</td>
                     <td>${statusBadge}</td>

@@ -24,7 +24,7 @@ hc_bp = Blueprint("hc", __name__)
 CARGOS  = ["AA", "Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS  = ["OPERACIONAL", "Treinamento", "Licença", "Férias", "Desligado", "OFF"]
+STATUS  = ["OPERACIONAL", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
@@ -394,6 +394,30 @@ def _cargo_ticket_corresponde(cargo_hc, cargo_ticket):
     return cargo == esperado
 
 
+def _hc_turno_por_login(login):
+    """Turno real (escala BLUE/RED) do colaborador no HC. Vazio se nao encontrar
+    ninguem com esse login."""
+    login = (login or "").strip().lower()
+    if not login:
+        return ""
+    hc = HCGig2.query.filter(
+        db.func.lower(db.func.trim(HCGig2.login)) == login
+    ).first()
+    return (hc.turno or "") if hc else ""
+
+
+def _ticket_escala_lado(login, *fallbacks):
+    """Escala (BLUE/RED) de um lado do ticket: usa o turno real de quem responde no
+    HC; sem correspondencia, cai no texto bruto do ticket (normalmente so' Day/Night)."""
+    turno = _hc_turno_por_login(login)
+    if turno:
+        return turno
+    for valor in fallbacks:
+        if valor:
+            return valor
+    return ""
+
+
 def _ticket_owner_contexto(t):
     """Area/turno reais do owner no HC; usa os dados do ticket como fallback."""
     owner_login = (t.owner_login or "").strip().lower()
@@ -430,8 +454,10 @@ def _ticket_resolver_url(t):
         return "/novo" + (f"?{urlencode(pares)}" if pares else "")
 
     area, turno = _ticket_owner_contexto(t)
+    cargo_ticket = (t.source_labor_type or t.labor_type) if t.is_transferencia else t.labor_type
+    cargo = _match_valor_conhecido(cargo_ticket, CARGOS)
 
-    pares = [p for p in (("area", area), ("turno", turno), ("ticket_id", t.premise_id)) if p[1]]
+    pares = [p for p in (("area", area), ("turno", turno), ("cargo", cargo), ("ticket_id", t.premise_id)) if p[1]]
     return "/atualizar" + (f"?{urlencode(pares)}" if pares else "")
 
 
@@ -857,6 +883,13 @@ def atualizar_colaborador(item_id):
         colaborador.data_inicio_licenca = None
         colaborador.data_fim_licenca    = None
         colaborador.data_desligamento   = None
+        if novo_status in ("Ausência", "Ausencia"):
+            # Ausência dura 24h: marca hoje e a rotina automática devolve para
+            # OPERACIONAL a partir do dia seguinte (ver aplicar_status_por_data).
+            if status_anterior not in ("Ausência", "Ausencia") or not colaborador.data_inicio_ausencia:
+                colaborador.data_inicio_ausencia = hoje
+        else:
+            colaborador.data_inicio_ausencia = None
 
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
@@ -1046,6 +1079,25 @@ def listar_tickets_pendentes():
         item["resolver_url"] = _ticket_resolver_url(t)
         item["progresso"] = len(_acoes_validas_ticket(t))
         item["quantidade_necessaria"] = max(t.amount or 1, 1)
+        if t.is_transferencia:
+            item["origem_escala"] = _ticket_escala_lado(
+                t.source_responsible_login, t.source_shift_name, t.source_shift_key
+            )
+            item["destino_escala"] = _ticket_escala_lado(
+                t.responsible_login, t.shift_name, t.shift_key
+            )
+            src_cargo = (t.source_labor_type or "").strip()
+            dst_cargo = (t.labor_type or "").strip()
+            if src_cargo and dst_cargo and src_cargo.lower() != dst_cargo.lower():
+                item["cargo_label"] = f"{src_cargo} → {dst_cargo}"
+            else:
+                item["cargo_label"] = src_cargo or dst_cargo
+        else:
+            item["origem_escala"] = ""
+            item["destino_escala"] = _ticket_escala_lado(
+                t.responsible_login, t.shift_name, t.shift_key
+            )
+            item["cargo_label"] = (t.labor_type or "").strip()
         itens.append(item)
 
     return jsonify({"tickets": itens, "total": len(itens), "integracao_disponivel": True})
@@ -1736,6 +1788,7 @@ def dashboard_data():
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
     off        = sum(1 for r in registros if r.status == "OFF")
     treinamento = sum(1 for r in registros if r.status == "Treinamento")
+    ausencia   = sum(1 for r in registros if r.status in ("Ausência", "Ausencia"))
     licenca    = sum(1 for r in registros if r.status == "Licença")
     ferias     = sum(1 for r in registros if r.status == "Férias")
 
@@ -1865,7 +1918,7 @@ def dashboard_data():
         "por_area":  por_area,
         "por_cargo": por_cargo,
         "por_turno": por_turno,
-        "status": {"OPERACIONAL": operacional, "Treinamento": treinamento, "Licença": licenca, "Férias": ferias, "OFF": off},
+        "status": {"OPERACIONAL": operacional, "Treinamento": treinamento, "Ausência": ausencia, "Licença": licenca, "Férias": ferias, "OFF": off},
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {

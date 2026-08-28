@@ -47,6 +47,7 @@ function showMessage(text, isError = false) {
 const STATUS_CLASS = {
   "OPERACIONAL": "operacional",
   "Treinamento": "treinamento",
+  "Ausência":    "ausencia",
   "OFF":         "off",
   "Licença":     "licenca",
   "Férias":      "ferias",
@@ -131,9 +132,13 @@ function atualizarBlocoStatus() {
   } else if (val === "Desligado") {
     document.getElementById("blocoDesligado").classList.remove("hidden");
   } else {
-    document.querySelector("#blocoOperacional .op-info").textContent = val === "Treinamento"
-      ? "Colaborador em treinamento; ainda não conta como capacidade operacional."
-      : "Colaborador consta na operação normalmente.";
+    let info = "Colaborador consta na operação normalmente.";
+    if (val === "Treinamento") {
+      info = "Colaborador em treinamento; ainda não conta como capacidade operacional.";
+    } else if (val === "Ausência") {
+      info = "Ausência de 24h: sai da capacidade operacional hoje e volta a OPERACIONAL automaticamente no dia seguinte.";
+    }
+    document.querySelector("#blocoOperacional .op-info").textContent = info;
     document.getElementById("blocoOperacional").classList.remove("hidden");
   }
 }
