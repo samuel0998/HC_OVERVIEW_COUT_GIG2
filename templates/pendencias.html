@@ -54,6 +54,134 @@
 
 <div class="card" style="margin-top:20px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <h2 style="margin:0;font-size:18px;">Tickets RH &mdash; VTO / VTE</h2>
+        <span id="rh-ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
+    </div>
+    <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
+        Solicitações de <strong>VTO</strong> (Voluntary Time Off) e <strong>VTE</strong> (Voluntary Time Extension) abertas por AA/PIT.
+        Responsável: <strong>RME cadastrado</strong>. Ao resolver, clique em <em>Resolver Pendência</em> para ir direto ao colaborador.
+    </p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Tipo</th>
+                    <th>Colaborador</th>
+                    <th>Login</th>
+                    <th>Cargo</th>
+                    <th>Área / Turno</th>
+                    <th>Data</th>
+                    <th>Destino (VTE)</th>
+                    <th>RME Responsável</th>
+                    <th>Ação</th>
+                </tr>
+            </thead>
+            <tbody id="rh-ticket-tbody">
+                <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="total-registros" id="rh-ticket-total-label"></div>
+</div>
+
+<!-- Modal Resolver/Rejeitar RH Ticket -->
+<div id="rh-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;min-width:340px;max-width:480px;width:90%;">
+        <h3 id="rh-modal-title" style="margin:0 0 16px;">Resolver Ticket</h3>
+        <label style="font-size:13px;font-weight:600;">Observação (opcional)</label>
+        <textarea id="rh-modal-obs" rows="3" style="width:100%;margin-top:6px;padding:8px;border:1px solid #ccc;border-radius:6px;font-size:13px;"></textarea>
+        <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+            <button class="btn btn-sm" onclick="fecharRhModal()">Cancelar</button>
+            <button class="btn btn-sm" style="background:#c62828;color:#fff;" onclick="confirmarRhAcao('rejeitar')">Rejeitar</button>
+            <button class="btn btn-sm primary" onclick="confirmarRhAcao('resolver')">Confirmar Resolução</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let _rhTicketIdAtivo = null;
+
+    async function carregarRhTickets() {
+        try {
+            const res = await fetch('/api/rh-tickets');
+            const tickets = await res.json();
+            document.getElementById('rh-ticket-loading').textContent = '';
+            const tbody = document.getElementById('rh-ticket-tbody');
+
+            if (!tickets.length) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket RH pendente.</td></tr>';
+                document.getElementById('rh-ticket-total-label').textContent = '';
+                return;
+            }
+
+            tbody.innerHTML = tickets.map(t => {
+                const tipoBadge = t.tipo === 'VTO'
+                    ? '<span class="badge off">VTO</span>'
+                    : '<span class="badge licenca">VTE</span>';
+                const destino = t.tipo === 'VTE'
+                    ? `${t.setor_destino || '—'} / ${t.turno_destino || '—'}`
+                    : '—';
+                const resolverUrl = `/atualizar?login=${encodeURIComponent(t.solicitante_login)}`;
+                return `<tr>
+                    <td>${tipoBadge}</td>
+                    <td>${t.solicitante_nome}</td>
+                    <td>${t.solicitante_login}</td>
+                    <td>${t.solicitante_cargo || '—'}</td>
+                    <td>${t.solicitante_area || '—'} / ${t.solicitante_turno || '—'}</td>
+                    <td>${t.data_solicitacao || '—'}${t.agendado_para ? '<br><small style="color:var(--muted);">Agendado: ' + t.agendado_para + '</small>' : ''}</td>
+                    <td>${destino}</td>
+                    <td>${t.rme_responsavel_nome || '—'}</td>
+                    <td style="white-space:nowrap;">
+                        <a href="${resolverUrl}" class="btn btn-sm primary" style="margin-bottom:4px;">Resolver Pendência</a><br>
+                        <button class="btn btn-sm" onclick="abrirRhModal(${t.id}, '${t.tipo}')">Validar / Rejeitar</button>
+                    </td>
+                </tr>`;
+            }).join('');
+
+            document.getElementById('rh-ticket-total-label').textContent = `${tickets.length} ticket(s) RH pendente(s)`;
+        } catch (e) {
+            document.getElementById('rh-ticket-loading').textContent = 'Erro ao carregar.';
+        }
+    }
+
+    window.abrirRhModal = function (id, tipo) {
+        _rhTicketIdAtivo = id;
+        document.getElementById('rh-modal-title').textContent = `Resolver Ticket ${tipo} #${id}`;
+        document.getElementById('rh-modal-obs').value = '';
+        const modal = document.getElementById('rh-modal');
+        modal.style.display = 'flex';
+    };
+
+    window.fecharRhModal = function () {
+        document.getElementById('rh-modal').style.display = 'none';
+        _rhTicketIdAtivo = null;
+    };
+
+    window.confirmarRhAcao = async function (acao) {
+        if (!_rhTicketIdAtivo) return;
+        const obs = document.getElementById('rh-modal-obs').value.trim();
+        try {
+            const res = await fetch(`/api/rh-tickets/${_rhTicketIdAtivo}/resolver`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ acao, observacao: obs }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.erro || 'Erro ao processar ticket.'); return; }
+            fecharRhModal();
+            carregarRhTickets();
+        } catch (e) {
+            alert('Erro ao processar ticket.');
+        }
+    };
+
+    carregarRhTickets();
+})();
+</script>
+
+<div class="card" style="margin-top:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
         <h2 style="margin:0;font-size:18px;">Tickets de premissas (LS · LT · TOFF · RP · ON)</h2>
         <span id="ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
     </div>

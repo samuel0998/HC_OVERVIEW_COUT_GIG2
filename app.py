@@ -164,6 +164,49 @@ def processar_status_automatico():
     else:
         print("[AUTO-STATUS] Nenhuma alteracao necessaria.")
 
+    # ── Reversão automática VTE após 12h ──────────────────────────────────────────
+    from datetime import datetime, timedelta
+    from models.portal_ticket_claims import PortalTicketClaim
+
+    agora = datetime.utcnow()
+    vtes_pendentes = PortalTicketClaim.query.filter(
+        PortalTicketClaim.tipo == "VTE",
+        PortalTicketClaim.status == "RESOLVIDO",
+        PortalTicketClaim.vte_revertido == False,  # noqa: E712
+    ).all()
+
+    revertidos = 0
+    for vte in vtes_pendentes:
+        if not vte.resolvido_em:
+            continue
+        if agora < vte.resolvido_em + timedelta(hours=12):
+            continue
+        hc = HCGig2.query.filter(
+            db.func.lower(db.func.trim(HCGig2.login)) == vte.solicitante_login.lower()
+        ).first()
+        if hc:
+            hc.area = vte.area_origem
+            hc.turno = vte.turno_origem
+            registros.append(RegistroAtividade(
+                tipo="edicao",
+                operador_id=hc.id,
+                operador_login=hc.login,
+                operador_nome=hc.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao=f"VTE revertido automaticamente: retorno para {vte.area_origem}/{vte.turno_origem}",
+                dados_anteriores=json.dumps({"area": vte.setor_destino, "turno": vte.turno_destino}),
+                dados_novos=json.dumps({"area": hc.area, "turno": hc.turno}),
+            ))
+        vte.vte_revertido = True
+        revertidos += 1
+
+    if revertidos:
+        for r in registros[-revertidos:]:
+            db.session.add(r)
+        db.session.commit()
+        print(f"[AUTO-VTE] {revertidos} VTE(s) revertido(s) automaticamente.")
+
 
 def _create_operational_tables_for_fc(fc):
     engine = db.engines[fc]
@@ -172,6 +215,38 @@ def _create_operational_tables_for_fc(fc):
     tabelas = [t for t in db.metadatas[None].tables.values() if t.name != "tickets"]
     db.metadatas[None].create_all(bind=engine, tables=tabelas)
     print(f"[MIGRATION:{fc}] Tabelas operacionais verificadas.")
+
+
+def _migrate_portal_ticket_claims_for_fc(fc):
+    engine = db.engines[fc]
+    with engine.begin() as conn:
+        conn.execute(db.text("""
+            CREATE TABLE IF NOT EXISTS portal_ticket_claims (
+                id SERIAL PRIMARY KEY,
+                tipo VARCHAR(10) NOT NULL,
+                solicitante_login VARCHAR(50) NOT NULL,
+                solicitante_nome VARCHAR(150) NOT NULL,
+                solicitante_cargo VARCHAR(50),
+                solicitante_area VARCHAR(50),
+                solicitante_turno VARCHAR(50),
+                data_solicitacao DATE NOT NULL,
+                agendado_para TIMESTAMP,
+                setor_destino VARCHAR(50),
+                turno_destino VARCHAR(50),
+                rme_responsavel_login VARCHAR(50),
+                rme_responsavel_nome VARCHAR(150),
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDENTE',
+                resolvido_em TIMESTAMP,
+                resolvido_por_login VARCHAR(50),
+                resolvido_por_nome VARCHAR(150),
+                observacao TEXT,
+                area_origem VARCHAR(50),
+                turno_origem VARCHAR(50),
+                vte_revertido BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP NOT NULL DEFAULT NOW()
+            )
+        """))
+    print(f"[MIGRATION:{fc}] portal_ticket_claims verificada.")
 
 
 def _migrate_hc_table_for_fc(fc):
@@ -285,6 +360,7 @@ def _bootstrap_databases(app):
             _migrate_hc_table_for_fc(fc)
             _migrate_lc_table_for_fc(fc)
             _migrate_tickets_table_for_fc(fc)
+            _migrate_portal_ticket_claims_for_fc(fc)
             app.config["ACTIVE_FC"] = fc
             db.session.remove()
             from models.turno_config import ensure_default_turno_config
@@ -358,6 +434,7 @@ def create_app():
         from models.registro_atividade import RegistroAtividade  # noqa: F401
         from models.turno_config import HCTurnoConfig  # noqa: F401
         from models.ticket import Ticket  # noqa: F401
+        from models.portal_ticket_claims import PortalTicketClaim  # noqa: F401
 
         _bootstrap_databases(app)
 

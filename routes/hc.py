@@ -1759,6 +1759,159 @@ def exportar_lc_excel():
     )
 
 
+# ── API: Tickets RH (VTO / VTE) ──────────────────────────────
+
+
+@hc_bp.route("/api/rh-tickets", methods=["GET"])
+@login_required
+def listar_rh_tickets():
+    from models.portal_ticket_claims import PortalTicketClaim
+    tickets = (
+        PortalTicketClaim.query
+        .filter(PortalTicketClaim.status == "PENDENTE")
+        .order_by(PortalTicketClaim.created_at.asc())
+        .all()
+    )
+    # Filtra por RME responsável se não for admin
+    login_atual = (current_user.login or "").strip().lower()
+    if not current_user.is_admin:
+        tickets = [
+            t for t in tickets
+            if (t.rme_responsavel_login or "").strip().lower() == login_atual
+        ]
+    return jsonify([t.to_dict() for t in tickets])
+
+
+@hc_bp.route("/api/rh-tickets", methods=["POST"])
+@login_required
+def criar_rh_ticket():
+    """Cria ticket VTO ou VTE. O solicitante já vem preenchido pelo sistema."""
+    data = request.get_json() or {}
+    tipo = (data.get("tipo") or "").upper()
+    if tipo not in ("VTO", "VTE"):
+        return jsonify({"erro": "Tipo deve ser VTO ou VTE."}), 400
+
+    login_sol = (data.get("solicitante_login") or "").strip()
+    if not login_sol:
+        return jsonify({"erro": "Login do solicitante é obrigatório."}), 400
+
+    hc = HCGig2.query.filter(
+        db.func.lower(db.func.trim(HCGig2.login)) == login_sol.lower()
+    ).first()
+    if not hc:
+        return jsonify({"erro": f"Colaborador '{login_sol}' não encontrado no HC."}), 404
+
+    data_sol = _parse_date(data.get("data_solicitacao"))
+    if not data_sol:
+        return jsonify({"erro": "data_solicitacao é obrigatória (YYYY-MM-DD)."}), 400
+
+    # Validação VTO: colaborador deve estar ausente no dia solicitado
+    if tipo == "VTO":
+        if hc.status not in ("Ausência", "Ausencia"):
+            return jsonify({"erro": "VTO só pode ser solicitado para colaborador com status Ausência no dia."}), 422
+
+    # Validação VTE: colaborador deve ter status VTE (OPERACIONAL) e destino informado
+    if tipo == "VTE":
+        setor_destino = (data.get("setor_destino") or "").strip()
+        turno_destino = (data.get("turno_destino") or "").strip()
+        if not setor_destino:
+            return jsonify({"erro": "setor_destino é obrigatório para VTE."}), 400
+
+    # Busca RME responsável pela área do solicitante
+    rme = HCGig2.query.filter(
+        HCGig2.area == "RME",
+        HCGig2.status == "OPERACIONAL",
+    ).first()
+
+    from models.portal_ticket_claims import PortalTicketClaim
+    ticket = PortalTicketClaim(
+        tipo=tipo,
+        solicitante_login=hc.login,
+        solicitante_nome=hc.nome_completo,
+        solicitante_cargo=hc.cargo,
+        solicitante_area=hc.area,
+        solicitante_turno=hc.turno,
+        data_solicitacao=data_sol,
+        setor_destino=data.get("setor_destino") if tipo == "VTE" else None,
+        turno_destino=data.get("turno_destino") if tipo == "VTE" else None,
+        agendado_para=(
+            datetime.strptime(data["agendado_para"], "%Y-%m-%d %H:%M")
+            if data.get("agendado_para") else None
+        ),
+        rme_responsavel_login=rme.login if rme else None,
+        rme_responsavel_nome=rme.nome_completo if rme else None,
+        area_origem=hc.area,
+        turno_origem=hc.turno,
+        status="PENDENTE",
+    )
+    db.session.add(ticket)
+    db.session.commit()
+    return jsonify({"mensagem": "Ticket criado.", "item": ticket.to_dict()}), 201
+
+
+@hc_bp.route("/api/rh-tickets/<int:ticket_id>/resolver", methods=["POST"])
+@login_required
+def resolver_rh_ticket(ticket_id):
+    """Resolve o ticket VTO ou VTE aplicando as regras de negócio."""
+    from models.portal_ticket_claims import PortalTicketClaim
+    ticket = PortalTicketClaim.query.get_or_404(ticket_id)
+
+    if ticket.status != "PENDENTE":
+        return jsonify({"erro": "Ticket já foi resolvido ou rejeitado."}), 409
+
+    login_atual = (current_user.login or "").strip().lower()
+    if not current_user.is_admin:
+        rme_login = (ticket.rme_responsavel_login or "").strip().lower()
+        if rme_login and rme_login != login_atual:
+            return jsonify({"erro": "Somente o RME responsável ou EXPERT pode resolver."}), 403
+
+    hc = HCGig2.query.filter(
+        db.func.lower(db.func.trim(HCGig2.login)) == ticket.solicitante_login.lower()
+    ).first()
+    if not hc:
+        return jsonify({"erro": "Colaborador não encontrado no HC."}), 404
+
+    data = request.get_json() or {}
+    acao = (data.get("acao") or "resolver").lower()  # resolver | rejeitar
+
+    if acao == "rejeitar":
+        ticket.status = "REJEITADO"
+        ticket.resolvido_em = datetime.utcnow()
+        ticket.resolvido_por_login = current_user.login
+        ticket.resolvido_por_nome = current_user.nome
+        ticket.observacao = data.get("observacao") or ""
+        db.session.commit()
+        return jsonify({"mensagem": "Ticket rejeitado.", "item": ticket.to_dict()})
+
+    # ── Aplicar regras ──────────────────────────────────────────
+    if ticket.tipo == "VTO":
+        # Valida ausência do cargo no dia
+        if hc.status not in ("Ausência", "Ausencia"):
+            return jsonify({"erro": "Colaborador não está com status Ausência. VTO inválido."}), 422
+
+    elif ticket.tipo == "VTE":
+        # Aloca para setor/turno de destino; guarda origem para reversão
+        dados_ant = json.dumps({"area": hc.area, "turno": hc.turno, "status": hc.status})
+        hc.area = ticket.setor_destino or hc.area
+        hc.turno = ticket.turno_destino or hc.turno
+        dados_nov = json.dumps({"area": hc.area, "turno": hc.turno, "status": hc.status})
+        _registrar(
+            "edicao",
+            hc,
+            f"VTE aplicado: alocado para {hc.area}/{hc.turno} (reversão automática em 12h)",
+            dados_ant=dados_ant,
+            dados_nov=dados_nov,
+        )
+
+    ticket.status = "RESOLVIDO"
+    ticket.resolvido_em = datetime.utcnow()
+    ticket.resolvido_por_login = current_user.login
+    ticket.resolvido_por_nome = current_user.nome
+    ticket.observacao = data.get("observacao") or ""
+    db.session.commit()
+    return jsonify({"mensagem": "Ticket resolvido.", "item": ticket.to_dict()})
+
+
 # ── API: Dashboard ─────────────────────────────────────────────
 
 
