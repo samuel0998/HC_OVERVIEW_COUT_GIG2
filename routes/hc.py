@@ -624,6 +624,21 @@ def _ids_acoes_ja_consumidas():
     return ids
 
 
+def _janela_inicio_ticket(t):
+    """Limite inferior da busca de acoes. Pega o MAIS CEDO entre created_at e
+    (data solicitada - 30d) / start_date - a ferramenta externa reescreve
+    created_at a cada sync e isso empurrava a janela para depois da acao que o
+    usuario ja tinha feito. Piso rigido de 60 dias atras para nao ficar ilimitado."""
+    candidatos = []
+    if t.created_at:
+        candidatos.append(t.created_at)
+    base = t.start_date or (t.work_date - timedelta(days=30) if t.work_date else None)
+    if base:
+        candidatos.append(datetime.combine(base, datetime.min.time()))
+    piso = datetime.combine(date.today() - timedelta(days=60), datetime.min.time())
+    return max(min(candidatos), piso) if candidatos else piso
+
+
 def _acoes_validas_ticket(t):
     """Acoes auditadas do HC que cumprem a regra concreta do ticket.
 
@@ -637,12 +652,7 @@ def _acoes_validas_ticket(t):
     tipo = (t.premise_type or "").upper()
     tipos_acao = ("adicao",) if tipo == "ON" else ("edicao", "edicao_status")
     query = RegistroAtividade.query.filter(RegistroAtividade.tipo.in_(tipos_acao))
-
-    inicio = t.created_at
-    if not inicio:
-        data_inicio = t.start_date or (t.work_date - timedelta(days=30) if t.work_date else date.today())
-        inicio = datetime.combine(data_inicio, datetime.min.time())
-    query = query.filter(RegistroAtividade.timestamp >= inicio)
+    query = query.filter(RegistroAtividade.timestamp >= _janela_inicio_ticket(t))
 
     owner_area, owner_turno = _ticket_owner_contexto(t)
     acoes_consumidas = _ids_acoes_ja_consumidas()
@@ -669,10 +679,7 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
 
     tipo = (t.premise_type or "").upper()
     tipos_acao = ("adicao",) if tipo == "ON" else ("edicao", "edicao_status")
-    inicio = t.created_at or datetime.combine(
-        t.start_date or (t.work_date - timedelta(days=30) if t.work_date else date.today()),
-        datetime.min.time(),
-    )
+    inicio = _janela_inicio_ticket(t)
     owner_area, owner_turno = _ticket_owner_contexto(t)
     consumidas = _ids_acoes_ja_consumidas()
     candidatos = (
@@ -689,7 +696,7 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
         f"origem={t.source_sector_key or owner_area!r}/"
         f"{t.source_shift_name or t.source_shift_key or owner_turno!r} -> "
         f"destino={t.sector_key!r}/{t.shift_name or t.shift_key!r} "
-        f"janela>={inicio:%Y-%m-%d %H:%M} candidatos={len(candidatos)}"
+        f"created_at={t.created_at} janela>={inicio:%Y-%m-%d %H:%M} candidatos={len(candidatos)}"
     )
     for r in candidatos:
         antes, depois = _json_dict(r.dados_anteriores), _json_dict(r.dados_novos)
@@ -700,7 +707,8 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
         else:
             motivo = "nao casa com a regra"
         print(
-            f"[TICKET-VALIDACAO]   reg#{r.id} {r.tipo} por {r.usuario_login!r} :: "
+            f"[TICKET-VALIDACAO]   reg#{r.id} {r.tipo} ts={r.timestamp:%Y-%m-%d %H:%M} "
+            f"por {r.usuario_login!r} :: op={r.operador_nome!r} "
             f"{antes.get('cargo')!r} {antes.get('area')!r}/{antes.get('turno')!r} "
             f"status={antes.get('status')!r} -> {depois.get('area')!r}/{depois.get('turno')!r} "
             f"status={depois.get('status')!r} agendado={depois.get('status_agendado')!r} :: {motivo}"

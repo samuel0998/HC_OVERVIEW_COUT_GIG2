@@ -1,9 +1,15 @@
 import json
 import unittest
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from routes.hc import _area_normalizada, _registro_cumpre_ticket, _ticket_resolver_url
+from routes.hc import (
+    _area_normalizada,
+    _janela_inicio_ticket,
+    _registro_cumpre_ticket,
+    _ticket_resolver_url,
+)
 
 
 def ticket(tipo, **campos):
@@ -39,6 +45,28 @@ class TicketValidationTest(unittest.TestCase):
 
     def test_area_alias_tfo_matches_transfer_out(self):
         self.assertEqual(_area_normalizada("tfo"), _area_normalizada("TRANSFER OUT"))
+
+    def test_janela_ignora_created_at_futuro(self):
+        # A ferramenta externa reescreve created_at a cada sync; a janela nao pode
+        # comecar depois da acao que o usuario ja fez.
+        work = date.today() + timedelta(days=1)
+        t = SimpleNamespace(
+            created_at=datetime.utcnow() + timedelta(hours=6),
+            start_date=None,
+            work_date=work,
+        )
+        inicio = _janela_inicio_ticket(t)
+        self.assertLessEqual(inicio.date(), work - timedelta(days=30))
+
+    def test_janela_usa_created_at_quando_e_o_mais_cedo(self):
+        # work_date bem distante => (work_date - 30d) fica no futuro; created_at (ontem)
+        # e' o limite mais cedo e deve ser usado como inicio da janela.
+        t = SimpleNamespace(
+            created_at=datetime.utcnow() - timedelta(days=1),
+            start_date=None,
+            work_date=date.today() + timedelta(days=45),
+        )
+        self.assertEqual(_janela_inicio_ticket(t), t.created_at)
 
     def test_lt_accepts_move_into_transfer_in_sector_code(self):
         acao = registro(
