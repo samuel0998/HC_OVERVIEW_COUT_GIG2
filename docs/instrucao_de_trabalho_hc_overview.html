@@ -1,0 +1,1278 @@
+<title>Instrução de Trabalho HC Overview</title>
+<meta name="description" content="Manual operacional do sistema de gestão de Headcount — ID Logistics GIG2 / IXD-CNF2.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Barlow:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+/* ============ tokens ============ */
+:root{
+  color-scheme: light;
+  --ground:#eceff3;
+  --surface:#ffffff;
+  --surface-2:#f5f7fa;
+  --ink:#17222e;
+  --ink-soft:#566473;
+  --ink-faint:#8494a2;
+  --accent:#1f4e79;
+  --accent-bright:#2f6fb0;
+  --accent-contrast:#ffffff;
+  --rule:#dce2e9;
+  --rule-strong:#c4cdd7;
+  --info-bg:#e9f1f9;
+  --info-bd:#bdd7ee;
+  --warn:#a63620;
+  --warn-bg:#fbe9e3;
+  --warn-bd:#eec1b3;
+  --ok:#1c7a49;
+  --ok-bg:#e5f2ea;
+  --amber:#8a5d10;
+  --amber-bg:#f7edd7;
+  --shadow:0 1px 2px rgba(20,35,50,.06), 0 10px 28px rgba(20,35,50,.07);
+  --topbar-h:56px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --ground:#0d141c;
+    --surface:#161f2a;
+    --surface-2:#1c2733;
+    --ink:#e6edf4;
+    --ink-soft:#a6b3c0;
+    --ink-faint:#7b8996;
+    --accent:#64a7e0;
+    --accent-bright:#8fc5f2;
+    --accent-contrast:#0b1119;
+    --rule:#27333f;
+    --rule-strong:#36454f;
+    --info-bg:#132735;
+    --info-bd:#254760;
+    --warn:#f0a58f;
+    --warn-bg:#33190f;
+    --warn-bd:#5f2d1d;
+    --ok:#6ec898;
+    --ok-bg:#122a1e;
+    --amber:#e0b061;
+    --amber-bg:#2c2210;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ground:#0d141c;
+  --surface:#161f2a;
+  --surface-2:#1c2733;
+  --ink:#e6edf4;
+  --ink-soft:#a6b3c0;
+  --ink-faint:#7b8996;
+  --accent:#64a7e0;
+  --accent-bright:#8fc5f2;
+  --accent-contrast:#0b1119;
+  --rule:#27333f;
+  --rule-strong:#36454f;
+  --info-bg:#132735;
+  --info-bd:#254760;
+  --warn:#f0a58f;
+  --warn-bg:#33190f;
+  --warn-bd:#5f2d1d;
+  --ok:#6ec898;
+  --ok-bg:#122a1e;
+  --amber:#e0b061;
+  --amber-bg:#2c2210;
+  --shadow:0 1px 2px rgba(0,0,0,.35), 0 10px 28px rgba(0,0,0,.4);
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;
+  background:var(--ground);
+  color:var(--ink);
+  font-family:"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size:15.5px;
+  line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *{transition:none !important; animation:none !important}
+}
+
+a{color:var(--accent-bright);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--accent-bright);
+  outline-offset:2px;
+  border-radius:3px;
+}
+
+/* ============ topbar ============ */
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:30;
+  height:var(--topbar-h);
+  display:flex;
+  align-items:center;
+  gap:.75rem;
+  padding:0 clamp(.9rem, 3vw, 1.6rem);
+  background:color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter:saturate(1.4) blur(8px);
+  border-bottom:1px solid var(--rule);
+}
+.topbar .mark{
+  font-family:"Barlow Semi Condensed", "Barlow", sans-serif;
+  font-weight:700;
+  font-size:1.02rem;
+  letter-spacing:.01em;
+  color:var(--ink);
+  white-space:nowrap;
+}
+.topbar .mark span{color:var(--ink-faint);font-weight:600}
+.topbar .spacer{flex:1}
+.toolbtn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:.4rem;
+  height:34px;
+  padding:0 .7rem;
+  border:1px solid var(--rule-strong);
+  background:var(--surface);
+  color:var(--ink-soft);
+  border-radius:7px;
+  font:600 .8rem/1 "IBM Plex Sans", sans-serif;
+  cursor:pointer;
+}
+.toolbtn:hover{color:var(--ink);border-color:var(--accent-bright)}
+.toolbtn svg{width:16px;height:16px;display:block}
+#navToggle{padding:0;width:34px}
+
+/* ============ layout ============ */
+.layout{
+  display:grid;
+  grid-template-columns:264px minmax(0, 1fr);
+  max-width:1180px;
+  margin:0 auto;
+}
+
+/* ============ sidebar ============ */
+.sidebar{
+  position:sticky;
+  top:var(--topbar-h);
+  align-self:start;
+  height:calc(100dvh - var(--topbar-h));
+  overflow-y:auto;
+  padding:1.4rem 1rem 2rem 1.1rem;
+  border-right:1px solid var(--rule);
+  background:var(--ground);
+}
+.sidebar .doc-id{
+  font-family:"Barlow", sans-serif;
+  font-weight:700;
+  font-size:.98rem;
+  color:var(--ink);
+  line-height:1.3;
+}
+.sidebar .doc-sub{
+  margin-top:.25rem;
+  font-size:.76rem;
+  color:var(--ink-faint);
+  line-height:1.4;
+}
+.sidebar .eyebrow{
+  margin:1.5rem 0 .5rem;
+  font:600 .68rem/1 "IBM Plex Mono", monospace;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+.toc{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+.toc a{
+  display:flex;
+  gap:.55rem;
+  padding:.34rem .5rem;
+  border-radius:6px;
+  font-size:.83rem;
+  color:var(--ink-soft);
+  line-height:1.32;
+}
+.toc a .num{
+  flex:none;
+  width:1.35rem;
+  text-align:right;
+  font-family:"IBM Plex Mono", monospace;
+  font-size:.76rem;
+  color:var(--ink-faint);
+  font-variant-numeric:tabular-nums;
+}
+.toc a:hover{background:var(--surface-2);color:var(--ink);text-decoration:none}
+.toc a.active{
+  background:var(--surface);
+  color:var(--accent);
+  font-weight:600;
+  box-shadow:inset 2px 0 0 var(--accent);
+}
+.toc a.active .num{color:var(--accent)}
+
+.legend{
+  margin-top:1.4rem;
+  padding-top:1.1rem;
+  border-top:1px solid var(--rule);
+  display:flex;
+  flex-direction:column;
+  gap:.5rem;
+}
+.legend div{display:flex;align-items:center;gap:.5rem;font-size:.76rem;color:var(--ink-soft)}
+
+/* ============ content ============ */
+.content{
+  padding:2.2rem clamp(1.1rem, 4vw, 3.2rem) 5rem;
+  min-width:0;
+}
+.doc-head{
+  border-bottom:2px solid var(--accent);
+  padding-bottom:1.4rem;
+  margin-bottom:1rem;
+}
+.doc-head h1{
+  font-family:"Barlow Semi Condensed", "Barlow", sans-serif;
+  font-weight:700;
+  font-size:clamp(1.8rem, 4.5vw, 2.5rem);
+  line-height:1.08;
+  letter-spacing:.005em;
+  margin:0;
+  color:var(--ink);
+  text-wrap:balance;
+}
+.doc-head .lede{
+  margin:.7rem 0 0;
+  font-size:1.02rem;
+  color:var(--ink-soft);
+  max-width:60ch;
+}
+.chips{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:1.1rem}
+.chip{
+  font:600 .72rem/1 "IBM Plex Mono", monospace;
+  letter-spacing:.03em;
+  padding:.4em .6em;
+  border-radius:5px;
+  border:1px solid var(--rule-strong);
+  color:var(--ink-soft);
+  background:var(--surface);
+}
+.chip.accent{color:var(--accent);border-color:var(--info-bd);background:var(--info-bg)}
+
+/* sections */
+.sec{
+  scroll-margin-top:calc(var(--topbar-h) + 14px);
+  margin-top:3.4rem;
+}
+.sec > h2{
+  display:flex;
+  align-items:baseline;
+  gap:.6rem;
+  margin:0 0 1rem;
+  padding-bottom:.42rem;
+  border-bottom:1px solid var(--rule-strong);
+  font-family:"Barlow Semi Condensed", "Barlow", sans-serif;
+  font-weight:700;
+  font-size:1.5rem;
+  letter-spacing:.01em;
+  color:var(--ink);
+  text-wrap:balance;
+}
+.sec > h2 .n{
+  font-size:1.05rem;
+  font-weight:700;
+  color:var(--accent);
+  font-variant-numeric:tabular-nums;
+  flex:none;
+}
+.sec h3{
+  font-family:"Barlow", sans-serif;
+  font-weight:600;
+  font-size:1.04rem;
+  color:var(--accent);
+  margin:1.9rem 0 .55rem;
+}
+.sec p{margin:.7rem 0;max-width:66ch}
+.sec ul, .sec ol{margin:.6rem 0;padding-left:1.35rem;max-width:66ch}
+.sec li{margin:.28rem 0}
+.sec li > ul, .sec li > ol{margin:.28rem 0}
+.path{
+  display:inline-flex;
+  align-items:center;
+  gap:.4rem;
+  font:500 .82rem/1 "IBM Plex Mono", monospace;
+  color:var(--ink-soft);
+  background:var(--surface-2);
+  border:1px solid var(--rule);
+  border-radius:6px;
+  padding:.4em .6em;
+}
+code{
+  font-family:"IBM Plex Mono", ui-monospace, monospace;
+  font-size:.86em;
+  background:var(--surface-2);
+  border:1px solid var(--rule);
+  border-radius:4px;
+  padding:.08em .38em;
+}
+
+/* tables */
+.tbl-wrap{
+  overflow-x:auto;
+  border:1px solid var(--rule);
+  border-radius:9px;
+  margin:1.1rem 0;
+  box-shadow:var(--shadow);
+  background:var(--surface);
+}
+table.data{
+  border-collapse:collapse;
+  width:100%;
+  min-width:480px;
+  font-size:.885rem;
+}
+table.data caption{
+  text-align:left;
+  padding:.6rem .9rem;
+  font:600 .72rem/1.3 "IBM Plex Mono", monospace;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  border-bottom:1px solid var(--rule);
+}
+table.data th{
+  text-align:left;
+  vertical-align:top;
+  padding:.62rem .9rem;
+  background:var(--surface-2);
+  font-family:"Barlow", sans-serif;
+  font-weight:600;
+  color:var(--ink);
+  border-bottom:2px solid var(--rule-strong);
+}
+table.data td{
+  vertical-align:top;
+  padding:.62rem .9rem;
+  border-bottom:1px solid var(--rule);
+  color:var(--ink);
+}
+table.data tbody tr:last-child td{border-bottom:0}
+table.data tbody tr:nth-child(even) td{background:var(--surface-2)}
+table.data td strong{font-weight:600}
+
+/* callouts */
+.callout{
+  margin:1.2rem 0;
+  padding:.85rem 1.05rem;
+  border:1px solid var(--info-bd);
+  border-left:3px solid var(--accent);
+  border-radius:7px;
+  background:var(--info-bg);
+  font-size:.92rem;
+}
+.callout p{margin:0;max-width:none}
+.callout .lbl{
+  display:block;
+  margin-bottom:.28rem;
+  font:600 .68rem/1 "IBM Plex Mono", monospace;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--accent);
+}
+.callout.warn{border-color:var(--warn-bd);border-left-color:var(--warn);background:var(--warn-bg)}
+.callout.warn .lbl{color:var(--warn)}
+
+/* badges + status pills */
+.badge{
+  display:inline-block;
+  font:600 .7rem/1 "IBM Plex Mono", monospace;
+  letter-spacing:.03em;
+  padding:.32em .5em;
+  border-radius:4px;
+  border:1px solid var(--rule-strong);
+  color:var(--ink-soft);
+  white-space:nowrap;
+}
+.badge.lc1{}
+.badge.lc3{color:var(--accent);border-color:var(--info-bd);background:var(--info-bg)}
+.badge.lc5{color:var(--accent-contrast);background:var(--accent-bright);border-color:var(--accent-bright)}
+.badge.expert{color:var(--surface);background:var(--ink);border-color:var(--ink)}
+.badge.all{color:var(--ink-soft)}
+
+.pill{
+  display:inline-block;
+  font:600 .72rem/1 "IBM Plex Sans", sans-serif;
+  padding:.3em .55em;
+  border-radius:999px;
+  border:1px solid var(--rule-strong);
+  color:var(--ink-soft);
+  white-space:nowrap;
+}
+.pill.ok{color:var(--ok);background:var(--ok-bg);border-color:color-mix(in srgb, var(--ok) 40%, transparent)}
+.pill.amber{color:var(--amber);background:var(--amber-bg);border-color:color-mix(in srgb, var(--amber) 40%, transparent)}
+.pill.warn{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-bd)}
+.pill.info{color:var(--accent);background:var(--info-bg);border-color:var(--info-bd)}
+
+/* benefit cards */
+.benefits{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(258px, 1fr));
+  gap:1rem;
+  margin:1.2rem 0;
+}
+.benefit{
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-radius:10px;
+  padding:1rem 1.1rem 1.1rem;
+  box-shadow:var(--shadow);
+}
+.benefit h3{
+  margin:0 0 .5rem;
+  font-family:"Barlow", sans-serif;
+  font-size:.95rem;
+  color:var(--accent);
+}
+.benefit ul{margin:0;padding-left:1.15rem}
+.benefit li{margin:.35rem 0;font-size:.87rem;line-height:1.5}
+
+/* profile / flow cards */
+.profile{
+  background:var(--surface);
+  border:1px solid var(--rule);
+  border-radius:11px;
+  padding:1.15rem 1.3rem 1.3rem;
+  margin:1.1rem 0;
+  box-shadow:var(--shadow);
+}
+.profile > .role{
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:.55rem;
+  font-family:"Barlow", sans-serif;
+  font-weight:700;
+  font-size:1.02rem;
+  color:var(--ink);
+  margin-bottom:.2rem;
+}
+.phase{margin-top:1rem}
+.phase h4{
+  margin:0 0 .35rem;
+  font:600 .72rem/1.2 "IBM Plex Mono", monospace;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+}
+.phase ol{margin:.2rem 0;padding-left:1.4rem}
+.phase li{margin:.2rem 0;font-size:.9rem}
+
+/* glossary filter */
+.glossary-tools{margin:1rem 0 .4rem}
+.glossary-tools label{
+  display:block;
+  font:600 .68rem/1 "IBM Plex Mono", monospace;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--ink-faint);
+  margin-bottom:.35rem;
+}
+.glossary-tools input{
+  width:min(320px, 100%);
+  height:36px;
+  padding:0 .7rem;
+  border:1px solid var(--rule-strong);
+  border-radius:7px;
+  background:var(--surface);
+  color:var(--ink);
+  font:400 .9rem/1 "IBM Plex Sans", sans-serif;
+}
+tr.is-hidden{display:none}
+.no-match td{color:var(--ink-faint);font-style:italic}
+
+/* doc footer */
+.doc-foot{
+  margin-top:4rem;
+  padding-top:1.4rem;
+  border-top:1px solid var(--rule);
+  font-size:.8rem;
+  color:var(--ink-faint);
+}
+
+/* overlay for mobile drawer */
+.overlay{display:none}
+
+/* ============ responsive ============ */
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{
+    position:fixed;
+    top:0;
+    left:0;
+    height:100dvh;
+    width:284px;
+    z-index:40;
+    border-right:1px solid var(--rule-strong);
+    transform:translateX(-100%);
+    transition:transform .22s ease;
+  }
+  body.nav-open .sidebar{transform:none}
+  .overlay{
+    display:block;
+    position:fixed;
+    inset:0;
+    z-index:35;
+    background:rgba(9,16,24,.5);
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .2s ease;
+  }
+  body.nav-open .overlay{opacity:1;pointer-events:auto}
+}
+@media (min-width:901px){
+  #navToggle{display:none}
+}
+
+/* ============ print ============ */
+@media print{
+  .topbar, .sidebar, .overlay{display:none !important}
+  .layout{display:block;max-width:none}
+  .content{padding:0}
+  body{background:#fff;color:#000;font-size:11pt}
+  .tbl-wrap, .benefit, .profile, .callout{box-shadow:none;break-inside:avoid}
+  .sec{break-inside:auto;margin-top:1.6rem}
+  a{color:#000;text-decoration:none}
+}
+</style>
+
+<script>
+/* set stored theme before first paint */
+(function () {
+  try {
+    var t = localStorage.getItem('hcio-theme');
+    if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  } catch (e) {}
+})();
+</script>
+
+<div class="topbar">
+  <button id="navToggle" class="toolbtn" aria-label="Abrir índice" aria-expanded="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+  <div class="mark">HC Overview <span>· Instrução de Trabalho</span></div>
+  <div class="spacer"></div>
+  <button id="printBtn" class="toolbtn" aria-label="Imprimir ou salvar em PDF">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z"/></svg>
+    <span class="lbl-txt">Imprimir</span>
+  </button>
+  <button id="themeBtn" class="toolbtn" aria-label="Alternar tema claro e escuro">
+    <svg id="icoMoon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    <svg id="icoSun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+  </button>
+</div>
+
+<div class="layout">
+  <div class="overlay" id="overlay"></div>
+
+  <nav class="sidebar" id="sidebar" aria-label="Índice do documento">
+    <div class="doc-id">Sistema de Gestão de Headcount</div>
+    <div class="doc-sub">ID Logistics · GIG2 / IXD-CNF2<br>Versão 1.0 — Uso Interno</div>
+
+    <div class="eyebrow">Conteúdo</div>
+    <ul class="toc" id="toc">
+      <li><a href="#sec-1"><span class="num">1</span> Objetivo</a></li>
+      <li><a href="#sec-2"><span class="num">2</span> Acesso ao Sistema</a></li>
+      <li><a href="#sec-3"><span class="num">3</span> Navegação Principal</a></li>
+      <li><a href="#sec-4"><span class="num">4</span> Cadastro de Colaborador</a></li>
+      <li><a href="#sec-5"><span class="num">5</span> LIST — Lista do HC</a></li>
+      <li><a href="#sec-6"><span class="num">6</span> Chamada (Presença)</a></li>
+      <li><a href="#sec-7"><span class="num">7</span> Pendências</a></li>
+      <li><a href="#sec-8"><span class="num">8</span> Dashboard</a></li>
+      <li><a href="#sec-9"><span class="num">9</span> LC — Learning Curve</a></li>
+      <li><a href="#sec-10"><span class="num">10</span> Histórico</a></li>
+      <li><a href="#sec-11"><span class="num">11</span> Usuários e Permissões</a></li>
+      <li><a href="#sec-12"><span class="num">12</span> Automações do Sistema</a></li>
+      <li><a href="#sec-13"><span class="num">13</span> Multi-FC</a></li>
+      <li><a href="#sec-14"><span class="num">14</span> Benefícios</a></li>
+      <li><a href="#sec-15"><span class="num">15</span> Fluxo por Perfil</a></li>
+      <li><a href="#sec-16"><span class="num">16</span> Glossário</a></li>
+      <li><a href="#sec-17"><span class="num">17</span> Suporte e Contato</a></li>
+    </ul>
+
+    <div class="legend">
+      <div><span class="badge lc1">LC1</span> Dashboard e gráficos</div>
+      <div><span class="badge lc3">LC3</span> + Novo HC, LIST, Pendências</div>
+      <div><span class="badge lc5">LC5</span> Tudo, exceto Histórico/Excluir</div>
+      <div><span class="badge expert">EXPERT</span> Acesso total</div>
+    </div>
+  </nav>
+
+  <main class="content">
+    <header class="doc-head">
+      <h1>Instrução de Trabalho — HC Overview</h1>
+      <p class="lede">Manual operacional do sistema oficial de gestão de Headcount da operação: cadastro, status, chamada, pendências, tickets e Learning Curve numa única fonte de verdade.</p>
+      <div class="chips">
+        <span class="chip accent">Versão 1.0</span>
+        <span class="chip">Classificação: Uso Interno</span>
+        <span class="chip">Escopo: GIG2 · IXD-CNF2</span>
+        <span class="chip">Atualizado: Agosto/2026</span>
+      </div>
+    </header>
+
+    <!-- 1 -->
+    <section class="sec" id="sec-1">
+      <h2><span class="n">1</span> Objetivo</h2>
+      <p>O <strong>HC Overview</strong> é o sistema oficial de gestão de Headcount (HC) da operação. Ele centraliza o controle de todos os colaboradores (AA, Associado, PIT, Analista, Supervisor, Líder, Técnico, Fiscal, Coordenador e Gerente), seus status operacionais, alocações de turno e área, Learning Curve (LC), pendências cadastrais e tickets de RH (VTO/VTE), substituindo planilhas manuais e eliminando retrabalho.</p>
+    </section>
+
+    <!-- 2 -->
+    <section class="sec" id="sec-2">
+      <h2><span class="n">2</span> Acesso ao Sistema</h2>
+
+      <h3>2.1 Login</h3>
+      <ul>
+        <li>Acesse pelo navegador no endereço fornecido pelo time de TI/RME.</li>
+        <li>Use seu <strong>login Amazon</strong> e a senha cadastrada pelo administrador.</li>
+        <li>Caso não consiga acessar, solicite ao nível <strong>EXPERT</strong> que verifique sua permissão na tela <strong>Usuários</strong>.</li>
+      </ul>
+
+      <h3>2.2 Níveis de Acesso</h3>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Nível</th><th>O que pode fazer</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge lc1">LC1</span></td><td>Somente Dashboard e gráficos</td></tr>
+            <tr><td><span class="badge lc3">LC3</span></td><td>Dashboard + Novo HC + LIST + Pendências</td></tr>
+            <tr><td><span class="badge lc5">LC5</span></td><td>Tudo, exceto Histórico e Excluir colaborador</td></tr>
+            <tr><td><span class="badge expert">EXPERT</span></td><td>Acesso total: inclui Histórico, Excluir, Usuários e funções administrativas</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <span class="lbl">Nota</span>
+        <p>O nível é configurado pelo EXPERT na tela <strong>Usuários → Gerenciar Permissões</strong>.</p>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section class="sec" id="sec-3">
+      <h2><span class="n">3</span> Navegação Principal</h2>
+      <p>Após o login, a barra superior exibe os módulos disponíveis conforme seu nível:</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Módulo</th><th>Acesso mínimo</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Início</strong></td><td><span class="badge all">Todos</span></td><td>Tela inicial com atalhos e alerta de pendências</td></tr>
+            <tr><td><strong>Novo HC</strong></td><td><span class="badge lc3">LC3+</span></td><td>Cadastrar novo colaborador</td></tr>
+            <tr><td><strong>LIST</strong></td><td><span class="badge lc3">LC3+</span></td><td>Lista completa, edição, importação e exportação</td></tr>
+            <tr><td><strong>Pendências</strong></td><td><span class="badge lc3">LC3+</span></td><td>Pendências cadastrais + tickets de premissas + tickets RH</td></tr>
+            <tr><td><strong>Dashboard</strong></td><td><span class="badge lc1">LC1+</span></td><td>Indicadores e gráficos em tempo real</td></tr>
+            <tr><td><strong>LC</strong></td><td><span class="badge lc1">LC1+</span></td><td>Learning Curve dos colaboradores</td></tr>
+            <tr><td><strong>Histórico</strong></td><td><span class="badge expert">EXPERT</span></td><td>Auditoria completa de movimentações</td></tr>
+            <tr><td><strong>Usuários</strong></td><td><span class="badge expert">EXPERT</span></td><td>Gerenciar permissões e horários de turno</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="sec" id="sec-4">
+      <h2><span class="n">4</span> Cadastro de Novo Colaborador</h2>
+      <p><span class="path">Início → Novo HC</span></p>
+
+      <h3>4.1 Campos obrigatórios</h3>
+      <ul>
+        <li><strong>Nome completo</strong> — nome conforme crachá.</li>
+        <li><strong>Cargo</strong> — selecione: AA, Associado, PIT, Analista, Supervisor, Líder, Técnico, Fiscal, Coordenador ou Gerente.</li>
+      </ul>
+
+      <h3>4.2 Campos opcionais</h3>
+      <ul>
+        <li><strong>Login Amazon</strong> — necessário para integração com LC e tickets.</li>
+        <li><strong>Área</strong> — INBOUND, OUTBOUND, TRANSFER IN, TRANSFER OUT, ICQA, INSUMOS, LEARNING, LP, FACILITIES, RME, SUPORTE, C-RET, TOM, ADM.</li>
+        <li><strong>Turno</strong> — BLUE DAY, BLUE NIGHT, RED DAY, RED NIGHT, ADM.</li>
+      </ul>
+
+      <h3>4.3 Regras automáticas no cadastro</h3>
+      <ul>
+        <li>Todo colaborador novo entra com status <strong>Treinamento</strong> automaticamente.</li>
+        <li><strong>PIT</strong> entra com turno <strong>ADM</strong> por padrão.</li>
+        <li>O sistema converte automaticamente para <strong>OPERACIONAL</strong> após:
+          <ul>
+            <li><strong>AA/Associado:</strong> 2 dias de cadastro.</li>
+            <li><strong>PIT:</strong> 5 dias de cadastro (o turno é limpo para alocação manual).</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
+
+    <!-- 5 -->
+    <section class="sec" id="sec-5">
+      <h2><span class="n">5</span> LIST — Lista Completa do HC</h2>
+      <p><span class="path">Início → LIST</span></p>
+
+      <h3>5.1 Filtros disponíveis</h3>
+      <ul>
+        <li>Pesquisa por <strong>nome</strong> ou <strong>login</strong> (campo de texto livre).</li>
+        <li>Filtros por <strong>cargo</strong>, <strong>área</strong>, <strong>turno</strong> e <strong>status</strong>.</li>
+      </ul>
+
+      <h3>5.2 Edição de colaborador</h3>
+      <ol>
+        <li>Localize o colaborador na tabela.</li>
+        <li>Clique no botão <strong>Editar</strong> (ícone de lápis).</li>
+        <li>Altere os campos desejados no modal.</li>
+        <li>Clique em <strong>Salvar alteração</strong>.</li>
+      </ol>
+
+      <h3>5.3 Status disponíveis e suas regras</h3>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Status</th><th>Descrição</th><th>Regra especial</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pill ok">OPERACIONAL</span></td><td>Presente e apto para trabalho</td><td>—</td></tr>
+            <tr><td><span class="pill info">Treinamento</span></td><td>Recém-admitido em período de integração</td><td>Vira OPERACIONAL automaticamente (2d AA / 5d PIT)</td></tr>
+            <tr><td><span class="pill amber">Ausência</span></td><td>Falta no dia</td><td>Dura 24h; volta para OPERACIONAL no dia seguinte automaticamente</td></tr>
+            <tr><td><span class="pill">Licença</span></td><td>Afastamento médico ou pessoal</td><td>Requer data de início e fim + descrição obrigatória</td></tr>
+            <tr><td><span class="pill">Férias</span></td><td>Período de férias</td><td>Requer data de início e fim + descrição obrigatória</td></tr>
+            <tr><td><span class="pill warn">Desligado</span></td><td>Colaborador desligado</td><td>Requer data de desligamento + motivo obrigatório</td></tr>
+            <tr><td><span class="pill warn">OFF</span></td><td>Pendência vencida sem data definida</td><td>Gerado automaticamente após o prazo de terça-feira</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <span class="lbl">Atenção</span>
+        <p>Licença, Férias e Desligado com data futura ficam <strong>agendados</strong> — o status só muda no dia marcado. O colaborador continua OPERACIONAL até lá.</p>
+      </div>
+
+      <h3>5.4 Desligamento</h3>
+      <ul>
+        <li>Ao selecionar <strong>Desligado</strong>, informe a data e o motivo.</li>
+        <li>Use o botão <strong>📧 Pedir Data ao RH</strong> para enviar e-mail automático ao RH solicitando a data de desligamento.</li>
+        <li>Na data marcada, o colaborador é <strong>arquivado automaticamente</strong> no Histórico Operacional e removido da lista ativa.</li>
+      </ul>
+
+      <h3>5.5 Importação CSV</h3>
+      <ol>
+        <li>Clique em <strong>Importar CSV</strong>.</li>
+        <li>Selecione o arquivo <code>.csv</code> com as colunas: <code>Nome</code>, <code>Login</code>, <code>Cargo</code>, <code>Área</code>, <code>Turno</code>, <code>Status</code> (e, opcionalmente, <code>Presente</code>, <code>Job</code>, <code>Hora Extra</code>, <code>Descrição</code>, <code>Liberação</code>).</li>
+        <li>O sistema <strong>substitui toda a base</strong> pelos dados do arquivo.</li>
+        <li>Jobs (processos) existentes são preservados automaticamente se não estiverem no CSV.</li>
+      </ol>
+
+      <h3>5.6 Exportação Excel</h3>
+      <ul>
+        <li>Clique em <strong>Exportar Excel</strong> para baixar a base atual filtrada em <code>.xlsx</code>.</li>
+        <li>O arquivo inclui: ID, Nome, Login, Cargo, Área, Turno, Status, Chamada, Job, Hora Extra, Status Liberação, Previsão Afastamento, Data Afastamento, Descrição, datas de criação e atualização.</li>
+      </ul>
+    </section>
+
+    <!-- 6 -->
+    <section class="sec" id="sec-6">
+      <h2><span class="n">6</span> Chamada (Presença no FC)</h2>
+      <p>A chamada controla quem está <strong>fisicamente presente no FC</strong> no turno atual.</p>
+      <ul>
+        <li><strong>Presente (SIM):</strong> colaborador está no FC e conta para a capacidade operacional.</li>
+        <li><strong>Ausente (NÃO):</strong> colaborador não está no FC naquele momento.</li>
+      </ul>
+
+      <h3>6.1 Reset automático por virada de turno</h3>
+      <ul>
+        <li>O administrador configura o <strong>horário de reset</strong> de cada turno na tela <strong>Usuários → Configuração de Shifts</strong>.</li>
+        <li>Na virada do turno, <strong>todos os colaboradores OPERACIONAIS voltam para Presente automaticamente</strong>.</li>
+        <li>Apenas a chamada é resetada — status, área e turno não são alterados.</li>
+      </ul>
+    </section>
+
+    <!-- 7 -->
+    <section class="sec" id="sec-7">
+      <h2><span class="n">7</span> Pendências</h2>
+      <p><span class="path">Início → Pendências</span></p>
+      <p>A tela de Pendências reúne <strong>três tipos</strong> de itens que precisam de ação:</p>
+
+      <h3>7.1 Pendências Cadastrais</h3>
+      <p>Colaboradores com dados incompletos que precisam de ação até <strong>toda terça-feira</strong>:</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Situação</th><th>O que fazer</th></tr></thead>
+          <tbody>
+            <tr><td>Licença/Férias sem data</td><td>Clicar em <strong>Definir data</strong> e preencher início e fim</td></tr>
+            <tr><td>Desligamento sem data</td><td>Clicar em <strong>Definir data</strong> e informar a data de desligamento</td></tr>
+            <tr><td>PIT OPERACIONAL sem turno</td><td>Clicar em <strong>Alocar turno</strong> e definir o turno do PIT</td></tr>
+            <tr><td>Status OFF com <code>off_origem</code></td><td>Colaborador virou OFF por prazo vencido — ainda precisa de data</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout">
+        <span class="lbl">Nota</span>
+        <p>Após o prazo de terça-feira, o status vira <strong>OFF</strong> automaticamente, mas o colaborador <strong>continua aparecendo em Pendências</strong> até a data ser definida.</p>
+      </div>
+
+      <h3>7.2 Tickets de Premissas <span class="badge">LS</span> <span class="badge">LT</span> <span class="badge">TOFF</span> <span class="badge">RP</span> <span class="badge">ON</span></h3>
+      <p>Tickets gerados pela ferramenta de planejamento de premissas (<code>gig2_hc_premises</code>):</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Tipo</th><th>Descrição</th><th>Quem resolve</th></tr></thead>
+          <tbody>
+            <tr><td><strong>LS</strong> (Labor Share)</td><td>Compartilhamento de HC entre setores</td><td>RME do setor de origem</td></tr>
+            <tr><td><strong>LT</strong> (Labor Transfer)</td><td>Transferência definitiva de HC</td><td>RME do setor de origem</td></tr>
+            <tr><td><strong>TOFF</strong> (Turn Off)</td><td>Redução de HC (desligamento)</td><td>RME do setor</td></tr>
+            <tr><td><strong>RP</strong> (Ramp Down)</td><td>Redução programada de HC</td><td>RME do setor</td></tr>
+            <tr><td><strong>ON</strong> (New Hire)</td><td>Contratação de novo HC</td><td>EXPERT</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Prazo:</strong> 3 dias antes da data solicitada (<code>work_date</code>). Após o prazo sem conclusão, o ticket fica <span class="pill warn">Não conforme</span>.</p>
+      <p><strong>Como resolver:</strong></p>
+      <ol>
+        <li>Clique em <strong>Resolver Pendência</strong> → vai direto para o LIST filtrado pelo turno/setor do responsável.</li>
+        <li>Execute a ação no HC (transferência, desligamento, novo cadastro).</li>
+        <li>Clique em <strong>Validar conclusão</strong> → o sistema verifica automaticamente se a ação foi registrada no histórico.</li>
+      </ol>
+
+      <h3>7.3 Tickets RH <span class="badge">VTO</span> <span class="badge">VTE</span></h3>
+      <p>Solicitações abertas por AA/PIT via portal externo (tabela <code>portal_ticket_claims</code>):</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Tipo</th><th>Descrição</th><th>Validação para resolver</th></tr></thead>
+          <tbody>
+            <tr><td><strong>VTO</strong> (Voluntary Time Off)</td><td>Colaborador solicita ausência voluntária</td><td>Colaborador deve estar com status <strong>Ausência</strong> no dia</td></tr>
+            <tr><td><strong>VTE</strong> (Voluntary Time Extension)</td><td>Colaborador solicita trabalho em outro setor/turno</td><td>Aloca o colaborador no setor/turno de destino por <strong>12 horas</strong>, depois reverte automaticamente</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Responsável:</strong> RME cadastrado na área.</p>
+      <p><strong>Como resolver:</strong></p>
+      <ol>
+        <li>Clique em <strong>Resolver Pendência</strong> → vai direto para o LIST filtrado pelo login do solicitante.</li>
+        <li>Verifique o status do colaborador conforme o tipo de ticket.</li>
+        <li>Clique em <strong>Validar / Rejeitar</strong> → confirme a resolução ou rejeite com observação.</li>
+      </ol>
+      <div class="callout">
+        <span class="lbl">VTE</span>
+        <p>Ao resolver, o colaborador é automaticamente alocado para o setor/turno de destino. Após 12 horas, o sistema reverte para o setor/turno de origem sem necessidade de ação manual.</p>
+      </div>
+    </section>
+
+    <!-- 8 -->
+    <section class="sec" id="sec-8">
+      <h2><span class="n">8</span> Dashboard</h2>
+      <p><span class="path">Início → Dashboard</span></p>
+      <p>Painel de indicadores em tempo real com filtros por <strong>Área</strong>, <strong>Turno</strong>, <strong>Status</strong> e <strong>Cargo</strong> (suporta múltipla seleção com Ctrl+clique).</p>
+
+      <h3>8.1 Cards principais</h3>
+      <ul>
+        <li><strong>HC Total</strong> — total de colaboradores na base.</li>
+        <li><strong>HC Operacional</strong> — colaboradores com status OPERACIONAL.</li>
+        <li><strong>% Outbound</strong> — percentual do HC alocado em áreas de saída (OUTBOUND, TRANSFER OUT, INSUMOS, LP).</li>
+        <li><strong>% Inbound</strong> — percentual do HC alocado em áreas de entrada (INBOUND, TRANSFER IN, C-RET).</li>
+        <li><strong>% ICQA</strong> — percentual do HC alocado em ICQA.</li>
+      </ul>
+
+      <h3>8.2 Gráficos de HC</h3>
+      <ul>
+        <li>HC por Área.</li>
+        <li>Associados e PITs por turno.</li>
+        <li>HC por Cargo.</li>
+        <li>HC por Turno.</li>
+        <li>Distribuição de Status.</li>
+        <li>HC Operacional por Turno (Analista, AA, Associado, PIT).</li>
+      </ul>
+
+      <h3>8.3 Seção LC Atual</h3>
+      <ul>
+        <li><strong>LC Registros</strong> — total de registros de Learning Curve.</li>
+        <li><strong>Pessoas com LC</strong> — colaboradores únicos com LC cadastrada.</li>
+        <li><strong>Processos LC</strong> — quantidade de processos distintos.</li>
+        <li><strong>AA sem LC</strong> — AA/Associados OPERACIONAIS sem nenhum processo de LC.</li>
+      </ul>
+      <p><strong>Gráficos LC:</strong></p>
+      <ul>
+        <li>LC por Processo, por Level, por Turno, por Área, por Cargo, por Status HC.</li>
+        <li>Processo por Level (cruzamento).</li>
+        <li>Turno por Level.</li>
+        <li>Top 15 Logins por quantidade de LC.</li>
+      </ul>
+    </section>
+
+    <!-- 9 -->
+    <section class="sec" id="sec-9">
+      <h2><span class="n">9</span> LC — Learning Curve</h2>
+      <p><span class="path">Dashboard → LC (ou menu LC)</span></p>
+
+      <h3>9.1 O que é</h3>
+      <p>Registro do nível de capacitação (LC Level) de cada colaborador por processo operacional. Permite identificar quem está produtivo (tem LC) e quem está improdutivo (sem LC).</p>
+
+      <h3>9.2 Filtros</h3>
+      <ul>
+        <li>Pesquisa livre por login, processo, nome ou cargo.</li>
+        <li>Filtros por Processo, LC Level, Área, Turno, Status HC, Cargo.</li>
+        <li>Filtro de Produtividade: <strong>Com LC</strong> / <strong>Sem LC</strong> / <strong>Ambos</strong>.</li>
+      </ul>
+
+      <h3>9.3 Importação da base de LC</h3>
+      <ol>
+        <li>Clique em <strong>Importar base de LC</strong> no LIST.</li>
+        <li>Selecione o arquivo <code>.xlsx</code> exportado do sistema de LC (colunas: Login, Process Name, LC Level).</li>
+        <li>O sistema descarta registros de logins não encontrados no HC.</li>
+        <li>A base anterior é substituída completamente.</li>
+      </ol>
+
+      <h3>9.4 Exportação</h3>
+      <ul>
+        <li>Clique em <strong>Exportar LC Excel</strong> para baixar a base atual de LC em <code>.xlsx</code>.</li>
+      </ul>
+    </section>
+
+    <!-- 10 -->
+    <section class="sec" id="sec-10">
+      <h2><span class="n">10</span> Histórico</h2>
+      <p><span class="path">Início → Histórico</span> <span class="badge expert">somente EXPERT</span></p>
+
+      <h3>10.1 Registro de Atividades</h3>
+      <p>Auditoria completa de todas as ações realizadas no sistema:</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Tipo</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Adição</strong></td><td>Novo colaborador cadastrado</td></tr>
+            <tr><td><strong>Edição</strong></td><td>Dados do colaborador alterados</td></tr>
+            <tr><td><strong>Edição de Status</strong></td><td>Status do colaborador alterado</td></tr>
+            <tr><td><strong>Exclusão</strong></td><td>Colaborador removido da base</td></tr>
+            <tr><td><strong>Desligamento Automático</strong></td><td>Colaborador arquivado automaticamente pelo sistema</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Exibe: data/hora, tipo, colaborador afetado, usuário que realizou a ação e descrição detalhada.</p>
+
+      <h3>10.2 Histórico Operacional</h3>
+      <p>Arquivo de colaboradores desligados. Mantém: nome, login, cargo, área, turno, data de desligamento, motivo, data de arquivamento e quem arquivou.</p>
+    </section>
+
+    <!-- 11 -->
+    <section class="sec" id="sec-11">
+      <h2><span class="n">11</span> Usuários e Permissões</h2>
+      <p><span class="path">Início → Usuários</span> <span class="badge expert">somente EXPERT</span></p>
+
+      <h3>11.1 Gerenciar permissões</h3>
+      <ol>
+        <li>Localize o operador pelo login ou nome.</li>
+        <li>Clique em <strong>Editar</strong>.</li>
+        <li>Defina <strong>Acesso ao HC Overview</strong> (Permitido / Bloqueado) e o <strong>Nível</strong> (LC1, LC3, LC5, EXPERT).</li>
+        <li>Clique em <strong>Salvar</strong>.</li>
+      </ol>
+      <div class="callout">
+        <span class="lbl">Nota</span>
+        <p>Os operadores são importados da tabela central <code>operadores</code> — não é necessário criar usuários manualmente.</p>
+      </div>
+
+      <h3>11.2 Configuração de Shifts (horários de reset)</h3>
+      <ol>
+        <li>Na seção <strong>Configuração de Shifts</strong>, defina o horário de reset para cada turno (BLUE DAY, BLUE NIGHT, RED DAY, RED NIGHT, ADM).</li>
+        <li>Clique em <strong>Salvar horários</strong>.</li>
+        <li>Na hora configurada, a chamada de todos os colaboradores OPERACIONAIS volta para <strong>Presente</strong> automaticamente.</li>
+      </ol>
+    </section>
+
+    <!-- 12 -->
+    <section class="sec" id="sec-12">
+      <h2><span class="n">12</span> Automações do Sistema</h2>
+      <p>O sistema executa as seguintes ações automáticas sem necessidade de intervenção manual:</p>
+      <div class="tbl-wrap">
+        <table class="data">
+          <thead><tr><th>Automação</th><th>Quando ocorre</th><th>O que faz</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Virada de Treinamento</strong></td><td>Diariamente</td><td>AA/Associado → OPERACIONAL após 2 dias; PIT → OPERACIONAL após 5 dias</td></tr>
+            <tr><td><strong>Retorno de Ausência</strong></td><td>Dia seguinte</td><td>Colaborador com Ausência volta para OPERACIONAL automaticamente</td></tr>
+            <tr><td><strong>Ativação de status agendado</strong></td><td>Na data marcada</td><td>Licença/Férias/Desligado agendados passam a valer no dia configurado</td></tr>
+            <tr><td><strong>Retorno de Licença/Férias</strong></td><td>Na data de fim</td><td>Colaborador volta para OPERACIONAL ao término do período</td></tr>
+            <tr><td><strong>Arquivamento de desligados</strong></td><td>Na data de desligamento</td><td>Colaborador é movido para o Histórico Operacional e removido da lista ativa</td></tr>
+            <tr><td><strong>Virada para OFF</strong></td><td>Toda terça-feira</td><td>Licença/Férias/Desligado sem data definida viram OFF (continuam em Pendências)</td></tr>
+            <tr><td><strong>Reset de chamada</strong></td><td>Horário configurado</td><td>Todos os OPERACIONAIS voltam para Presente na virada do turno</td></tr>
+            <tr><td><strong>Reversão de VTE</strong></td><td>12h após resolução</td><td>Colaborador retorna ao setor/turno de origem automaticamente</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 13 -->
+    <section class="sec" id="sec-13">
+      <h2><span class="n">13</span> Multi-FC (Múltiplos Centros de Distribuição)</h2>
+      <p>O sistema suporta múltiplos FCs (ex.: GIG2, IXD-CNF2) com bases de dados independentes.</p>
+      <ul>
+        <li>O FC ativo é exibido no cabeçalho do sistema.</li>
+        <li>Cada FC tem sua própria base de colaboradores, LC, tickets e histórico.</li>
+        <li>A troca de FC é feita via sessão — os dados exibidos sempre correspondem ao FC selecionado.</li>
+      </ul>
+    </section>
+
+    <!-- 14 -->
+    <section class="sec" id="sec-14">
+      <h2><span class="n">14</span> Benefícios do Sistema</h2>
+      <div class="benefits">
+        <article class="benefit">
+          <h3>Operacionais</h3>
+          <ul>
+            <li><strong>Visibilidade em tempo real</strong> do HC disponível por turno, área e cargo.</li>
+            <li><strong>Eliminação de planilhas manuais</strong> — uma única fonte de verdade para toda a operação.</li>
+            <li><strong>Alertas automáticos</strong> de pendências na tela inicial, sem verificação manual.</li>
+            <li><strong>Chamada digital</strong> com reset automático por virada de turno.</li>
+          </ul>
+        </article>
+        <article class="benefit">
+          <h3>Gestão de Pessoas</h3>
+          <ul>
+            <li><strong>Controle completo do ciclo do colaborador:</strong> admissão → treinamento → operacional → afastamento → desligamento.</li>
+            <li><strong>Agendamento de status:</strong> Licença, Férias e Desligamento programados com antecedência.</li>
+            <li><strong>Histórico de desligados</strong> preservado para consultas futuras e auditorias.</li>
+            <li><strong>Integração com LC:</strong> identifica quem está produtivo e quem precisa de capacitação.</li>
+          </ul>
+        </article>
+        <article class="benefit">
+          <h3>Conformidade e Auditoria</h3>
+          <ul>
+            <li><strong>Rastreabilidade total:</strong> toda ação é registrada com usuário, data/hora e dados antes/depois.</li>
+            <li><strong>Controle de prazos:</strong> prazo de terça-feira com alerta visual e virada automática para OFF.</li>
+            <li><strong>Tickets de premissas integrados:</strong> validação automática das ações no HC (LS, LT, TOFF, RP, ON).</li>
+            <li><strong>Tickets RH (VTO/VTE):</strong> resolução rastreada com validação de regras de negócio.</li>
+          </ul>
+        </article>
+        <article class="benefit">
+          <h3>Segurança e Controle de Acesso</h3>
+          <ul>
+            <li><strong>Níveis de acesso granulares</strong> (LC1, LC3, LC5, EXPERT) — cada usuário vê e faz apenas o necessário.</li>
+            <li><strong>Integração com a tabela central de operadores</strong> — sem criação manual de usuários.</li>
+            <li><strong>Proteção de dados:</strong> colaboradores desligados são arquivados, não excluídos permanentemente.</li>
+          </ul>
+        </article>
+        <article class="benefit">
+          <h3>Eficiência Operacional</h3>
+          <ul>
+            <li><strong>Dashboard com filtros dinâmicos</strong> para análise rápida por área, turno, cargo e status.</li>
+            <li><strong>Importação/exportação Excel e CSV</strong> para integração com outros sistemas.</li>
+            <li><strong>Resolução de tickets com um clique:</strong> "Resolver Pendência" leva direto ao colaborador no LIST.</li>
+            <li><strong>Reversão automática de VTE</strong> após 12 horas — sem risco de esquecer de reverter.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <!-- 15 -->
+    <section class="sec" id="sec-15">
+      <h2><span class="n">15</span> Fluxo Resumido por Perfil</h2>
+
+      <article class="profile">
+        <div class="role">Gestor / Supervisor <span class="badge lc3">LC3</span> <span class="badge lc5">LC5</span></div>
+        <div class="phase">
+          <h4>Início do turno</h4>
+          <ol>
+            <li>Acesse <strong>Início</strong> → verifique o banner de pendências.</li>
+            <li>Acesse <strong>Pendências</strong> → resolva pendências cadastrais e tickets RH.</li>
+            <li>Acesse <strong>LIST</strong> → faça a chamada (marque ausentes).</li>
+            <li>Cadastre novos colaboradores se necessário (<strong>Novo HC</strong>).</li>
+          </ol>
+        </div>
+        <div class="phase">
+          <h4>Durante o turno</h4>
+          <ol start="5">
+            <li>Atualize status de colaboradores conforme necessário (Ausência, Licença, etc.).</li>
+            <li>Resolva tickets de premissas (LS, LT, TOFF, RP, ON) dentro do prazo.</li>
+          </ol>
+        </div>
+        <div class="phase">
+          <h4>Fim do turno</h4>
+          <ol start="7">
+            <li>Exporte o HC se necessário (<strong>Exportar Excel</strong>).</li>
+          </ol>
+        </div>
+      </article>
+
+      <article class="profile">
+        <div class="role">Analista / RME <span class="badge lc1">LC1</span> <span class="badge lc3">LC3</span></div>
+        <div class="phase">
+          <h4>Rotina</h4>
+          <ol>
+            <li>Acesse <strong>Dashboard</strong> → monitore indicadores de HC e LC.</li>
+            <li>Acesse <strong>LC</strong> → verifique produtividade e identifique AA sem LC.</li>
+            <li>Importe a base de LC atualizada quando disponível.</li>
+            <li>Acesse <strong>Pendências</strong> → resolva tickets RH (VTO/VTE) sob sua responsabilidade.</li>
+          </ol>
+        </div>
+      </article>
+
+      <article class="profile">
+        <div class="role">Administrador <span class="badge expert">EXPERT</span></div>
+        <div class="phase">
+          <h4>Rotina</h4>
+          <ol>
+            <li>Configure permissões de novos usuários (<strong>Usuários → Editar</strong>).</li>
+            <li>Configure horários de reset de turno (<strong>Usuários → Configuração de Shifts</strong>).</li>
+            <li>Monitore o <strong>Histórico</strong> para auditoria de movimentações.</li>
+            <li>Resolva tickets ON (New Hire) em <strong>Pendências</strong>.</li>
+            <li>Execute processamento manual de status se necessário (<code>/api/admin/processar-status</code>).</li>
+          </ol>
+        </div>
+      </article>
+    </section>
+
+    <!-- 16 -->
+    <section class="sec" id="sec-16">
+      <h2><span class="n">16</span> Glossário</h2>
+      <div class="glossary-tools">
+        <label for="glossaryFilter">Filtrar termos</label>
+        <input id="glossaryFilter" type="search" placeholder="Ex.: VTO, turno, ticket…" autocomplete="off">
+      </div>
+      <div class="tbl-wrap">
+        <table class="data" id="glossaryTable">
+          <thead><tr><th>Termo</th><th>Significado</th></tr></thead>
+          <tbody>
+            <tr><td><strong>HC</strong></td><td>Headcount — quantidade e gestão de colaboradores</td></tr>
+            <tr><td><strong>FC</strong></td><td>Fulfillment Center — centro de distribuição</td></tr>
+            <tr><td><strong>AA</strong></td><td>Associate Ambassador — operador de chão de fábrica</td></tr>
+            <tr><td><strong>PIT</strong></td><td>Process Improvement Technician — técnico de melhoria de processos</td></tr>
+            <tr><td><strong>LC</strong></td><td>Learning Curve — nível de capacitação por processo</td></tr>
+            <tr><td><strong>VTO</strong></td><td>Voluntary Time Off — ausência voluntária solicitada pelo colaborador</td></tr>
+            <tr><td><strong>VTE</strong></td><td>Voluntary Time Extension — extensão voluntária em outro setor/turno</td></tr>
+            <tr><td><strong>LS</strong></td><td>Labor Share — compartilhamento temporário de HC entre setores</td></tr>
+            <tr><td><strong>LT</strong></td><td>Labor Transfer — transferência definitiva de HC</td></tr>
+            <tr><td><strong>TOFF</strong></td><td>Turn Off — redução de HC (desligamento programado)</td></tr>
+            <tr><td><strong>RP</strong></td><td>Ramp Down — redução programada de capacidade</td></tr>
+            <tr><td><strong>ON</strong></td><td>New Hire — contratação de novo colaborador</td></tr>
+            <tr><td><strong>RME</strong></td><td>Reliability Maintenance Engineering — área de manutenção e engenharia</td></tr>
+            <tr><td><strong>EXPERT</strong></td><td>Nível máximo de acesso no sistema</td></tr>
+            <tr><td><strong>OFF</strong></td><td>Status de colaborador com pendência vencida sem data definida</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 17 -->
+    <section class="sec" id="sec-17">
+      <h2><span class="n">17</span> Suporte e Contato</h2>
+      <ul>
+        <li><strong>Problemas de acesso:</strong> solicite ao <strong>EXPERT</strong> da sua operação.</li>
+        <li><strong>Dúvidas sobre tickets de premissas:</strong> consulte o time de <strong>Planejamento / RME</strong>.</li>
+        <li><strong>Dúvidas sobre VTO/VTE:</strong> consulte o time de <strong>RH</strong>.</li>
+        <li><strong>Problemas técnicos no sistema:</strong> acione o time de <strong>TI / Desenvolvimento</strong>.</li>
+      </ul>
+
+      <p class="doc-foot">
+        Documento gerado a partir da base de código do HC Overview. Última atualização: Agosto/2026.
+      </p>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var body = document.body;
+  var navToggle = document.getElementById('navToggle');
+  var overlay = document.getElementById('overlay');
+  var toc = document.getElementById('toc');
+  var themeBtn = document.getElementById('themeBtn');
+  var printBtn = document.getElementById('printBtn');
+  var icoSun = document.getElementById('icoSun');
+  var icoMoon = document.getElementById('icoMoon');
+
+  /* ---- mobile drawer ---- */
+  function setNav(open) {
+    body.classList.toggle('nav-open', open);
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  navToggle.addEventListener('click', function () {
+    setNav(!body.classList.contains('nav-open'));
+  });
+  overlay.addEventListener('click', function () { setNav(false); });
+  toc.addEventListener('click', function (e) {
+    if (e.target.closest('a') && window.matchMedia('(max-width: 900px)').matches) setNav(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') setNav(false);
+  });
+
+  /* ---- theme toggle ---- */
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function currentTheme() {
+    return document.documentElement.dataset.theme || (prefersDark() ? 'dark' : 'light');
+  }
+  function paintThemeBtn() {
+    var dark = currentTheme() === 'dark';
+    if (icoSun) icoSun.hidden = !dark;
+    if (icoMoon) icoMoon.hidden = dark;
+    themeBtn.setAttribute('aria-label', dark ? 'Mudar para tema claro' : 'Mudar para tema escuro');
+  }
+  themeBtn.addEventListener('click', function () {
+    var next = currentTheme() === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('hcio-theme', next); } catch (e) {}
+    paintThemeBtn();
+  });
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', paintThemeBtn);
+  paintThemeBtn();
+
+  /* ---- print ---- */
+  printBtn.addEventListener('click', function () { window.print(); });
+
+  /* ---- scrollspy ---- */
+  var secs = Array.prototype.slice.call(document.querySelectorAll('.sec'));
+  var links = {};
+  secs.forEach(function (s) {
+    links[s.id] = toc.querySelector('a[href="#' + s.id + '"]');
+  });
+  var ticking = false;
+  function spy() {
+    var cur = secs[0];
+    for (var i = 0; i < secs.length; i++) {
+      if (secs[i].getBoundingClientRect().top - 96 <= 0) cur = secs[i];
+    }
+    for (var id in links) {
+      if (links[id]) links[id].classList.toggle('active', id === cur.id);
+    }
+    var active = links[cur.id];
+    if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  }
+  window.addEventListener('scroll', function () {
+    if (!ticking) {
+      window.requestAnimationFrame(function () { spy(); ticking = false; });
+      ticking = true;
+    }
+  }, { passive: true });
+  window.addEventListener('hashchange', spy);
+  spy();
+
+  /* ---- glossary filter ---- */
+  var filter = document.getElementById('glossaryFilter');
+  var gTable = document.getElementById('glossaryTable');
+  if (filter && gTable) {
+    var rows = Array.prototype.slice.call(gTable.tBodies[0].rows);
+    var emptyRow = null;
+    filter.addEventListener('input', function () {
+      var q = filter.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (r) {
+        var hit = !q || r.textContent.toLowerCase().indexOf(q) !== -1;
+        r.classList.toggle('is-hidden', !hit);
+        if (hit) shown++;
+      });
+      if (shown === 0 && !emptyRow) {
+        emptyRow = gTable.tBodies[0].insertRow();
+        emptyRow.className = 'no-match';
+        var c = emptyRow.insertCell();
+        c.colSpan = 2;
+        c.textContent = 'Nenhum termo corresponde a "' + filter.value + '".';
+      } else if (emptyRow) {
+        if (shown > 0) { emptyRow.remove(); emptyRow = null; }
+        else { emptyRow.cells[0].textContent = 'Nenhum termo corresponde a "' + filter.value + '".'; }
+      }
+    });
+  }
+})();
+</script>

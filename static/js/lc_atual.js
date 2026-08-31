@@ -14,6 +14,8 @@ const btnLimparLC = document.getElementById("btnLimparLC");
 const params = new URLSearchParams(window.location.search);
 const STATUS_CLASS = {
   "OPERACIONAL": "operacional",
+  "VTE": "vte",
+  "VTO": "vto",
   "Treinamento": "treinamento",
   "OFF": "off",
   "Licença": "licenca",

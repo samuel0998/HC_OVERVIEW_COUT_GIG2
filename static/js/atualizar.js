@@ -46,6 +46,8 @@ function showMessage(text, isError = false) {
 
 const STATUS_CLASS = {
   "OPERACIONAL": "operacional",
+  "VTE":         "vte",
+  "VTO":         "vto",
   "Treinamento": "treinamento",
   "Ausência":    "ausencia",
   "OFF":         "off",
@@ -64,8 +66,9 @@ async function carregarTabela() {
 // ── Datas agendadas (Férias/Licença/Desligado marcados para o futuro) ─────
 function formatarDataBR(iso) {
   if (!iso) return "";
-  const [ano, mes, dia] = iso.split("-");
-  return `${dia}/${mes}/${ano}`;
+  const [data, hora] = iso.split("T");
+  const [ano, mes, dia] = data.split("-");
+  return `${dia}/${mes}/${ano}${hora ? ` ${hora.slice(0, 5)}` : ""}`;
 }
 
 // ── Renderizar com filtros locais ─────────────────────────────────
@@ -95,8 +98,12 @@ function renderTabela() {
       : `<span class="comment-empty">—</span>`;
     let agendado = "";
     if (item.status_agendado) {
-      const dataRef = item.status_agendado === "Desligado" ? item.data_desligamento : item.data_inicio_licenca;
+      const dataRef = (item.status_agendado === "VTE" || item.status_agendado === "VTO")
+        ? item.status_temporario_inicio
+        : (item.status_agendado === "Desligado" ? item.data_desligamento : item.data_inicio_licenca);
       agendado = `<div class="scheduled-note">🕐 ${item.status_agendado} agendado(a) para ${formatarDataBR(dataRef) || "data indefinida"}</div>`;
+    } else if ((item.status === "VTE" || item.status === "VTO") && item.status_temporario_fim) {
+      agendado = `<div class="scheduled-note">🕐 Retorno automático: ${formatarDataBR(item.status_temporario_fim)}</div>`;
     }
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -137,6 +144,10 @@ function atualizarBlocoStatus() {
       info = "Colaborador em treinamento; ainda não conta como capacidade operacional.";
     } else if (val === "Ausência") {
       info = "Ausência de 24h: sai da capacidade operacional hoje e volta a OPERACIONAL automaticamente no dia seguinte.";
+    } else if (val === "VTE") {
+      info = "VTE aplicado por ticket RH: retorna ao setor/escala de origem e ao status OPERACIONAL após 12h.";
+    } else if (val === "VTO") {
+      info = "VTO aplicado por ticket RH: retorna ao status OPERACIONAL após 12h.";
     }
     document.querySelector("#blocoOperacional .op-info").textContent = info;
     document.getElementById("blocoOperacional").classList.remove("hidden");

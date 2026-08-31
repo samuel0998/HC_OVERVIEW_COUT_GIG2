@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from models import db
@@ -19,6 +20,32 @@ class RegistroAtividade(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     def to_dict(self):
+        try:
+            anteriores = json.loads(self.dados_anteriores or "{}")
+            anteriores = anteriores if isinstance(anteriores, dict) else {}
+        except (TypeError, ValueError):
+            anteriores = {}
+        try:
+            novos = json.loads(self.dados_novos or "{}")
+            novos = novos if isinstance(novos, dict) else {}
+        except (TypeError, ValueError):
+            novos = {}
+
+        campos = (
+            ("area", "Setor"),
+            ("turno", "Turno/escala"),
+            ("cargo", "Cargo"),
+            ("status", "Status"),
+            ("status_agendado", "Status agendado"),
+            ("job", "Processo"),
+        )
+        alteracoes = []
+        for chave, label in campos:
+            de = anteriores.get(chave)
+            para = novos.get(chave)
+            if de != para and (chave in anteriores or chave in novos):
+                alteracoes.append({"campo": label, "de": de or "—", "para": para or "—"})
+
         return {
             "id": self.id,
             "tipo": self.tipo,
@@ -30,5 +57,6 @@ class RegistroAtividade(db.Model):
             "descricao": self.descricao or "",
             "dados_anteriores": self.dados_anteriores,
             "dados_novos": self.dados_novos,
+            "alteracoes": alteracoes,
             "timestamp": self.timestamp.strftime("%d/%m/%Y %H:%M") if self.timestamp else None,
         }

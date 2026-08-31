@@ -209,6 +209,8 @@ tbody tr:hover { background: #f0f6ff; }
 .badge.licenca    { background: #fef3c7; color: #92400e; }
 .badge.ferias     { background: #e0f2fe; color: #0277bd; }
 .badge.desligado  { background: #f3e8ff; color: #6a1b9a; }
+.badge.vte        { background: #dbeafe; color: #1d4ed8; }
+.badge.vto        { background: #ffedd5; color: #c2410c; }
 
 .scheduled-note {
   margin-top: 4px; font-size: 11px; color: #92400e; white-space: nowrap;

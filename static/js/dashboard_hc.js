@@ -29,6 +29,8 @@ const TURNO_COLORS = {
 
 const STATUS_COLORS = {
   "OPERACIONAL": "#2e7d32",
+  "VTE":         "#2563eb",
+  "VTO":         "#ea580c",
   "Treinamento": "#00897b",
   "Ausência":    "#64748b",
   "Licença":     "#f9a825",

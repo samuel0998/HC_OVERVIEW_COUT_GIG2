@@ -109,6 +109,12 @@ function showTab(tab, btn) {
     if (tab === 'operacional') carregarHistoricoOp();
 }
 
+function escaparHtml(valor) {
+    return String(valor ?? '').replace(/[&<>'"]/g, caractere => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+    })[caractere]);
+}
+
 async function carregarAtividades() {
     const tipo = document.getElementById('filtro-tipo').value;
     const url = '/api/hc/historico?limite=300' + (tipo ? '&tipo=' + tipo : '');
@@ -126,12 +132,19 @@ async function carregarAtividades() {
         tbody.innerHTML = data.map(r => {
             const cls = TIPO_CLASSES[r.tipo] || '';
             const label = TIPO_LABELS[r.tipo] || r.tipo;
+            const alteracoes = (r.alteracoes || []).map(a => `
+                <div style="margin-top:3px;padding:4px 7px;background:#f8fafc;border-left:3px solid #0f4c75;border-radius:3px;">
+                    <strong>${escaparHtml(a.campo)}:</strong>
+                    <span style="color:#64748b;">${escaparHtml(a.de)}</span>
+                    <strong aria-label="para">→</strong>
+                    <span>${escaparHtml(a.para)}</span>
+                </div>`).join('');
             return `<tr>
                 <td style="white-space:nowrap;font-size:12px;">${r.timestamp}</td>
                 <td><span class="badge ${cls}" style="font-size:11px;">${label}</span></td>
-                <td style="font-size:13px;">${r.operador_nome || '—'}<br><span style="color:var(--muted);font-size:11px;">${r.operador_login || ''}</span></td>
-                <td style="font-size:13px;">${r.usuario_nome || '—'}<br><span style="color:var(--muted);font-size:11px;">${r.usuario_login || ''}</span></td>
-                <td style="font-size:13px;max-width:380px;">${r.descricao || '—'}</td>
+                <td style="font-size:13px;">${escaparHtml(r.operador_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.operador_login || '')}</span></td>
+                <td style="font-size:13px;">${escaparHtml(r.usuario_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario_login || '')}</span></td>
+                <td style="font-size:13px;max-width:430px;">${escaparHtml(r.descricao || '—')}${alteracoes}</td>
             </tr>`;
         }).join('');
 

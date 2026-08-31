@@ -24,7 +24,7 @@ hc_bp = Blueprint("hc", __name__)
 CARGOS  = ["AA", "Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS  = ["OPERACIONAL", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
+STATUS  = ["OPERACIONAL", "VTE", "VTO", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
@@ -256,14 +256,17 @@ def _pendencia_filtro():
     )
 
 
-def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
+def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None, sistema=False):
     """Log an activity to registro_atividade."""
     from models.registro_atividade import RegistroAtividade
-    try:
-        u_login = current_user.login if current_user.is_authenticated else "sistema"
-        u_nome  = current_user.nome  if current_user.is_authenticated else "Sistema"
-    except Exception:
-        u_login, u_nome = "sistema", "Sistema"
+    if sistema:
+        u_login, u_nome = "sistema", "Automação"
+    else:
+        try:
+            u_login = current_user.login if current_user.is_authenticated else "sistema"
+            u_nome  = current_user.nome  if current_user.is_authenticated else "Sistema"
+        except Exception:
+            u_login, u_nome = "sistema", "Sistema"
 
     reg = RegistroAtividade(
         tipo=tipo,
@@ -281,9 +284,41 @@ def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None):
 
 def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
     alterou = False
+    agora = datetime.utcnow()
     for registro in registros:
-        if registro.aplicar_status_por_data(hoje):
+        antes = {
+            "status": registro.status,
+            "status_agendado": registro.status_agendado or "",
+            "area": registro.area or "",
+            "turno": registro.turno or "",
+        }
+        if registro.aplicar_status_por_data(hoje, agora):
             alterou = True
+            depois = {
+                "status": registro.status,
+                "status_agendado": registro.status_agendado or "",
+                "area": registro.area or "",
+                "turno": registro.turno or "",
+            }
+            temporario_antes = antes["status"] if antes["status"] in ("VTE", "VTO") else antes["status_agendado"]
+            if temporario_antes in ("VTE", "VTO"):
+                if registro.status == "OPERACIONAL":
+                    descricao = f"Retorno automático de {temporario_antes} para OPERACIONAL após 12h"
+                else:
+                    descricao = f"Ativação automática de {temporario_antes} na data agendada"
+                if antes["area"] != depois["area"] or antes["turno"] != depois["turno"]:
+                    descricao += (
+                        f"; setor/escala: {antes['area'] or '-'} / {antes['turno'] or '-'}"
+                        f" → {depois['area'] or '-'} / {depois['turno'] or '-'}"
+                    )
+                _registrar(
+                    "edicao_status",
+                    registro,
+                    descricao,
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
     if alterou and commit:
         db.session.commit()
     return alterou
@@ -340,9 +375,19 @@ def _match_valor_conhecido(valor, lista):
     confiavel, retorna vazio em vez de forcar um filtro/valor errado no List."""
     if not valor:
         return ""
-    alvo = _area_normalizada(valor) if lista is AREAS else _normalizar(valor)
+    if lista is AREAS:
+        alvo = _area_normalizada(valor)
+    elif lista is TURNOS:
+        alvo = _turno_normalizado(valor)
+    else:
+        alvo = _normalizar(valor)
     for item in lista:
-        conhecido = _area_normalizada(item) if lista is AREAS else _normalizar(item)
+        if lista is AREAS:
+            conhecido = _area_normalizada(item)
+        elif lista is TURNOS:
+            conhecido = _turno_normalizado(item)
+        else:
+            conhecido = _normalizar(item)
         if conhecido == alvo:
             return item
     return ""
@@ -355,10 +400,19 @@ def _area_normalizada(valor):
     aliases = {
         "in": "inbound",
         "ib": "inbound",
+        "inb": "inbound",
+        "receive": "inbound",
+        "receiving": "inbound",
         "out": "outbound",
         "ob": "outbound",
+        "outb": "outbound",
+        "shipping": "outbound",
+        "ti": "transferin",
+        "trin": "transferin",
         "transin": "transferin",
         "transferinbound": "transferin",
+        "to": "transferout",
+        "trout": "transferout",
         "transout": "transferout",
         "transferoutbound": "transferout",
         "cret": "cret",
@@ -370,17 +424,48 @@ def _area_corresponde(valor_hc, valor_ticket):
     return not valor_ticket or _area_normalizada(valor_hc) == _area_normalizada(valor_ticket)
 
 
+def _turno_normalizado(valor):
+    texto = _normalizar(valor).replace("-", " ").replace("_", " ")
+    compacto = "".join(texto.split())
+    aliases = {
+        "bd": "blueday",
+        "dayblue": "blueday",
+        "azuldia": "blueday",
+        "bn": "bluenight",
+        "nightblue": "bluenight",
+        "azulnoite": "bluenight",
+        "rd": "redday",
+        "dayred": "redday",
+        "vermelhodia": "redday",
+        "rn": "rednight",
+        "nightred": "rednight",
+        "vermelhonoite": "rednight",
+        "d": "day",
+        "dayshift": "day",
+        "diurno": "day",
+        "dia": "day",
+        "n": "night",
+        "nightshift": "night",
+        "noturno": "night",
+        "noite": "night",
+        "administrativo": "adm",
+    }
+    return aliases.get(compacto, compacto)
+
+
 def _turno_corresponde(valor_hc, valor_ticket):
     if not valor_ticket:
         return True
-    hc = _normalizar(valor_hc)
-    ticket = _normalizar(valor_ticket)
+    hc = _turno_normalizado(valor_hc)
+    ticket = _turno_normalizado(valor_ticket)
     if hc == ticket:
         return True
     # A ferramenta de premissas pode enviar apenas Day/Night, enquanto o HC
     # distingue BLUE/RED. Nesse caso a parte do dia ainda e uma correspondencia valida.
     if ticket in ("day", "night"):
         return hc.endswith(ticket)
+    if hc in ("day", "night"):
+        return ticket.endswith(hc)
     return False
 
 
@@ -816,6 +901,12 @@ def atualizar_colaborador(item_id):
         "status_agendado": colaborador.status_agendado or "",
         "off_origem": colaborador.off_origem or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
+        "status_temporario_inicio": colaborador.status_temporario_inicio.isoformat() if colaborador.status_temporario_inicio else "",
+        "status_temporario_fim": colaborador.status_temporario_fim.isoformat() if colaborador.status_temporario_fim else "",
+        "vte_area_origem": colaborador.vte_area_origem or "",
+        "vte_turno_origem": colaborador.vte_turno_origem or "",
+        "vte_area_destino": colaborador.vte_area_destino or "",
+        "vte_turno_destino": colaborador.vte_turno_destino or "",
     })
 
     novo_login = (data.get("login") or "").strip() or None
@@ -825,6 +916,16 @@ def atualizar_colaborador(item_id):
             return jsonify({"erro": "Já existe outro colaborador com esse login."}), 409
 
     novo_status = (data.get("status") or colaborador.status).strip()
+
+    if novo_status in ("VTE", "VTO") and novo_status != colaborador.status:
+        return jsonify({"erro": f"O status {novo_status} só pode ser aplicado pela validação de um ticket de RH."}), 400
+
+    status_anterior          = colaborador.status
+    status_agendado_anterior = colaborador.status_agendado
+    preserva_temporario = (
+        novo_status == status_anterior
+        and (status_anterior in ("VTE", "VTO") or colaborador.status_agendado in ("VTE", "VTO"))
+    )
 
     if novo_status in ("Licença", "Férias"):
         descricao = (data.get("causa_afastamento") or "").strip()
@@ -836,8 +937,6 @@ def atualizar_colaborador(item_id):
         if not descricao:
             return jsonify({"erro": "Descrição é obrigatória para Desligamento."}), 400
 
-    status_anterior          = colaborador.status
-    status_agendado_anterior = colaborador.status_agendado
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
     colaborador.cargo         = _formatar_cargo(data.get("cargo") or colaborador.cargo)
@@ -857,6 +956,7 @@ def atualizar_colaborador(item_id):
     # Licença/Férias/Desligado só passam a valer de fato quando a data marcada chega;
     # até lá o colaborador continua com o status atual e a mudança fica "agendada".
     if novo_status in ("Licença", "Férias"):
+        colaborador.limpar_status_temporario()
         data_inicio = _parse_date(data.get("data_inicio_licenca"))
         data_fim    = _parse_date(data.get("data_fim_licenca"))
         colaborador.data_inicio_licenca = data_inicio
@@ -868,6 +968,7 @@ def atualizar_colaborador(item_id):
             colaborador.status = novo_status
             colaborador.status_agendado = None
     elif novo_status == "Desligado":
+        colaborador.limpar_status_temporario()
         data_deslig = _parse_date(data.get("data_desligamento"))
         colaborador.data_desligamento   = data_deslig
         colaborador.data_inicio_licenca = None
@@ -877,7 +978,10 @@ def atualizar_colaborador(item_id):
         else:
             colaborador.status = novo_status
             colaborador.status_agendado = None
+    elif preserva_temporario:
+        colaborador.status = novo_status
     else:
+        colaborador.limpar_status_temporario()
         colaborador.status            = novo_status
         colaborador.status_agendado   = None
         colaborador.data_inicio_licenca = None
@@ -908,6 +1012,12 @@ def atualizar_colaborador(item_id):
         "job": colaborador.job or "",
         "hora_extra_turno": colaborador.hora_extra_turno or "",
         "causa_afastamento": colaborador.causa_afastamento or "",
+        "status_temporario_inicio": colaborador.status_temporario_inicio.isoformat() if colaborador.status_temporario_inicio else "",
+        "status_temporario_fim": colaborador.status_temporario_fim.isoformat() if colaborador.status_temporario_fim else "",
+        "vte_area_origem": colaborador.vte_area_origem or "",
+        "vte_turno_origem": colaborador.vte_turno_origem or "",
+        "vte_area_destino": colaborador.vte_area_destino or "",
+        "vte_turno_destino": colaborador.vte_turno_destino or "",
     })
 
     status_final = colaborador.status
@@ -925,7 +1035,17 @@ def atualizar_colaborador(item_id):
             partes_status.append(f"{colaborador.status_agendado} agendado(a) para {data_txt}")
         else:
             partes_status.append("agendamento cancelado")
-    msg_status = f" ({'; '.join(partes_status)})" if partes_status else ""
+    antes_dict = _json_dict(dados_ant)
+    depois_dict = _json_dict(dados_nov)
+    partes_movimentacao = []
+    if antes_dict.get("area") != depois_dict.get("area"):
+        partes_movimentacao.append(f"setor: {antes_dict.get('area') or '-'} → {depois_dict.get('area') or '-'}")
+    if antes_dict.get("turno") != depois_dict.get("turno"):
+        partes_movimentacao.append(f"turno/escala: {antes_dict.get('turno') or '-'} → {depois_dict.get('turno') or '-'}")
+    if antes_dict.get("cargo") != depois_dict.get("cargo"):
+        partes_movimentacao.append(f"cargo: {antes_dict.get('cargo') or '-'} → {depois_dict.get('cargo') or '-'}")
+    detalhes = partes_movimentacao + partes_status
+    msg_status = f" ({'; '.join(detalhes)})" if detalhes else ""
     tipo = "edicao_status" if partes_status else "edicao"
     _registrar(
         tipo,
@@ -1777,6 +1897,55 @@ def exportar_lc_excel():
 # ── API: Tickets RH (VTO / VTE) ──────────────────────────────
 
 
+def _inicio_status_ticket_rh(ticket, data_inicio=None):
+    """Converte a data local do ticket para UTC; hoje/passado inicia imediatamente."""
+    agora_utc = datetime.utcnow()
+    hoje_local = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+    inicio_data = _parse_date(data_inicio) or ticket.work_date
+    if not inicio_data or inicio_data <= hoje_local:
+        return agora_utc
+    inicio_local = datetime.combine(inicio_data, datetime.min.time()).replace(
+        tzinfo=ZoneInfo("America/Sao_Paulo")
+    )
+    return inicio_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def _destino_vte(ticket, hc):
+    area = _match_valor_conhecido(ticket.sector_key, AREAS)
+    if not area:
+        area = (ticket.sector_key or "").strip().upper()
+
+    candidatos_turno = (ticket.shift_key, ticket.shift_name)
+    turno = next(
+        (_match_valor_conhecido(valor, TURNOS) for valor in candidatos_turno if _match_valor_conhecido(valor, TURNOS)),
+        "",
+    )
+    if not turno:
+        parcial = next(
+            (_turno_normalizado(valor) for valor in candidatos_turno if _turno_normalizado(valor) in ("day", "night")),
+            "",
+        )
+        origem = _turno_normalizado(hc.turno)
+        cor = "BLUE" if origem.startswith("blue") else "RED" if origem.startswith("red") else ""
+        if parcial and cor:
+            turno = f"{cor} {parcial.upper()}"
+        elif ticket.shift_name or ticket.shift_key:
+            turno = (ticket.shift_name or ticket.shift_key).strip().upper()
+    return area, turno
+
+
+def _dados_status_temporario(hc):
+    return {
+        "cargo": hc.cargo or "",
+        "area": hc.area or "",
+        "turno": hc.turno or "",
+        "status": hc.status,
+        "status_agendado": hc.status_agendado or "",
+        "status_temporario_inicio": hc.status_temporario_inicio.isoformat() if hc.status_temporario_inicio else "",
+        "status_temporario_fim": hc.status_temporario_fim.isoformat() if hc.status_temporario_fim else "",
+    }
+
+
 @hc_bp.route("/api/rh-tickets", methods=["GET"])
 @login_required
 def listar_rh_tickets():
@@ -1851,6 +2020,9 @@ def resolver_rh_ticket(ticket_id):
     if ticket.cancelled_at:
         return jsonify({"erro": "Ticket cancelado pela ferramenta de origem."}), 409
 
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissão para validar tickets RH."}), 403
+
     hc = HCGig2.query.get(ticket.associado_id) if ticket.associado_id else None
     data = request.get_json() or {}
     acao = (data.get("acao") or "resolver").lower()
@@ -1866,28 +2038,65 @@ def resolver_rh_ticket(ticket_id):
 
     # ── Aplicar regras de negócio ──────────────────────────────────────────
     tipo = (ticket.premise_type or "").upper()
+    if tipo not in ("VTE", "VTO"):
+        return jsonify({"erro": f"Tipo de ticket RH não suportado: {tipo or 'vazio'}."}), 422
+    if not hc:
+        return jsonify({"erro": "Colaborador do ticket não foi localizado no HC Overview."}), 404
+    if hc.status in ("VTE", "VTO") or hc.status_agendado in ("VTE", "VTO"):
+        return jsonify({"erro": "O colaborador já possui um VTE/VTO ativo ou agendado."}), 409
 
-    if tipo == "VTO":
-        # Valida: colaborador deve estar com Ausência no dia
-        if hc and hc.status not in ("Ausência", "Ausencia"):
-            return jsonify({"erro": f"Colaborador não está com status Ausência. VTO inválido."}), 422
+    inicio = _inicio_status_ticket_rh(ticket, data.get("data_inicio"))
+    fim = inicio + timedelta(hours=12)
+    agora = datetime.utcnow()
+    agendado = inicio > agora
+    dados_ant = json.dumps(_dados_status_temporario(hc))
 
-    elif tipo == "VTE":
-        # Aloca para setor/turno de destino; guarda origem para reversão
-        if hc:
-            ticket.hcview_area_origem = hc.area
-            ticket.hcview_turno_origem = hc.turno
-            dados_ant = json.dumps({"area": hc.area, "turno": hc.turno})
-            hc.area = ticket.sector_key or hc.area
-            hc.turno = ticket.shift_name or ticket.shift_key or hc.turno
-            dados_nov = json.dumps({"area": hc.area, "turno": hc.turno})
-            _registrar(
-                "edicao",
-                hc,
-                f"VTE aplicado: alocado para {hc.area}/{hc.turno} (reversão automática em 12h)",
-                dados_ant=dados_ant,
-                dados_nov=dados_nov,
+    hc.status_temporario_inicio = inicio
+    hc.status_temporario_fim = fim
+    hc.status_agendado = tipo if agendado else None
+
+    if tipo == "VTE":
+        area_destino, turno_destino = _destino_vte(ticket, hc)
+        if not area_destino or not turno_destino:
+            return jsonify({"erro": "O ticket VTE não possui setor e escala de destino válidos."}), 422
+        ticket.hcview_area_origem = hc.area
+        ticket.hcview_turno_origem = hc.turno
+        ticket.hcview_vte_revertido = False
+        hc.vte_area_origem = hc.area
+        hc.vte_turno_origem = hc.turno
+        hc.vte_area_destino = area_destino
+        hc.vte_turno_destino = turno_destino
+        if not agendado:
+            hc.area = area_destino
+            hc.turno = turno_destino
+    else:
+        hc.vte_area_origem = None
+        hc.vte_turno_origem = None
+        hc.vte_area_destino = None
+        hc.vte_turno_destino = None
+
+    if not agendado:
+        hc.status = tipo
+
+    dados_nov = json.dumps(_dados_status_temporario(hc))
+    inicio_local = inicio.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Sao_Paulo"))
+    fim_local = fim.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/Sao_Paulo"))
+    if agendado:
+        descricao = f"Ticket RH {tipo} #{ticket.id} agendado para {inicio_local.strftime('%d/%m/%Y %H:%M')}"
+        if tipo == "VTE":
+            descricao += (
+                f"; setor/escala: {hc.vte_area_origem or '-'} / {hc.vte_turno_origem or '-'}"
+                f" → {hc.vte_area_destino or '-'} / {hc.vte_turno_destino or '-'}"
             )
+    else:
+        descricao = f"Ticket RH {tipo} #{ticket.id} aplicado: status → {tipo}"
+        if tipo == "VTE":
+            descricao += (
+                f"; setor/escala: {hc.vte_area_origem or '-'} / {hc.vte_turno_origem or '-'}"
+                f" → {hc.area or '-'} / {hc.turno or '-'}"
+            )
+    descricao += f"; retorno automático para OPERACIONAL em {fim_local.strftime('%d/%m/%Y %H:%M')}"
+    _registrar("edicao_status", hc, descricao, dados_ant=dados_ant, dados_nov=dados_nov)
 
     ticket.hcview_resolvido = True
     ticket.hcview_resolvido_em = datetime.utcnow()
@@ -1895,7 +2104,12 @@ def resolver_rh_ticket(ticket_id):
     ticket.hcview_resolvido_por_nome = current_user.nome
     ticket.hcview_observacao = data.get("observacao") or ""
     db.session.commit()
-    return jsonify({"mensagem": "Ticket resolvido.", "item": ticket.to_dict()})
+    acao_label = "agendado" if agendado else "aplicado"
+    return jsonify({
+        "mensagem": f"Ticket {tipo} validado e {acao_label}. Retorno automático configurado para 12h.",
+        "item": ticket.to_dict(),
+        "colaborador": hc.to_dict(),
+    })
 
 
 # ── API: Dashboard ─────────────────────────────────────────────
@@ -1930,6 +2144,8 @@ def dashboard_data():
     ausencia   = sum(1 for r in registros if r.status in ("Ausência", "Ausencia"))
     licenca    = sum(1 for r in registros if r.status == "Licença")
     ferias     = sum(1 for r in registros if r.status == "Férias")
+    vte        = sum(1 for r in registros if r.status == "VTE")
+    vto        = sum(1 for r in registros if r.status == "VTO")
 
     outbound_areas = {"OUTBOUND", "TRANSFER OUT", "INSUMOS", "LP"}
     inbound_areas  = {"INBOUND", "TRANSFER IN", "TRANSFERIN", "C-RET"}
@@ -2057,7 +2273,7 @@ def dashboard_data():
         "por_area":  por_area,
         "por_cargo": por_cargo,
         "por_turno": por_turno,
-        "status": {"OPERACIONAL": operacional, "Treinamento": treinamento, "Ausência": ausencia, "Licença": licenca, "Férias": ferias, "OFF": off},
+        "status": {"OPERACIONAL": operacional, "VTE": vte, "VTO": vto, "Treinamento": treinamento, "Ausência": ausencia, "Licença": licenca, "Férias": ferias, "OFF": off},
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {

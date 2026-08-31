@@ -64,6 +64,8 @@ class PortalTicketClaim(db.Model):
         return (self.status or "").lower() == "ativo"
 
     def to_dict(self):
+        work_date = self.work_date.strftime("%Y-%m-%d") if self.work_date else None
+        created_at = self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None
         return {
             "id": self.id,
             "labor_ticket_id": self.labor_ticket_id,
@@ -75,12 +77,12 @@ class PortalTicketClaim(db.Model):
             "sector_key": self.sector_key or "",
             "process_name": self.process_name or "",
             "labor_type": self.labor_type or "",
-            "work_date": self.work_date.strftime("%Y-%m-%d") if self.work_date else None,
+            "work_date": work_date,
             "shift_key": self.shift_key or "",
             "shift_name": self.shift_name or "",
             "premise_amount_snapshot": self.premise_amount_snapshot or 0,
             "premise_note_snapshot": self.premise_note_snapshot or "",
-            "created_at": self.created_at.strftime("%Y-%m-%d %H:%M:%S") if self.created_at else None,
+            "created_at": created_at,
             "cancelled_at": self.cancelled_at.strftime("%Y-%m-%d %H:%M:%S") if self.cancelled_at else None,
             "resolvido": bool(self.hcview_resolvido),
             "resolvido_em": self.hcview_resolvido_em.strftime("%Y-%m-%d %H:%M:%S") if self.hcview_resolvido_em else None,
@@ -90,4 +92,10 @@ class PortalTicketClaim(db.Model):
             "area_origem": self.hcview_area_origem or "",
             "turno_origem": self.hcview_turno_origem or "",
             "vte_revertido": bool(self.hcview_vte_revertido),
+            # Aliases consumidos pela tela de Pendencias.
+            "tipo": self.premise_type or "",
+            "data_solicitacao": created_at,
+            "agendado_para": work_date,
+            "setor_destino": self.sector_key or "",
+            "turno_destino": self.shift_name or self.shift_key or "",
         }

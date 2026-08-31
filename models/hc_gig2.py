@@ -1,5 +1,5 @@
 import unicodedata
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from models import db
 
 
@@ -34,6 +34,13 @@ class HCGig2(db.Model):
     # dia marcado. A partir do dia seguinte, a rotina de status automático devolve
     # para OPERACIONAL (ver aplicar_status_por_data e processar_status_automatico).
     data_inicio_ausencia = db.Column(db.Date, nullable=True)
+    # VTE/VTO: status temporarios criados exclusivamente por tickets de RH.
+    status_temporario_inicio = db.Column(db.DateTime, nullable=True)
+    status_temporario_fim = db.Column(db.DateTime, nullable=True)
+    vte_area_origem = db.Column(db.String(50), nullable=True)
+    vte_turno_origem = db.Column(db.String(50), nullable=True)
+    vte_area_destino = db.Column(db.String(50), nullable=True)
+    vte_turno_destino = db.Column(db.String(50), nullable=True)
     # Campos legados mantidos para compatibilidade
     previsao_afastamento = db.Column(db.Boolean, nullable=False, default=False)
     data_afastamento = db.Column(db.Date, nullable=True)
@@ -78,8 +85,25 @@ class HCGig2(db.Model):
             self.off_origem,
         )
 
-    def _ativar_status_agendado(self, hoje):
-        """Vira Licença/Férias/Desligado somente quando a data marcada chega."""
+    def limpar_status_temporario(self):
+        anterior = (
+            self.status_temporario_inicio,
+            self.status_temporario_fim,
+            self.vte_area_origem,
+            self.vte_turno_origem,
+            self.vte_area_destino,
+            self.vte_turno_destino,
+        )
+        self.status_temporario_inicio = None
+        self.status_temporario_fim = None
+        self.vte_area_origem = None
+        self.vte_turno_origem = None
+        self.vte_area_destino = None
+        self.vte_turno_destino = None
+        return any(valor is not None for valor in anterior)
+
+    def _ativar_status_agendado(self, hoje, agora):
+        """Ativa afastamentos ou VTE/VTO quando a data agendada chega."""
         if not self.status_agendado:
             return False
 
@@ -93,15 +117,33 @@ class HCGig2(db.Model):
                 self.status = "Desligado"
                 self.status_agendado = None
                 return True
+        elif self.status_agendado in ("VTE", "VTO"):
+            if self.status_temporario_inicio and agora >= self.status_temporario_inicio:
+                self.status = self.status_agendado
+                self.status_agendado = None
+                self.status_temporario_fim = self.status_temporario_inicio + timedelta(hours=12)
+                if self.status == "VTE":
+                    self.area = self.vte_area_destino or self.area
+                    self.turno = self.vte_turno_destino or self.turno
+                return True
 
         return False
 
-    def aplicar_status_por_data(self, hoje=None):
+    def aplicar_status_por_data(self, hoje=None, agora=None):
         hoje = hoje or date.today()
+        agora = agora or datetime.utcnow()
         status_anterior = self.status
+        alocacao_anterior = (self.area, self.turno)
 
         alterou_bloqueios = False
-        self._ativar_status_agendado(hoje)
+        self._ativar_status_agendado(hoje, agora)
+
+        if self.status in ("VTE", "VTO") and self.status_temporario_fim and agora >= self.status_temporario_fim:
+            if self.status == "VTE":
+                self.area = self.vte_area_origem or self.area
+                self.turno = self.vte_turno_origem or self.turno
+            self.status = "OPERACIONAL"
+            alterou_bloqueios = self.limpar_status_temporario() or alterou_bloqueios
 
         if self.status == "Treinamento":
             cargo = self._cargo_normalizado()
@@ -142,7 +184,7 @@ class HCGig2(db.Model):
         elif self.status == "Desligado":
             pass  # Desligado não reverte automaticamente
 
-        return status_anterior != self.status or alterou_bloqueios
+        return status_anterior != self.status or alocacao_anterior != (self.area, self.turno) or alterou_bloqueios
 
     def to_dict(self):
         return {
@@ -163,6 +205,12 @@ class HCGig2(db.Model):
             "data_fim_licenca": self.data_fim_licenca.strftime("%Y-%m-%d") if self.data_fim_licenca else None,
             "data_desligamento": self.data_desligamento.strftime("%Y-%m-%d") if self.data_desligamento else None,
             "data_inicio_ausencia": self.data_inicio_ausencia.strftime("%Y-%m-%d") if self.data_inicio_ausencia else None,
+            "status_temporario_inicio": self.status_temporario_inicio.strftime("%Y-%m-%dT%H:%M") if self.status_temporario_inicio else None,
+            "status_temporario_fim": self.status_temporario_fim.strftime("%Y-%m-%dT%H:%M") if self.status_temporario_fim else None,
+            "vte_area_origem": self.vte_area_origem or "",
+            "vte_turno_origem": self.vte_turno_origem or "",
+            "vte_area_destino": self.vte_area_destino or "",
+            "vte_turno_destino": self.vte_turno_destino or "",
             "previsao_afastamento": self.previsao_afastamento,
             "data_afastamento": self.data_afastamento.strftime("%Y-%m-%d") if self.data_afastamento else None,
             "causa_afastamento": self.causa_afastamento or "",

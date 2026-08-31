@@ -1,5 +1,5 @@
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import Flask, jsonify, redirect, request, url_for
 from flask_login import LoginManager
@@ -24,6 +24,7 @@ def processar_status_automatico():
     from models.registro_atividade import RegistroAtividade
 
     hoje = date.today()
+    agora = datetime.utcnow()
     prazo_vencido = hoje.weekday() > 1
 
     todos = HCGig2.query.all()
@@ -33,15 +34,20 @@ def processar_status_automatico():
     for op in todos:
         status_ant = op.status
         status_agendado_ant = op.status_agendado
+        area_ant = op.area
+        turno_ant = op.turno
 
         desligamento_efetivo = op.status == "Desligado" or op.status_agendado == "Desligado"
         if desligamento_efetivo and op.data_desligamento and hoje >= op.data_desligamento:
             para_arquivar.append(op)
             continue
 
-        alterou_por_data = op.aplicar_status_por_data(hoje)
+        alterou_por_data = op.aplicar_status_por_data(hoje, agora)
 
-        if status_agendado_ant and not op.status_agendado and op.status == status_agendado_ant:
+        if status_ant in ("VTE", "VTO") and op.status == "OPERACIONAL" and alterou_por_data:
+            detalhes_retorno = ""
+            if status_ant == "VTE":
+                detalhes_retorno = f"; setor/escala: {area_ant or '-'} / {turno_ant or '-'} → {op.area or '-'} / {op.turno or '-'}"
             registros.append(RegistroAtividade(
                 tipo="edicao_status",
                 operador_id=op.id,
@@ -49,9 +55,40 @@ def processar_status_automatico():
                 operador_nome=op.nome_completo,
                 usuario_login="sistema",
                 usuario_nome="Automacao",
-                descricao=f"Ativacao automatica: '{status_agendado_ant}' passou a valer (data marcada atingida)",
-                dados_anteriores=json.dumps({"status": status_ant, "status_agendado": status_agendado_ant}),
-                dados_novos=json.dumps({"status": op.status}),
+                descricao=f"Retorno automático de {status_ant} para OPERACIONAL após 12h{detalhes_retorno}",
+                dados_anteriores=json.dumps({"status": status_ant, "area": area_ant or "", "turno": turno_ant or ""}),
+                dados_novos=json.dumps({"status": "OPERACIONAL", "area": op.area or "", "turno": op.turno or ""}),
+            ))
+            continue
+
+        if status_agendado_ant in ("VTE", "VTO") and not op.status_agendado and op.status == "OPERACIONAL" and alterou_por_data:
+            registros.append(RegistroAtividade(
+                tipo="edicao_status",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao=f"Agendamento de {status_agendado_ant} processado; a janela de 12h já havia encerrado. Status mantido em OPERACIONAL.",
+                dados_anteriores=json.dumps({"status": status_ant, "status_agendado": status_agendado_ant, "area": area_ant or "", "turno": turno_ant or ""}),
+                dados_novos=json.dumps({"status": "OPERACIONAL", "area": op.area or "", "turno": op.turno or ""}),
+            ))
+            continue
+
+        if status_agendado_ant and not op.status_agendado and op.status == status_agendado_ant:
+            detalhe_alocacao = ""
+            if status_agendado_ant == "VTE":
+                detalhe_alocacao = f"; setor/escala: {area_ant or '-'} / {turno_ant or '-'} → {op.area or '-'} / {op.turno or '-'}"
+            registros.append(RegistroAtividade(
+                tipo="edicao_status",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao=f"Ativação automática: '{status_agendado_ant}' passou a valer (data agendada atingida){detalhe_alocacao}",
+                dados_anteriores=json.dumps({"status": status_ant, "status_agendado": status_agendado_ant, "area": area_ant or "", "turno": turno_ant or ""}),
+                dados_novos=json.dumps({"status": op.status, "area": op.area or "", "turno": op.turno or ""}),
             ))
             continue
 
@@ -164,48 +201,6 @@ def processar_status_automatico():
     else:
         print("[AUTO-STATUS] Nenhuma alteracao necessaria.")
 
-    # ── Reversão automática VTE após 12h ──────────────────────────────────────────
-    from datetime import datetime, timedelta
-    from models.portal_ticket_claims import PortalTicketClaim
-
-    agora = datetime.utcnow()
-    vtes_pendentes = PortalTicketClaim.query.filter(
-        PortalTicketClaim.premise_type == "VTE",
-        PortalTicketClaim.hcview_resolvido == True,  # noqa: E712
-        PortalTicketClaim.hcview_vte_revertido == False,  # noqa: E712
-    ).all()
-
-    revertidos = 0
-    for vte in vtes_pendentes:
-        if not vte.hcview_resolvido_em:
-            continue
-        if agora < vte.hcview_resolvido_em + timedelta(hours=12):
-            continue
-        hc = HCGig2.query.get(vte.associado_id) if vte.associado_id else None
-        if hc and vte.hcview_area_origem:
-            hc.area = vte.hcview_area_origem
-            hc.turno = vte.hcview_turno_origem
-            registros.append(RegistroAtividade(
-                tipo="edicao",
-                operador_id=hc.id,
-                operador_login=hc.login,
-                operador_nome=hc.nome_completo,
-                usuario_login="sistema",
-                usuario_nome="Automacao",
-                descricao=f"VTE revertido automaticamente: retorno para {vte.hcview_area_origem}/{vte.hcview_turno_origem}",
-                dados_anteriores=json.dumps({"area": vte.sector_key, "turno": vte.shift_name}),
-                dados_novos=json.dumps({"area": hc.area, "turno": hc.turno}),
-            ))
-        vte.hcview_vte_revertido = True
-        revertidos += 1
-
-    if revertidos:
-        for r in registros[-revertidos:]:
-            db.session.add(r)
-        db.session.commit()
-        print(f"[AUTO-VTE] {revertidos} VTE(s) revertido(s) automaticamente.")
-
-
 def _create_operational_tables_for_fc(fc):
     engine = db.engines[fc]
     # 'tickets' e' de propriedade de uma ferramenta externa (espelha gig2_hc_premises) -
@@ -272,6 +267,13 @@ def _migrate_hc_table_for_fc(fc):
         print(f"[MIGRATION:{fc}] Coluna off_origem verificada (OFF por prazo vencido continua em Pendencias).")
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_ausencia DATE"))
         print(f"[MIGRATION:{fc}] Coluna data_inicio_ausencia verificada (status Ausencia dura 24h e volta a OPERACIONAL no dia seguinte).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_temporario_inicio TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS status_temporario_fim TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_area_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_turno_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_area_destino VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_turno_destino VARCHAR(50)"))
+        print(f"[MIGRATION:{fc}] Colunas de VTE/VTO temporarios verificadas.")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "
