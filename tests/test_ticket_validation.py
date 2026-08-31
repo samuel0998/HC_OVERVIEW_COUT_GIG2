@@ -34,6 +34,25 @@ class TicketValidationTest(unittest.TestCase):
     def test_area_alias_in_matches_inbound(self):
         self.assertEqual(_area_normalizada("in"), _area_normalizada("INBOUND"))
 
+    def test_area_alias_tfi_matches_transfer_in(self):
+        self.assertEqual(_area_normalizada("tfi"), _area_normalizada("TRANSFER IN"))
+
+    def test_area_alias_tfo_matches_transfer_out(self):
+        self.assertEqual(_area_normalizada("tfo"), _area_normalizada("TRANSFER OUT"))
+
+    def test_lt_accepts_move_into_transfer_in_sector_code(self):
+        acao = registro(
+            "edicao",
+            {"cargo": "PIT", "area": "INBOUND", "turno": "BLUE NIGHT", "status": "OPERACIONAL"},
+            {"cargo": "PIT", "area": "TRANSFER IN", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="PIT", source_labor_type="PIT",
+            sector_key="tfi", shift_name="BLUE DAY",
+            source_sector_key="in", source_shift_name="BLUE NIGHT",
+        )
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE NIGHT"))
+
     def test_toff_accepts_scheduled_termination_from_owner_sector(self):
         acao = registro(
             "edicao_status",

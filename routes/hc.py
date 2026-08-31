@@ -408,10 +408,14 @@ def _area_normalizada(valor):
         "outb": "outbound",
         "shipping": "outbound",
         "ti": "transferin",
+        "tfi": "transferin",
+        "tfin": "transferin",
         "trin": "transferin",
         "transin": "transferin",
         "transferinbound": "transferin",
         "to": "transferout",
+        "tfo": "transferout",
+        "tfout": "transferout",
         "trout": "transferout",
         "transout": "transferout",
         "transferoutbound": "transferout",
@@ -621,14 +625,18 @@ def _ids_acoes_ja_consumidas():
 
 
 def _acoes_validas_ticket(t):
+    """Acoes auditadas do HC que cumprem a regra concreta do ticket.
+
+    NAO filtra por quem executou a acao: o endpoint resolver_ticket ja restringe
+    quem pode concluir (owner do ticket ou EXPERT). Aqui olha-se apenas o conteudo
+    da acao - setor/turno/cargo origem->destino e transicao de status - dentro da
+    janela do ticket, sem contar a mesma pessoa movida duas vezes.
+    """
     from models.registro_atividade import RegistroAtividade
 
-    query = RegistroAtividade.query
-    owner_login = (t.owner_login or "").strip().lower()
-    if (t.premise_type or "").upper() != "ON":
-        if not owner_login:
-            return []
-        query = query.filter(db.func.lower(RegistroAtividade.usuario_login) == owner_login)
+    tipo = (t.premise_type or "").upper()
+    tipos_acao = ("adicao",) if tipo == "ON" else ("edicao", "edicao_status")
+    query = RegistroAtividade.query.filter(RegistroAtividade.tipo.in_(tipos_acao))
 
     inicio = t.created_at
     if not inicio:
@@ -654,7 +662,52 @@ def _acoes_validas_ticket(t):
     return encontrados
 
 
-def _concluir_ticket_se_validado(t):
+def _log_ticket_nao_validado(t, progresso, necessarias):
+    """Diagnostico nos logs (Railway) quando 'Validar conclusao' nao acha a acao.
+    Lista os candidatos na janela e por que cada um nao casou com a regra."""
+    from models.registro_atividade import RegistroAtividade
+
+    tipo = (t.premise_type or "").upper()
+    tipos_acao = ("adicao",) if tipo == "ON" else ("edicao", "edicao_status")
+    inicio = t.created_at or datetime.combine(
+        t.start_date or (t.work_date - timedelta(days=30) if t.work_date else date.today()),
+        datetime.min.time(),
+    )
+    owner_area, owner_turno = _ticket_owner_contexto(t)
+    consumidas = _ids_acoes_ja_consumidas()
+    candidatos = (
+        RegistroAtividade.query
+        .filter(RegistroAtividade.tipo.in_(tipos_acao))
+        .filter(RegistroAtividade.timestamp >= inicio)
+        .order_by(RegistroAtividade.timestamp.desc())
+        .limit(25)
+        .all()
+    )
+    print(
+        f"[TICKET-VALIDACAO] #{t.premise_id} {tipo} nao validado ({progresso}/{necessarias}). "
+        f"regra: cargo={t.source_labor_type or t.labor_type!r} "
+        f"origem={t.source_sector_key or owner_area!r}/"
+        f"{t.source_shift_name or t.source_shift_key or owner_turno!r} -> "
+        f"destino={t.sector_key!r}/{t.shift_name or t.shift_key!r} "
+        f"janela>={inicio:%Y-%m-%d %H:%M} candidatos={len(candidatos)}"
+    )
+    for r in candidatos:
+        antes, depois = _json_dict(r.dados_anteriores), _json_dict(r.dados_novos)
+        if r.id in consumidas:
+            motivo = "ja consumida por outro ticket"
+        elif _registro_cumpre_ticket(t, r, owner_area, owner_turno):
+            motivo = "OK (casaria)"
+        else:
+            motivo = "nao casa com a regra"
+        print(
+            f"[TICKET-VALIDACAO]   reg#{r.id} {r.tipo} por {r.usuario_login!r} :: "
+            f"{antes.get('cargo')!r} {antes.get('area')!r}/{antes.get('turno')!r} "
+            f"status={antes.get('status')!r} -> {depois.get('area')!r}/{depois.get('turno')!r} "
+            f"status={depois.get('status')!r} agendado={depois.get('status_agendado')!r} :: {motivo}"
+        )
+
+
+def _concluir_ticket_se_validado(t, verbose=False):
     if t.hcview_resolvido:
         return True, max(t.amount or 1, 1), max(t.amount or 1, 1)
 
@@ -662,6 +715,8 @@ def _concluir_ticket_se_validado(t):
     acoes = _acoes_validas_ticket(t)
     progresso = len(acoes)
     if progresso < necessarias:
+        if verbose:
+            _log_ticket_nao_validado(t, progresso, necessarias)
         return False, progresso, necessarias
 
     acao_final = acoes[necessarias - 1]
@@ -1240,7 +1295,7 @@ def resolver_ticket(premise_id):
         if not owner or owner != (current_user.login or "").strip().lower():
             return jsonify({"erro": "Somente o responsavel pelo ticket ou um EXPERT pode concluir."}), 403
 
-    resolvido, progresso, necessarias = _concluir_ticket_se_validado(ticket)
+    resolvido, progresso, necessarias = _concluir_ticket_se_validado(ticket, verbose=True)
     if not resolvido:
         return jsonify({
             "erro": (
