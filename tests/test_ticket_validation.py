@@ -8,6 +8,8 @@ from routes.hc import (
     _area_normalizada,
     _janela_inicio_ticket,
     _registro_cumpre_ticket,
+    _ticket_escala_lado,
+    _ticket_owner_contexto,
     _ticket_resolver_url,
 )
 
@@ -15,6 +17,7 @@ from routes.hc import (
 def ticket(tipo, **campos):
     dados = {
         "premise_type": tipo,
+        "is_transferencia": tipo in ("LS", "LT", "LM"),
         "sector_key": "out",
         "shift_name": "Night",
         "shift_key": "",
@@ -67,6 +70,35 @@ class TicketValidationTest(unittest.TestCase):
             work_date=date.today() + timedelta(days=45),
         )
         self.assertEqual(_janela_inicio_ticket(t), t.created_at)
+
+    def test_owner_contexto_vem_do_ticket_nao_do_responsavel(self):
+        # A origem do ticket e' BLUE DAY; o responsavel (que so' designa) e' outro.
+        # _ticket_owner_contexto NAO pode consultar o HC do responsavel.
+        premissa = ticket(
+            "LT",
+            source_sector_key="in", source_shift_name="BLUE DAY",
+            source_responsible_login="bmarciod",
+        )
+        area, turno = _ticket_owner_contexto(premissa)
+        self.assertEqual(_area_normalizada(area), _area_normalizada("INBOUND"))
+        self.assertEqual(turno, "BLUE DAY")
+
+    def test_escala_lado_prioriza_campo_do_ticket(self):
+        self.assertEqual(_ticket_escala_lado("bmarciod", "BLUE DAY", ""), "BLUE DAY")
+
+    def test_lt_valida_move_blue_day_para_blue_day_mesma_escala(self):
+        # Caso real: premissa IN/BLUE DAY -> TFI/BLUE DAY (so' muda o setor).
+        acao = registro(
+            "edicao",
+            {"cargo": "PIT", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+            {"cargo": "PIT", "area": "TRANSFER IN", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="PIT", source_labor_type="PIT",
+            sector_key="tfi", shift_name="BLUE DAY",
+            source_sector_key="in", source_shift_name="BLUE DAY",
+        )
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
 
     def test_lt_accepts_move_into_transfer_in_sector_code(self):
         acao = registro(

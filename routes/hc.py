@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from flask import Blueprint, abort, jsonify, render_template, request, send_file
 from flask_login import current_user, login_required
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from models import db, get_current_fc
 from models.hc_gig2 import HCGig2
@@ -496,37 +496,34 @@ def _hc_turno_por_login(login):
 
 
 def _ticket_escala_lado(login, *fallbacks):
-    """Escala (BLUE/RED) de um lado do ticket: usa o turno real de quem responde no
-    HC; sem correspondencia, cai no texto bruto do ticket (normalmente so' Day/Night)."""
-    turno = _hc_turno_por_login(login)
-    if turno:
-        return turno
+    """Escala (BLUE/RED + Day/Night) de um lado do ticket.
+
+    Prioriza o valor do PROPRIO ticket (source_shift_name/shift_key etc.). So' cai
+    no turno do responsavel no HC como ultimo recurso - ele apenas designa quem se
+    move e pode estar em outra escala (ex.: RME de BLUE NIGHT designando um PIT que
+    trabalha BLUE DAY). Usar o turno dele aqui mostrava a origem errada na tela."""
     for valor in fallbacks:
         if valor:
             return valor
-    return ""
+    return _hc_turno_por_login(login)
+
+
+def _ticket_lado_contexto(sector_key, shift_name, shift_key):
+    """(area, turno) de um lado do ticket, a partir dos campos do proprio ticket -
+    casados com AREAS/TURNOS quando da', senao o texto bruto. NUNCA usa o cadastro
+    do responsavel (ele designa o AA, nao e' quem se move)."""
+    area = _match_valor_conhecido(sector_key, AREAS) or (sector_key or "").strip()
+    turno_raw = shift_name or shift_key
+    turno = _match_valor_conhecido(turno_raw, TURNOS) or (turno_raw or "").strip()
+    return area, turno
 
 
 def _ticket_owner_contexto(t):
-    """Area/turno reais do owner no HC; usa os dados do ticket como fallback."""
-    owner_login = (t.owner_login or "").strip().lower()
-    owner_hc = None
-    if owner_login:
-        owner_hc = HCGig2.query.filter(
-            db.func.lower(db.func.trim(HCGig2.login)) == owner_login
-        ).first()
-
-    if owner_hc:
-        return owner_hc.area or "", owner_hc.turno or ""
+    """(area, turno) da ORIGEM da movimentacao descrita no ticket. Para transferencia
+    e' o lado source_*; para TOFF/RP e' o proprio setor do ticket."""
     if t.is_transferencia:
-        return (
-            _match_valor_conhecido(t.source_sector_key, AREAS),
-            _match_valor_conhecido(t.source_shift_name or t.source_shift_key, TURNOS),
-        )
-    return (
-        _match_valor_conhecido(t.sector_key, AREAS),
-        _match_valor_conhecido(t.shift_name or t.shift_key, TURNOS),
-    )
+        return _ticket_lado_contexto(t.source_sector_key, t.source_shift_name, t.source_shift_key)
+    return _ticket_lado_contexto(t.sector_key, t.shift_name, t.shift_key)
 
 
 def _ticket_resolver_url(t):
@@ -543,6 +540,10 @@ def _ticket_resolver_url(t):
         return "/novo" + (f"?{urlencode(pares)}" if pares else "")
 
     area, turno = _ticket_owner_contexto(t)
+    # Para o link so' vale filtro que casa com as opcoes do List (filtro errado
+    # esconde todo mundo); a validacao usa o texto cru, aqui nao.
+    area = _match_valor_conhecido(area, AREAS)
+    turno = _match_valor_conhecido(turno, TURNOS)
     cargo_ticket = (t.source_labor_type or t.labor_type) if t.is_transferencia else t.labor_type
     cargo = _match_valor_conhecido(cargo_ticket, CARGOS)
 
@@ -697,6 +698,15 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
         f"{t.source_shift_name or t.source_shift_key or owner_turno!r} -> "
         f"destino={t.sector_key!r}/{t.shift_name or t.shift_key!r} "
         f"created_at={t.created_at} janela>={inicio:%Y-%m-%d %H:%M} candidatos={len(candidatos)}"
+    )
+    print(
+        f"[TICKET-VALIDACAO]   CAMPOS CRUS: source_sector_key={t.source_sector_key!r} "
+        f"source_shift_name={t.source_shift_name!r} source_shift_key={t.source_shift_key!r} "
+        f"source_labor_type={t.source_labor_type!r} source_responsible_login={t.source_responsible_login!r} "
+        f"| sector_key={t.sector_key!r} shift_name={t.shift_name!r} shift_key={t.shift_key!r} "
+        f"labor_type={t.labor_type!r} responsible_login={t.responsible_login!r} "
+        f"| work_date={t.work_date} start_date={t.start_date} amount={t.amount} "
+        f"| owner_contexto=({owner_area!r},{owner_turno!r})"
     )
     for r in candidatos:
         antes, depois = _json_dict(r.dados_anteriores), _json_dict(r.dados_novos)
@@ -1319,6 +1329,45 @@ def resolver_ticket(premise_id):
         "mensagem": f"Ticket concluido: {progresso}/{necessarias} acao(oes) validada(s).",
         "item": ticket.to_dict(),
     })
+
+
+@hc_bp.route("/api/hc/debug/tickets", methods=["GET"])
+@login_required
+def debug_tickets_schema():
+    """Diagnostico (EXPERT): schema REAL da tabela 'tickets' + amostra crua de
+    linhas, direto do banco. Serve para conferir nomes/valores de coluna que o
+    model reconstruiu sem acesso ao Postgres. Use ?premise_id=NN para 1 ticket."""
+    if not current_user.is_admin:
+        return jsonify({"erro": "Somente EXPERT."}), 403
+
+    def _serial(v):
+        return v.isoformat() if hasattr(v, "isoformat") else v
+
+    resposta = {}
+    try:
+        cols = db.session.execute(text(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = 'tickets' ORDER BY ordinal_position"
+        )).all()
+        resposta["colunas"] = [{"nome": c[0], "tipo": c[1]} for c in cols]
+    except Exception as e:
+        db.session.rollback()
+        resposta["colunas_erro"] = str(e)
+
+    premise_id = request.args.get("premise_id", type=int)
+    try:
+        if premise_id is not None:
+            rows = db.session.execute(
+                text("SELECT * FROM tickets WHERE premise_id = :pid"), {"pid": premise_id}
+            ).mappings().all()
+        else:
+            rows = db.session.execute(text("SELECT * FROM tickets LIMIT 10")).mappings().all()
+        resposta["linhas"] = [{k: _serial(v) for k, v in dict(r).items()} for r in rows]
+    except Exception as e:
+        db.session.rollback()
+        resposta["linhas_erro"] = str(e)
+
+    return jsonify(resposta)
 
 
 # ── API: Histórico ─────────────────────────────────────────────
