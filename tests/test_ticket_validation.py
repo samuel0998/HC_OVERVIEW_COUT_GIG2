@@ -11,6 +11,7 @@ from routes.hc import (
     _ticket_escala_lado,
     _ticket_owner_contexto,
     _ticket_resolver_url,
+    _turno_corresponde,
 )
 
 
@@ -85,6 +86,28 @@ class TicketValidationTest(unittest.TestCase):
 
     def test_escala_lado_prioriza_campo_do_ticket(self):
         self.assertEqual(_ticket_escala_lado("bmarciod", "BLUE DAY", ""), "BLUE DAY")
+
+    def test_turno_corresponde_escala_sozinha(self):
+        # turno_origem vem vazio -> ticket manda so' "BLUE"; deve casar com BLUE DAY/NIGHT
+        self.assertTrue(_turno_corresponde("BLUE DAY", "BLUE"))
+        self.assertTrue(_turno_corresponde("BLUE NIGHT", "BLUE"))
+        self.assertFalse(_turno_corresponde("RED DAY", "BLUE"))
+        self.assertTrue(_turno_corresponde("BLUE", "BLUE NIGHT"))
+
+    def test_lt_valida_com_turno_origem_vazio(self):
+        # Caso real (premise 275): origem IN / escala BLUE / turno_origem VAZIO,
+        # destino OUT / BLUE / Day. Mover AA de INBOUND/BLUE DAY -> OUTBOUND/BLUE DAY.
+        acao = registro(
+            "edicao",
+            {"cargo": "AA", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+            {"cargo": "AA", "area": "OUTBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="AA", source_labor_type="AA",
+            sector_key="OUTBOUND", shift_name="BLUE DAY",
+            source_sector_key="INBOUND", source_shift_name="BLUE", source_shift_key="",
+        )
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE"))
 
     def test_lt_valida_move_blue_day_para_blue_day_mesma_escala(self):
         # Caso real: premissa IN/BLUE DAY -> TFI/BLUE DAY (so' muda o setor).

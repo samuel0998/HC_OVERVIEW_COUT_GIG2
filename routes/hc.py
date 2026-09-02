@@ -470,6 +470,12 @@ def _turno_corresponde(valor_hc, valor_ticket):
         return hc.endswith(ticket)
     if hc in ("day", "night"):
         return ticket.endswith(hc)
+    # A ferramenta pode enviar SO' a escala (BLUE/RED) sem o periodo - acontece no
+    # lado ORIGEM de transferencias (turno_origem vem vazio). A escala ja basta.
+    if ticket in ("blue", "red"):
+        return hc.startswith(ticket)
+    if hc in ("blue", "red"):
+        return ticket.startswith(hc)
     return False
 
 
@@ -700,11 +706,11 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
         f"created_at={t.created_at} janela>={inicio:%Y-%m-%d %H:%M} candidatos={len(candidatos)}"
     )
     print(
-        f"[TICKET-VALIDACAO]   CAMPOS CRUS: source_sector_key={t.source_sector_key!r} "
-        f"source_shift_name={t.source_shift_name!r} source_shift_key={t.source_shift_key!r} "
-        f"source_labor_type={t.source_labor_type!r} source_responsible_login={t.source_responsible_login!r} "
-        f"| sector_key={t.sector_key!r} shift_name={t.shift_name!r} shift_key={t.shift_key!r} "
-        f"labor_type={t.labor_type!r} responsible_login={t.responsible_login!r} "
+        f"[TICKET-VALIDACAO]   CAMPOS CRUS: origem setor_origem={t.source_sector_key!r} "
+        f"escala_origem={getattr(t, 'escala_origem', None)!r} turno_origem={getattr(t, 'turno_origem', None)!r} "
+        f"(=> {t.source_shift_name!r}) funcao={t.source_labor_type!r} resp_login={t.source_responsible_login!r} "
+        f"| destino setor={t.sector_key!r} escala={getattr(t, 'escala', None)!r} turno={getattr(t, 'turno', None)!r} "
+        f"(=> {t.shift_name!r}) funcao={t.labor_type!r} resp_login={t.responsible_login!r} "
         f"| work_date={t.work_date} start_date={t.start_date} amount={t.amount} "
         f"| owner_contexto=({owner_area!r},{owner_turno!r})"
     )
