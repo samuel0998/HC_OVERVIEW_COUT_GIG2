@@ -163,22 +163,18 @@ class Ticket(db.Model):
 
     @property
     def owner_login(self):
-        """Quem precisa agir no List para resolver o ticket.
-        LS/LT/LM: quem libera o HC (lado origem). TOFF/RP: quem reduz o proprio setor.
-        ON: sem owner - so aparece para nivel EXPERT."""
+        """Quem precisa agir no List para resolver o ticket = o responsavel da
+        ORIGEM (`source_responsible_login`). Cai em `responsible_login` so' quando
+        a origem vem vazia. ON nao tem owner - so' aparece para nivel EXPERT."""
         if self.premise_type == "ON":
             return None
-        if self.is_transferencia:
-            return self.source_responsible_login
-        return self.responsible_login
+        return self.source_responsible_login or self.responsible_login
 
     @property
     def owner_nome(self):
         if self.premise_type == "ON":
             return None
-        if self.is_transferencia:
-            return self.source_responsible_name
-        return self.responsible_name
+        return self.source_responsible_name or self.responsible_name
 
     @property
     def prazo(self):
