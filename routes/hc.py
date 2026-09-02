@@ -928,6 +928,7 @@ def _concluir_ticket_se_validado(t, verbose=False):
 
 def _sincronizar_tickets_por_acoes(tickets):
     alterou = False
+    tickets = [t for t in (tickets or []) if t is not None]
     ordenados = sorted(tickets, key=lambda t: t.created_at.isoformat() if t.created_at else "")
     for ticket in ordenados:
         if ticket.hcview_resolvido:
@@ -947,6 +948,7 @@ def _tickets_visiveis():
     try:
         tickets = (
             Ticket.query
+            .filter(Ticket.premise_id.isnot(None))  # PK do model; linha sem ele vira None no ORM
             .filter(Ticket.premise_type.in_(TICKET_TYPES))
             .filter(or_(
                 Ticket.premise_status.is_(None),
@@ -957,6 +959,8 @@ def _tickets_visiveis():
     except Exception:
         db.session.rollback()
         return None  # tabela 'tickets' indisponivel nesta FC (integracao externa nao provisionada)
+
+    tickets = [t for t in tickets if t is not None]
 
     try:
         _sincronizar_tickets_por_acoes(tickets)
