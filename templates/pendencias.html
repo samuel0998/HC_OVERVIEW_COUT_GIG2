@@ -206,7 +206,7 @@ async function migrarPortalTickets() {
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
         Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. A conclusão é validada pelas ações registradas no HC; sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
-        {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto (inclusive ON, sem owner).
+        {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto.
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
     </p>
     <div class="table-wrap">

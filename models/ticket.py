@@ -163,17 +163,13 @@ class Ticket(db.Model):
 
     @property
     def owner_login(self):
-        """Quem precisa agir no List para resolver o ticket = o responsavel da
-        ORIGEM (`source_responsible_login`). Cai em `responsible_login` so' quando
-        a origem vem vazia. ON nao tem owner - so' aparece para nivel EXPERT."""
-        if self.premise_type == "ON":
-            return None
+        """Quem precisa agir para resolver o ticket = o responsavel da ORIGEM
+        (`source_responsible_login`), com fallback para `responsible_login`.
+        Vale para TODAS as premissas, inclusive ON (New Hire)."""
         return self.source_responsible_login or self.responsible_login
 
     @property
     def owner_nome(self):
-        if self.premise_type == "ON":
-            return None
         return self.source_responsible_name or self.responsible_name
 
     @property

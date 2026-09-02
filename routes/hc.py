@@ -792,8 +792,8 @@ def _sincronizar_tickets_por_acoes(tickets):
 def _tickets_visiveis():
     """Tickets em aberto (nao finalizados/nao resolvidos) visiveis para o usuario
     logado: EXPERT ve tudo (acompanhamento); demais niveis veem so' os tickets em
-    que sao o owner (quem precisa agir). ON e' exclusivo de EXPERT (premissa de RH
-    sem owner)."""
+    que sao o owner (quem precisa agir). Vale para TODAS as premissas, inclusive
+    ON - o owner de ON vem de source_responsible_login/responsible_login."""
     try:
         tickets = (
             Ticket.query
@@ -822,8 +822,6 @@ def _tickets_visiveis():
             continue
         if current_user.is_admin:
             visiveis.append(t)
-            continue
-        if t.premise_type == "ON":
             continue
         owner = (t.owner_login or "").strip().lower()
         if owner and owner == login_atual:
@@ -1295,8 +1293,8 @@ def listar_tickets_pendentes():
             item["destino_escala"] = _ticket_escala_lado(
                 t.responsible_login, t.shift_name, t.shift_key
             )
-            src_cargo = (t.source_labor_type or "").strip()
-            dst_cargo = (t.labor_type or "").strip()
+            src_cargo = _formatar_cargo(t.source_labor_type) or (t.source_labor_type or "").strip()
+            dst_cargo = _formatar_cargo(t.labor_type) or (t.labor_type or "").strip()
             if src_cargo and dst_cargo and src_cargo.lower() != dst_cargo.lower():
                 item["cargo_label"] = f"{src_cargo} → {dst_cargo}"
             else:
@@ -1306,7 +1304,7 @@ def listar_tickets_pendentes():
             item["destino_escala"] = _ticket_escala_lado(
                 t.responsible_login, t.shift_name, t.shift_key
             )
-            item["cargo_label"] = (t.labor_type or "").strip()
+            item["cargo_label"] = _formatar_cargo(t.labor_type) or (t.labor_type or "").strip()
         itens.append(item)
 
     return jsonify({"tickets": itens, "total": len(itens), "integracao_disponivel": True})
@@ -1321,10 +1319,8 @@ def resolver_ticket(premise_id):
     ticket = Ticket.query.get_or_404(premise_id)
     eh_expert = current_user.is_admin
 
-    if ticket.premise_type == "ON":
-        if not eh_expert:
-            return jsonify({"erro": "Somente nivel EXPERT pode concluir premissas ON."}), 403
-    elif not eh_expert:
+    # Vale para todas as premissas, inclusive ON: o responsavel (owner) ou um EXPERT.
+    if not eh_expert:
         owner = (ticket.owner_login or "").strip().lower()
         if not owner or owner != (current_user.login or "").strip().lower():
             return jsonify({"erro": "Somente o responsavel pelo ticket ou um EXPERT pode concluir."}), 403
