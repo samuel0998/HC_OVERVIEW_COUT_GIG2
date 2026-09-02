@@ -31,6 +31,42 @@ if (_p.get("turno"))  filtroTurno.value  = _p.get("turno");
 if (_p.get("cargo"))  filtroCargo.value  = _p.get("cargo");
 if (_p.get("login"))  buscaLogin.value   = _p.get("login");
 
+// ── Cola da pendência (aparece quando veio de "Resolver Pendência") ──
+function _esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function carregarColaPendencia() {
+  if (!ticketId) return;
+  const box = document.getElementById("colaPendencia");
+  try {
+    const res = await fetch(`/api/hc/tickets/${encodeURIComponent(ticketId)}/cola`);
+    if (!res.ok) return;
+    const c = await res.json();
+
+    const rota = c.is_transferencia && c.origem
+      ? `<span class="cola-lado">${_esc(c.origem.label)}</span><span class="cola-seta">→</span><span class="cola-lado">${_esc(c.destino.label)}</span>`
+      : `<span class="cola-lado">${_esc(c.destino.label)}</span>`;
+
+    const passos = (c.passos || []).map(p => `<li>${_esc(p)}</li>`).join("");
+
+    box.innerHTML = `
+      <div class="cola-head">
+        <strong>📋 Cola da pendência — ${_esc(c.tipo_label)}</strong>
+        <span class="cola-badge${c.vencido ? " vencido" : ""}">${c.progresso}/${c.quantidade} feito · prazo ${_esc(c.prazo || "—")}</span>
+      </div>
+      <p class="cola-instrucao">${_esc(c.instrucao)}</p>
+      <div class="cola-rota">${rota}</div>
+      <ol class="cola-passos">${passos}</ol>
+      <p class="cola-obs">A validação confere <strong>cargo, setor, escala e turno</strong>. Se algum não bater com o pedido, a pendência não é dada como resolvida.</p>
+    `;
+    box.classList.remove("hidden");
+  } catch (e) {
+    /* sem cola, segue a vida */
+  }
+}
+carregarColaPendencia();
+
 // ── Mensagem ─────────────────────────────────────────────────────
 function showMessage(text, isError = false) {
   mensagem.textContent = text;

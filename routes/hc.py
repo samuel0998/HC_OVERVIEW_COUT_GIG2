@@ -489,6 +489,57 @@ def _turno_corresponde(valor_hc, valor_ticket):
     return False
 
 
+def _escala_de(turno_hc):
+    """'BLUE DAY' -> 'BLUE'. Vazio se nao der pra dizer."""
+    n = _turno_normalizado(turno_hc)
+    if n.startswith("blue"):
+        return "BLUE"
+    if n.startswith("red"):
+        return "RED"
+    return ""
+
+
+def _periodo_de(turno_hc):
+    """'BLUE DAY' -> 'DAY'; 'Night' -> 'NIGHT'. Vazio se nao der pra dizer."""
+    n = _turno_normalizado(turno_hc)
+    if n.endswith("night"):
+        return "NIGHT"
+    if n.endswith("day"):
+        return "DAY"
+    return ""
+
+
+def _ticket_escala(escala_campo, shift_combinado):
+    """Escala (BLUE/RED) que o ticket pede: do campo separado (escala/escala_origem)
+    ou, se vazio, extraida do campo combinado (shift_name/source_shift_name)."""
+    if escala_campo and str(escala_campo).strip():
+        return _escala_de(escala_campo) or str(escala_campo).strip().upper()
+    return _escala_de(shift_combinado)
+
+
+def _ticket_periodo(turno_campo, shift_combinado):
+    """Periodo (DAY/NIGHT) que o ticket pede: do campo separado (turno/turno_origem)
+    ou, se vazio, extraido do campo combinado."""
+    if turno_campo and str(turno_campo).strip():
+        return _periodo_de(turno_campo)
+    return _periodo_de(shift_combinado)
+
+
+def _lado_pedido_bate(cargo_hc, turno_hc, area_hc, *, cargo_ticket, setor_ticket, escala_ticket, periodo_ticket):
+    """Um lado do pedido (origem OU destino) bate com o estado do colaborador?
+    CARGO, SETOR, ESCALA e PERIODO precisam bater. Campo que o ticket nao informa
+    nao e' cobrado; campo informado que NAO bate reprova."""
+    if not _cargo_ticket_corresponde(cargo_hc, cargo_ticket):
+        return False
+    if not _area_corresponde(area_hc, setor_ticket):
+        return False
+    if escala_ticket and _escala_de(turno_hc) != escala_ticket:
+        return False
+    if periodo_ticket and _periodo_de(turno_hc) != periodo_ticket:
+        return False
+    return True
+
+
 def _cargo_ticket_corresponde(cargo_hc, cargo_ticket):
     cargo = _cargo_normalizado(cargo_hc)
     esperado = _cargo_normalizado(cargo_ticket)
@@ -567,6 +618,84 @@ def _ticket_resolver_url(t):
     return "/atualizar" + (f"?{urlencode(pares)}" if pares else "")
 
 
+def _ticket_lado_cola(setor_raw, escala_campo, turno_campo, shift_combinado):
+    """Descreve um lado (origem/destino) do pedido para a 'cola' que o shift ve."""
+    setor = _match_valor_conhecido(setor_raw, AREAS) or (setor_raw or "").strip().upper()
+    escala = _ticket_escala(escala_campo, shift_combinado)      # BLUE / RED / ""
+    periodo = _ticket_periodo(turno_campo, shift_combinado)     # DAY / NIGHT / ""
+    turno_hc = " ".join(p for p in (escala, periodo) if p)      # "BLUE DAY" / "BLUE" / ""
+    partes = [p for p in (setor, turno_hc) if p]
+    return {
+        "setor": setor,
+        "escala": escala,
+        "turno": periodo,
+        "turno_hc": turno_hc,
+        "label": " · ".join(partes) if partes else "—",
+    }
+
+
+def _ticket_cola(t):
+    """Resumo objetivo do que o shift precisa fazer para resolver a pendencia."""
+    tipo = (t.premise_type or "").upper()
+    qtd = max(t.amount or 1, 1)
+    cargo = _formatar_cargo(t.source_labor_type or t.labor_type) or (t.source_labor_type or t.labor_type or "").strip()
+    quem = f"{qtd} {cargo}".strip() or f"{qtd} colaborador(es)"
+
+    destino = _ticket_lado_cola(t.sector_key, getattr(t, "escala", ""), getattr(t, "turno", ""), t.shift_name)
+    origem = (
+        _ticket_lado_cola(t.source_sector_key, getattr(t, "escala_origem", ""), getattr(t, "turno_origem", ""), t.source_shift_name)
+        if t.is_transferencia else None
+    )
+
+    try:
+        progresso = len(_acoes_validas_ticket(t))
+    except Exception:
+        db.session.rollback()
+        progresso = 0
+
+    if t.is_transferencia:
+        instrucao = f"Transfira {quem} de {origem['label']} para {destino['label']}."
+        passos = [
+            f"No LIST (já filtrado), localize {quem} que esteja em {origem['label']}.",
+            "Clique em Editar no colaborador.",
+            f"Mude Área para {destino['setor'] or '—'} e Turno para {destino['turno_hc'] or '—'}.",
+            "Clique em Salvar alteração. Repita até completar a quantidade.",
+        ]
+    elif tipo in ("TOFF", "RP"):
+        instrucao = f"Desligue {quem} de {destino['label']}."
+        passos = [
+            f"No LIST (já filtrado), localize {quem} em {destino['label']}.",
+            "Clique em Editar, mude o Status para Desligado e informe a data e o motivo.",
+            "Clique em Salvar alteração. Repita até completar a quantidade.",
+        ]
+    elif tipo == "ON":
+        instrucao = f"Cadastre {quem} novo(s) em {destino['label']}."
+        passos = [
+            "Abra Novo HC (Início → Novo HC).",
+            f"Cadastre cada um com Cargo {cargo or '—'}, Área {destino['setor'] or '—'} e Turno {destino['turno_hc'] or '—'}.",
+            f"Repita até cadastrar {qtd}.",
+        ]
+    else:
+        instrucao = "Consulte o time de Planejamento para entender o pedido."
+        passos = []
+
+    return {
+        "premise_id": t.premise_id,
+        "tipo_label": t.tipo_label,
+        "premise_type": tipo,
+        "is_transferencia": t.is_transferencia,
+        "cargo": cargo,
+        "quantidade": qtd,
+        "progresso": progresso,
+        "prazo": t.prazo.strftime("%d/%m/%Y") if t.prazo else None,
+        "vencido": t.vencido,
+        "origem": origem,
+        "destino": destino,
+        "instrucao": instrucao,
+        "passos": passos,
+    }
+
+
 def _json_dict(valor):
     if not valor:
         return {}
@@ -578,38 +707,55 @@ def _json_dict(valor):
 
 
 def _registro_cumpre_ticket(t, registro, owner_area="", owner_turno=""):
-    """Valida uma acao auditada do HC contra a regra concreta do ticket."""
+    """Valida uma acao auditada do HC contra a regra concreta do ticket.
+    A acao so' conta se CARGO, SETOR, ESCALA e PERIODO (Day/Night) baterem com o
+    que o ticket pede - na origem E no destino, para transferencias."""
     antes = _json_dict(registro.dados_anteriores)
     depois = _json_dict(registro.dados_novos)
     tipo = (t.premise_type or "").upper()
 
+    # Escala/periodo que o ticket pede em cada lado (campo separado ou combinado).
+    dst_escala  = _ticket_escala(getattr(t, "escala", ""), t.shift_name)
+    dst_periodo = _ticket_periodo(getattr(t, "turno", ""), t.shift_name)
+    src_escala  = _ticket_escala(getattr(t, "escala_origem", ""), t.source_shift_name)
+    src_periodo = _ticket_periodo(getattr(t, "turno_origem", ""), t.source_shift_name)
+
     if tipo == "ON":
         if registro.tipo != "adicao":
             return False
-        return (
-            _area_corresponde(depois.get("area"), t.sector_key)
-            and _turno_corresponde(depois.get("turno"), t.shift_name or t.shift_key)
-            and _cargo_ticket_corresponde(depois.get("cargo"), t.labor_type)
+        return _lado_pedido_bate(
+            depois.get("cargo"), depois.get("turno"), depois.get("area"),
+            cargo_ticket=t.labor_type,
+            setor_ticket=t.sector_key,
+            escala_ticket=dst_escala,
+            periodo_ticket=dst_periodo,
         )
 
     cargo_antes = antes.get("cargo") or depois.get("cargo")
+    cargo_depois = depois.get("cargo") or cargo_antes
+
     if tipo in ("LS", "LT", "LM"):
         if registro.tipo not in ("edicao", "edicao_status"):
             return False
-        origem_area = t.source_sector_key or owner_area
-        origem_turno = t.source_shift_name or t.source_shift_key or owner_turno
         mudou_alocacao = (
             _normalizar(antes.get("area")) != _normalizar(depois.get("area"))
             or _normalizar(antes.get("turno")) != _normalizar(depois.get("turno"))
         )
-        return (
-            mudou_alocacao
-            and _cargo_ticket_corresponde(cargo_antes, t.source_labor_type or t.labor_type)
-            and _area_corresponde(antes.get("area"), origem_area)
-            and _turno_corresponde(antes.get("turno"), origem_turno)
-            and _area_corresponde(depois.get("area"), t.sector_key)
-            and _turno_corresponde(depois.get("turno"), t.shift_name or t.shift_key)
+        origem_ok = _lado_pedido_bate(
+            cargo_antes, antes.get("turno"), antes.get("area"),
+            cargo_ticket=t.source_labor_type or t.labor_type,
+            setor_ticket=t.source_sector_key or owner_area,
+            escala_ticket=src_escala,
+            periodo_ticket=src_periodo,
         )
+        destino_ok = _lado_pedido_bate(
+            cargo_depois, depois.get("turno"), depois.get("area"),
+            cargo_ticket=t.labor_type or t.source_labor_type,
+            setor_ticket=t.sector_key,
+            escala_ticket=dst_escala,
+            periodo_ticket=dst_periodo,
+        )
+        return mudou_alocacao and origem_ok and destino_ok
 
     if tipo in ("TOFF", "RP"):
         if registro.tipo not in ("edicao", "edicao_status"):
@@ -619,9 +765,13 @@ def _registro_cumpre_ticket(t, registro, owner_area="", owner_turno=""):
         return (
             not desligado_antes
             and desligado_depois
-            and _cargo_ticket_corresponde(cargo_antes, t.labor_type)
-            and _area_corresponde(antes.get("area"), owner_area or t.sector_key)
-            and _turno_corresponde(antes.get("turno"), owner_turno or t.shift_name or t.shift_key)
+            and _lado_pedido_bate(
+                cargo_antes, antes.get("turno"), antes.get("area"),
+                cargo_ticket=t.labor_type,
+                setor_ticket=t.sector_key or owner_area,
+                escala_ticket=dst_escala,
+                periodo_ticket=dst_periodo,
+            )
         )
 
     return False
@@ -1341,6 +1491,23 @@ def resolver_ticket(premise_id):
         "mensagem": f"Ticket concluido: {progresso}/{necessarias} acao(oes) validada(s).",
         "item": ticket.to_dict(),
     })
+
+
+@hc_bp.route("/api/hc/tickets/<int:premise_id>/cola", methods=["GET"])
+@login_required
+def ticket_cola(premise_id):
+    """'Cola' da pendencia: o que o shift precisa fazer (cargo, setor, escala,
+    turno, quantidade) - mostrada no topo do LIST ao clicar em Resolver Pendencia."""
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissao."}), 403
+    try:
+        ticket = Ticket.query.get(premise_id)
+    except Exception:
+        db.session.rollback()
+        return jsonify({"erro": "Integracao de tickets indisponivel."}), 503
+    if ticket is None:
+        return jsonify({"erro": "Ticket nao encontrado."}), 404
+    return jsonify(_ticket_cola(ticket))
 
 
 @hc_bp.route("/api/hc/debug/tickets", methods=["GET"])

@@ -22,10 +22,14 @@ def ticket(tipo, **campos):
         "sector_key": "out",
         "shift_name": "Night",
         "shift_key": "",
+        "escala": "",
+        "turno": "",
         "labor_type": "AA",
         "source_sector_key": "in",
         "source_shift_name": "Day",
         "source_shift_key": "",
+        "escala_origem": "",
+        "turno_origem": "",
         "source_labor_type": "AA",
     }
     dados.update(campos)
@@ -142,7 +146,8 @@ class TicketValidationTest(unittest.TestCase):
             {"cargo": "AA", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
             {"cargo": "AA", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL", "status_agendado": "Desligado"},
         )
-        self.assertTrue(_registro_cumpre_ticket(ticket("TOFF"), acao, "INBOUND", "BLUE DAY"))
+        premissa = ticket("TOFF", sector_key="INBOUND", shift_name="BLUE DAY", escala="BLUE", turno="Day")
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
 
     def test_toff_rejects_termination_outside_owner_sector(self):
         acao = registro(
@@ -150,7 +155,50 @@ class TicketValidationTest(unittest.TestCase):
             {"cargo": "AA", "area": "ICQA", "turno": "BLUE DAY", "status": "OPERACIONAL"},
             {"cargo": "AA", "area": "ICQA", "turno": "BLUE DAY", "status": "Desligado"},
         )
-        self.assertFalse(_registro_cumpre_ticket(ticket("TOFF"), acao, "INBOUND", "BLUE DAY"))
+        premissa = ticket("TOFF", sector_key="INBOUND", shift_name="BLUE DAY", escala="BLUE", turno="Day")
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
+
+    def test_lt_rejeita_escala_errada(self):
+        # ticket pede origem BLUE; colaborador movido e' RED -> nao valida
+        acao = registro(
+            "edicao",
+            {"cargo": "AA", "area": "INBOUND", "turno": "RED DAY", "status": "OPERACIONAL"},
+            {"cargo": "AA", "area": "OUTBOUND", "turno": "RED DAY", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="AA", source_labor_type="AA",
+            source_sector_key="INBOUND", escala_origem="BLUE", turno_origem="Day",
+            sector_key="OUTBOUND", escala="BLUE", turno="Day", shift_name="BLUE DAY", source_shift_name="BLUE DAY",
+        )
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
+
+    def test_lt_rejeita_periodo_errado(self):
+        # ticket pede destino Day; colaborador foi para Night -> nao valida
+        acao = registro(
+            "edicao",
+            {"cargo": "AA", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+            {"cargo": "AA", "area": "OUTBOUND", "turno": "BLUE NIGHT", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="AA", source_labor_type="AA",
+            source_sector_key="INBOUND", escala_origem="BLUE", turno_origem="Day",
+            sector_key="OUTBOUND", escala="BLUE", turno="Day", shift_name="BLUE DAY", source_shift_name="BLUE DAY",
+        )
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
+
+    def test_lt_rejeita_cargo_errado(self):
+        # ticket pede PIT; moveram um Analista -> nao valida
+        acao = registro(
+            "edicao",
+            {"cargo": "Analista", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+            {"cargo": "Analista", "area": "OUTBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+        )
+        premissa = ticket(
+            "LT", labor_type="PIT", source_labor_type="PIT",
+            source_sector_key="INBOUND", escala_origem="BLUE", turno_origem="Day",
+            sector_key="OUTBOUND", escala="BLUE", turno="Day", shift_name="BLUE DAY", source_shift_name="BLUE DAY",
+        )
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
 
     def test_ls_accepts_matching_source_to_destination_move(self):
         acao = registro(

@@ -553,3 +553,53 @@ tbody tr:hover { background: #f0f6ff; }
   .topbar-title h1 { font-size: 20px; }
   .topbar nav { width: 100%; justify-content: center; }
 }
+
+/* ── Cola da pendência (topo do LIST ao vir de "Resolver Pendência") ── */
+.cola-pendencia {
+  background: #fff8e6;
+  border: 1px solid var(--warning);
+  border-left: 5px solid var(--warning);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 16px;
+}
+.cola-pendencia.hidden { display: none; }
+.cola-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.cola-head strong { font-size: 15px; color: #7a5200; }
+.cola-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #fde9b5;
+  color: #7a5200;
+  white-space: nowrap;
+}
+.cola-badge.vencido { background: #f6c9c7; color: #8a1c17; }
+.cola-instrucao { margin: 6px 0; font-size: 14px; font-weight: 600; color: #333; }
+.cola-rota {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 8px 0;
+}
+.cola-lado {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--primary);
+}
+.cola-seta { font-weight: 700; color: var(--muted); }
+.cola-passos { margin: 8px 0 4px; padding-left: 22px; font-size: 13px; line-height: 1.7; }
+.cola-obs { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
