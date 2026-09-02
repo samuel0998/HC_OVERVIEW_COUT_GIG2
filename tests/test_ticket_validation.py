@@ -171,10 +171,11 @@ class TicketValidationTest(unittest.TestCase):
 
     @patch("routes.hc._ticket_owner_contexto", return_value=("INBOUND", "BLUE DAY"))
     def test_resolver_url_uses_owner_filters_and_keeps_ticket_context(self, _contexto):
+        # ticket manda labor_type "AA"; o link deve filtrar por "Associado" (cargo consolidado)
         premissa = ticket("TOFF", premise_id=42, is_transferencia=False)
         self.assertEqual(
             _ticket_resolver_url(premissa),
-            "/atualizar?area=INBOUND&turno=BLUE+DAY&cargo=AA&ticket_id=42",
+            "/atualizar?area=INBOUND&turno=BLUE+DAY&cargo=Associado&ticket_id=42",
         )
 
     @patch("routes.hc._ticket_owner_contexto", return_value=("INBOUND", "RED DAY"))

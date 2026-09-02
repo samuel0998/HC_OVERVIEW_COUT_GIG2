@@ -17,7 +17,10 @@
     <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <h2 style="margin:0;font-size:18px;">Movimentações do Sistema</h2>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="search" id="busca-ativ" class="filter-select" oninput="renderAtividades()"
+                       placeholder="Buscar por nome, login, descrição, data..."
+                       style="min-width:260px;" autocomplete="off">
                 <select id="filtro-tipo" class="filter-select" onchange="carregarAtividades()" style="min-width:160px;">
                     <option value="">Todos os tipos</option>
                     <option value="adicao">Adição</option>
@@ -52,9 +55,14 @@
 <!-- Tab: Histórico Operacional -->
 <div id="tab-operacional" class="hist-panel" style="display:none;">
     <div class="card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <h2 style="margin:0;font-size:18px;">Colaboradores Desligados (Arquivo)</h2>
-            <button class="btn btn-sm" onclick="carregarHistoricoOp()">&#8635; Atualizar</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input type="search" id="busca-op" class="filter-select" oninput="renderHistoricoOp()"
+                       placeholder="Buscar por nome, login, cargo, motivo, data..."
+                       style="min-width:260px;" autocomplete="off">
+                <button class="btn btn-sm" onclick="carregarHistoricoOp()">&#8635; Atualizar</button>
+            </div>
         </div>
         <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
             Colaboradores desligados automaticamente ou manualmente, arquivados para controle futuro.
@@ -100,6 +108,9 @@ const TIPO_CLASSES = {
     'desligamento_automatico': 'desligado',
 };
 
+let _atividades = [];
+let _historicoOp = [];
+
 function showTab(tab, btn) {
     document.querySelectorAll('.hist-panel').forEach(p => p.style.display = 'none');
     document.querySelectorAll('.hist-tab').forEach(b => b.classList.remove('active'));
@@ -115,73 +126,121 @@ function escaparHtml(valor) {
     })[caractere]);
 }
 
+// Todos os termos (separados por espaço) precisam bater em algum lugar do texto.
+function filtrarPorBusca(itens, termo, textoDe) {
+    const termos = (termo || '').toLowerCase().trim().split(/\s+/).filter(Boolean);
+    if (!termos.length) return itens;
+    return itens.filter(item => {
+        const alvo = textoDe(item).toLowerCase();
+        return termos.every(t => alvo.includes(t));
+    });
+}
+
 async function carregarAtividades() {
     const tipo = document.getElementById('filtro-tipo').value;
     const url = '/api/hc/historico?limite=300' + (tipo ? '&tipo=' + tipo : '');
     try {
         const res = await fetch(url);
-        const data = await res.json();
-        const tbody = document.getElementById('ativ-tbody');
-
-        if (!data.length) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro encontrado.</td></tr>';
-            document.getElementById('ativ-total').textContent = '';
-            return;
-        }
-
-        tbody.innerHTML = data.map(r => {
-            const cls = TIPO_CLASSES[r.tipo] || '';
-            const label = TIPO_LABELS[r.tipo] || r.tipo;
-            const alteracoes = (r.alteracoes || []).map(a => `
-                <div style="margin-top:3px;padding:4px 7px;background:#f8fafc;border-left:3px solid #0f4c75;border-radius:3px;">
-                    <strong>${escaparHtml(a.campo)}:</strong>
-                    <span style="color:#64748b;">${escaparHtml(a.de)}</span>
-                    <strong aria-label="para">→</strong>
-                    <span>${escaparHtml(a.para)}</span>
-                </div>`).join('');
-            return `<tr>
-                <td style="white-space:nowrap;font-size:12px;">${r.timestamp}</td>
-                <td><span class="badge ${cls}" style="font-size:11px;">${label}</span></td>
-                <td style="font-size:13px;">${escaparHtml(r.operador_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.operador_login || '')}</span></td>
-                <td style="font-size:13px;">${escaparHtml(r.usuario_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario_login || '')}</span></td>
-                <td style="font-size:13px;max-width:430px;">${escaparHtml(r.descricao || '—')}${alteracoes}</td>
-            </tr>`;
-        }).join('');
-
-        document.getElementById('ativ-total').textContent = `${data.length} registro(s)`;
+        _atividades = await res.json();
+        renderAtividades();
     } catch (e) {
         document.getElementById('ativ-tbody').innerHTML = '<tr><td colspan="5" style="color:red;padding:16px;">Erro ao carregar atividades.</td></tr>';
     }
 }
 
+function renderAtividades() {
+    const tbody = document.getElementById('ativ-tbody');
+    const termo = document.getElementById('busca-ativ').value;
+
+    const lista = filtrarPorBusca(_atividades, termo, r => [
+        r.timestamp, TIPO_LABELS[r.tipo] || r.tipo,
+        r.operador_nome, r.operador_login, r.usuario_nome, r.usuario_login,
+        r.descricao,
+        ...(r.alteracoes || []).flatMap(a => [a.campo, a.de, a.para]),
+    ].join(' '));
+
+    if (!_atividades.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro encontrado.</td></tr>';
+        document.getElementById('ativ-total').textContent = '';
+        return;
+    }
+    if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro corresponde à busca.</td></tr>';
+        document.getElementById('ativ-total').textContent = `0 de ${_atividades.length} registro(s)`;
+        return;
+    }
+
+    tbody.innerHTML = lista.map(r => {
+        const cls = TIPO_CLASSES[r.tipo] || '';
+        const label = TIPO_LABELS[r.tipo] || r.tipo;
+        const alteracoes = (r.alteracoes || []).map(a => `
+            <div style="margin-top:3px;padding:4px 7px;background:#f8fafc;border-left:3px solid #0f4c75;border-radius:3px;">
+                <strong>${escaparHtml(a.campo)}:</strong>
+                <span style="color:#64748b;">${escaparHtml(a.de)}</span>
+                <strong aria-label="para">→</strong>
+                <span>${escaparHtml(a.para)}</span>
+            </div>`).join('');
+        return `<tr>
+            <td style="white-space:nowrap;font-size:12px;">${r.timestamp}</td>
+            <td><span class="badge ${cls}" style="font-size:11px;">${label}</span></td>
+            <td style="font-size:13px;">${escaparHtml(r.operador_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.operador_login || '')}</span></td>
+            <td style="font-size:13px;">${escaparHtml(r.usuario_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario_login || '')}</span></td>
+            <td style="font-size:13px;max-width:430px;">${escaparHtml(r.descricao || '—')}${alteracoes}</td>
+        </tr>`;
+    }).join('');
+
+    const total = lista.length === _atividades.length
+        ? `${_atividades.length} registro(s)`
+        : `${lista.length} de ${_atividades.length} registro(s)`;
+    document.getElementById('ativ-total').textContent = total;
+}
+
 async function carregarHistoricoOp() {
     try {
         const res = await fetch('/api/hc/historico-operacional');
-        const data = await res.json();
-        const tbody = document.getElementById('op-tbody');
-
-        if (!data.length) {
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum colaborador arquivado.</td></tr>';
-            document.getElementById('op-total').textContent = '';
-            return;
-        }
-
-        tbody.innerHTML = data.map(r => `<tr>
-            <td>${r.nome_completo}</td>
-            <td>${r.login || '—'}</td>
-            <td>${r.cargo || '—'}</td>
-            <td>${r.area || '—'}</td>
-            <td>${r.turno || '—'}</td>
-            <td>${r.data_desligamento || '—'}</td>
-            <td style="max-width:200px;font-size:12px;">${r.causa || '—'}</td>
-            <td style="font-size:12px;">${r.data_arquivo || '—'}</td>
-            <td style="font-size:12px;">${r.arquivado_por || '—'}</td>
-        </tr>`).join('');
-
-        document.getElementById('op-total').textContent = `${data.length} colaborador(es) arquivado(s)`;
+        _historicoOp = await res.json();
+        renderHistoricoOp();
     } catch (e) {
         document.getElementById('op-tbody').innerHTML = '<tr><td colspan="9" style="color:red;padding:16px;">Erro ao carregar histórico.</td></tr>';
     }
+}
+
+function renderHistoricoOp() {
+    const tbody = document.getElementById('op-tbody');
+    const termo = document.getElementById('busca-op').value;
+
+    const lista = filtrarPorBusca(_historicoOp, termo, r => [
+        r.nome_completo, r.login, r.cargo, r.area, r.turno,
+        r.data_desligamento, r.causa, r.data_arquivo, r.arquivado_por,
+    ].join(' '));
+
+    if (!_historicoOp.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum colaborador arquivado.</td></tr>';
+        document.getElementById('op-total').textContent = '';
+        return;
+    }
+    if (!lista.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro corresponde à busca.</td></tr>';
+        document.getElementById('op-total').textContent = `0 de ${_historicoOp.length} colaborador(es)`;
+        return;
+    }
+
+    tbody.innerHTML = lista.map(r => `<tr>
+        <td>${escaparHtml(r.nome_completo)}</td>
+        <td>${escaparHtml(r.login || '—')}</td>
+        <td>${escaparHtml(r.cargo || '—')}</td>
+        <td>${escaparHtml(r.area || '—')}</td>
+        <td>${escaparHtml(r.turno || '—')}</td>
+        <td>${escaparHtml(r.data_desligamento || '—')}</td>
+        <td style="max-width:200px;font-size:12px;">${escaparHtml(r.causa || '—')}</td>
+        <td style="font-size:12px;">${escaparHtml(r.data_arquivo || '—')}</td>
+        <td style="font-size:12px;">${escaparHtml(r.arquivado_por || '—')}</td>
+    </tr>`).join('');
+
+    const total = lista.length === _historicoOp.length
+        ? `${_historicoOp.length} colaborador(es) arquivado(s)`
+        : `${lista.length} de ${_historicoOp.length} colaborador(es)`;
+    document.getElementById('op-total').textContent = total;
 }
 
 // Load on page open

@@ -372,8 +372,8 @@ async function carregarDashboard() {
 
   // ── Associados e PITs por turno ─────────────────────────────
   renderGrouped("chartAssociados", data.associados_e_pits,
-    ["AA", "Associado", "PIT"],
-    [PALETTE.teal, PALETTE.blue, PALETTE.pink],
+    ["Associado", "PIT"],
+    [PALETTE.blue, PALETTE.pink],
     (turno, cargo) => {
       window.location.href = listUrl({ turno, cargo });
     }
@@ -397,8 +397,8 @@ async function carregarDashboard() {
 
   // ── HC Operacional por Turno (grouped) ──────────────────────
   renderGrouped("chartOperacionalTurno", data.operacional_por_turno,
-    ["Analista", "AA", "Associado", "PIT"],
-    [PALETTE.navy, PALETTE.teal, PALETTE.blue, PALETTE.pink],
+    ["Analista", "Associado", "PIT"],
+    [PALETTE.navy, PALETTE.blue, PALETTE.pink],
     (turno, cargo) => {
       window.location.href = listUrl({ turno, cargo, status: "OPERACIONAL" });
     }

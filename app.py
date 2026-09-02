@@ -255,6 +255,15 @@ def _migrate_hc_table_for_fc(fc):
             "AND status = 'OPERACIONAL' "
             "AND UPPER(cargo) IN ('AA', 'ASSOCIADO')"
         ))
+        # AA e Associado sao o mesmo cargo; TRANSFERIN e TRANSFER IN a mesma area.
+        res_cargo = conn.execute(db.text(
+            "UPDATE hc_gig2 SET cargo = 'Associado' WHERE UPPER(TRIM(cargo)) = 'AA'"
+        ))
+        res_area = conn.execute(db.text(
+            "UPDATE hc_gig2 SET area = 'TRANSFER IN' WHERE UPPER(TRIM(area)) = 'TRANSFERIN'"
+        ))
+        print(f"[MIGRATION:{fc}] Consolidacao: {res_cargo.rowcount} cargo(s) 'AA'->'Associado', "
+              f"{res_area.rowcount} area(s) 'TRANSFERIN'->'TRANSFER IN'.")
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS job VARCHAR(80)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS hora_extra_turno VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS data_inicio_licenca DATE"))

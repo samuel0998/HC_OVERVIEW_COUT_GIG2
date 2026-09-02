@@ -21,8 +21,8 @@ from models.turno_config import HCTurnoConfig, ensure_default_turno_config
 
 hc_bp = Blueprint("hc", __name__)
 
-CARGOS  = ["AA", "Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
-AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFERIN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
+CARGOS  = ["Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
+AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
 STATUS  = ["OPERACIONAL", "VTE", "VTO", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
 PROCESSOS_POR_AREA = {
@@ -136,7 +136,7 @@ def _formatar_cargo(cargo):
         return ""
 
     cargo_map = {
-        "AA": "AA",
+        "AA": "Associado",          # AA e Associado sao o mesmo cargo - consolidado
         "ASSOCIADO": "Associado",
         "PIT": "PIT",
         "ANALISTA": "Analista",
@@ -369,6 +369,12 @@ def _pendencias_count():
 # ── Tickets de premissas (LS, LT, TOFF, RP, ON) ──────────────────
 
 
+def _cargo_match_key(valor):
+    """Chave de comparacao de cargo. 'AA' e Associado sao o mesmo cargo."""
+    c = _cargo_normalizado(valor)
+    return "ASSOCIADO" if c in ("AA", "ASSOCIATE", "ASSOCIADO") else c
+
+
 def _match_valor_conhecido(valor, lista):
     """Casa o valor vindo do ticket (sector_key/shift_name/labor_type) com uma opcao
     conhecida do sistema (AREAS/TURNOS/CARGOS), ignorando acentos/caixa. Sem match
@@ -379,6 +385,8 @@ def _match_valor_conhecido(valor, lista):
         alvo = _area_normalizada(valor)
     elif lista is TURNOS:
         alvo = _turno_normalizado(valor)
+    elif lista is CARGOS:
+        alvo = _cargo_match_key(valor)
     else:
         alvo = _normalizar(valor)
     for item in lista:
@@ -386,6 +394,8 @@ def _match_valor_conhecido(valor, lista):
             conhecido = _area_normalizada(item)
         elif lista is TURNOS:
             conhecido = _turno_normalizado(item)
+        elif lista is CARGOS:
+            conhecido = _cargo_match_key(item)
         else:
             conhecido = _normalizar(item)
         if conhecido == alvo:
@@ -1875,7 +1885,7 @@ def listar_lc():
         "areas": sorted({r.area for r in hc_por_login.values() if r.area}),
         "turnos": sorted({r.turno for r in hc_por_login.values() if r.turno}),
         "status": sorted({r.status for r in hc_por_login.values() if r.status}),
-        "cargos": ["AA", "Associado", "PIT"],
+        "cargos": ["Associado", "PIT"],
     }
 
     return jsonify({
@@ -2291,8 +2301,7 @@ def dashboard_data():
     associados_e_pits = {}
     for turno in TURNOS:
         associados_e_pits[turno] = {
-            "AA": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA")),
-            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Associado")),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA", "Associado")),
             "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")),
         }
 
@@ -2301,10 +2310,9 @@ def dashboard_data():
         if turno == "ADM":
             continue
         operacional_por_turno[turno] = {
-            "Analista":  sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Analista")  and r.status == "OPERACIONAL"),
-            "AA":        sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA")        and r.status == "OPERACIONAL"),
-            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Associado") and r.status == "OPERACIONAL"),
-            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")       and r.status == "OPERACIONAL"),
+            "Analista":  sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "Analista")        and r.status == "OPERACIONAL"),
+            "Associado": sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "AA", "Associado") and r.status == "OPERACIONAL"),
+            "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")             and r.status == "OPERACIONAL"),
         }
 
     areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
@@ -2398,7 +2406,7 @@ def dashboard_data():
             "areas":  areas_disponiveis,
             "turnos": turnos_disponiveis,
             "status": status_disponiveis,
-            "cargos": ["AA", "Associado", "PIT", "Analista"],
+            "cargos": ["Associado", "PIT", "Analista"],
         },
         "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
         "lc": {
