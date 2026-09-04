@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify, redirect, request, url_for
 from flask_login import LoginManager
@@ -23,7 +24,7 @@ def processar_status_automatico():
     from models.historico import HistoricoOperacional
     from models.registro_atividade import RegistroAtividade
 
-    hoje = date.today()
+    hoje = datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     agora = datetime.utcnow()
     prazo_vencido = hoje.weekday() > 1
 
@@ -36,6 +37,8 @@ def processar_status_automatico():
         status_agendado_ant = op.status_agendado
         area_ant = op.area
         turno_ant = op.turno
+        ls_retorno_data_ant = op.ls_retorno_data
+        ls_ticket_id_ant = op.ls_ticket_id
 
         desligamento_efetivo = op.status == "Desligado" or op.status_agendado == "Desligado"
         if desligamento_efetivo and op.data_desligamento and hoje >= op.data_desligamento:
@@ -43,6 +46,22 @@ def processar_status_automatico():
             continue
 
         alterou_por_data = op.aplicar_status_por_data(hoje, agora)
+
+        if ls_retorno_data_ant and not op.ls_retorno_data and alterou_por_data:
+            registros.append(RegistroAtividade(
+                tipo="retorno_ls",
+                operador_id=op.id,
+                operador_login=op.login,
+                operador_nome=op.nome_completo,
+                usuario_login="sistema",
+                usuario_nome="Automacao",
+                descricao=(
+                    f"Retorno automático do LS #{ls_ticket_id_ant}: setor/escala "
+                    f"{area_ant or '-'} / {turno_ant or '-'} → {op.area or '-'} / {op.turno or '-'}"
+                ),
+                dados_anteriores=json.dumps({"area": area_ant or "", "turno": turno_ant or "", "ls_retorno_data": str(ls_retorno_data_ant)}),
+                dados_novos=json.dumps({"area": op.area or "", "turno": op.turno or ""}),
+            ))
 
         if status_ant in ("VTE", "VTO") and op.status == "OPERACIONAL" and alterou_por_data:
             detalhes_retorno = ""
@@ -283,6 +302,11 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_area_destino VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_turno_destino VARCHAR(50)"))
         print(f"[MIGRATION:{fc}] Colunas de VTE/VTO temporarios verificadas.")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_retorno_data DATE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_area_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_turno_origem VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_ticket_id INTEGER"))
+        print(f"[MIGRATION:{fc}] Colunas de retorno automatico de LS verificadas.")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

@@ -209,7 +209,7 @@ async function migrarPortalTickets() {
         </div>
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
-        Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. A conclusão é validada pelas ações registradas no HC; sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
+        Para <strong>LS e LT</strong>, o prazo é a própria data solicitada, no horário configurado para o shift. Somente depois desse horário o ticket fica <strong>Não conforme</strong>. Os demais tipos mantêm a antecedência atual.
         {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto.
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
         {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner) e <code>✕</code> para cancelar (exclui o ticket).{% endif %}
@@ -224,13 +224,14 @@ async function migrarPortalTickets() {
                     <th>Responsável</th>
                     <th>Cargo</th>
                     <th>Data solicitada</th>
+                    <th>Retorno (LS)</th>
                     <th>Prazo</th>
                     <th>Status</th>
                     <th>Ação</th>
                 </tr>
             </thead>
             <tbody id="ticket-tbody">
-                <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+                <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
             </tbody>
         </table>
     </div>
@@ -316,14 +317,14 @@ async function migrarPortalTickets() {
             const tbody = document.getElementById('ticket-tbody');
 
             if (data.integracao_disponivel === false) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
 
             if (data.tickets.length === 0) {
                 const vazio = abaArquivados ? 'Nenhum ticket arquivado.' : 'Nenhum ticket de premissa em aberto. Tudo em dia!';
-                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">${vazio}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted);">${vazio}</td></tr>`;
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
@@ -374,7 +375,8 @@ async function migrarPortalTickets() {
                     <td>${responsavel}</td>
                     <td>${t.cargo_label || '—'}</td>
                     <td>${t.work_date || '—'}</td>
-                    <td>${t.prazo || '—'}</td>
+                    <td>${t.premise_type === 'LS' ? (t.end_date || '—') : '—'}</td>
+                    <td>${t.prazo_data_hora || t.prazo || '—'}</td>
                     <td>${statusBadge}</td>
                     <td style="white-space:nowrap;">${acao}${gestao ? '<div style="margin-top:6px;">' + gestao + '</div>' : ''}</td>
                 </tr>`;

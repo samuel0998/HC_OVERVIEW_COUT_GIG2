@@ -1,4 +1,5 @@
-from datetime import date, timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from models import db
 
@@ -17,6 +18,7 @@ TICKET_TYPE_LABELS = {
 }
 
 PRAZO_DIAS_ANTES = 3
+FUSO_OPERACAO = ZoneInfo("America/Sao_Paulo")
 
 
 def _escala_turno(escala, turno):
@@ -184,21 +186,74 @@ class Ticket(db.Model):
 
     @property
     def prazo(self):
-        """Prazo = 3 dias antes da data solicitada (work_date)."""
+        """LS/LT vencem no dia solicitado; demais tipos mantêm a antecedência."""
         if not self.work_date:
             return None
+        if (self.premise_type or "").upper() in TICKET_TRANSFER_TYPES:
+            return self.work_date
         return self.work_date - timedelta(days=PRAZO_DIAS_ANTES)
+
+    def _turno_chave_prazo(self):
+        candidatos = (
+            _escala_turno(self.escala, self.turno),
+            _escala_turno(self.shift_key, self._shift_name),
+            self.shift_name,
+        )
+        for valor in candidatos:
+            chave = " ".join(str(valor or "").upper().replace("-", " ").replace("_", " ").split())
+            if chave in ("BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"):
+                return chave
+        return ""
+
+    def hora_prazo(self):
+        """Horário limite configurado para o shift de destino do LS/LT."""
+        if (self.premise_type or "").upper() not in TICKET_TRANSFER_TYPES:
+            return ""
+        chave = self._turno_chave_prazo()
+        try:
+            from models.turno_config import DEFAULT_TURNO_RESET, HCTurnoConfig
+            config = db.session.get(HCTurnoConfig, chave) if chave else None
+            return (config.hora_reset if config else DEFAULT_TURNO_RESET.get(chave)) or "23:59"
+        except Exception:
+            from models.turno_config import DEFAULT_TURNO_RESET
+            return DEFAULT_TURNO_RESET.get(chave, "23:59")
+
+    def prazo_em(self, hora_limite=None):
+        if not self.prazo:
+            return None
+        if (self.premise_type or "").upper() not in TICKET_TRANSFER_TYPES:
+            return None
+        try:
+            hora, minuto = [int(parte) for parte in (hora_limite or self.hora_prazo()).split(":", 1)]
+        except (AttributeError, TypeError, ValueError):
+            hora, minuto = 23, 59
+        return datetime.combine(self.prazo, datetime.min.time()).replace(
+            hour=hora, minute=minuto, tzinfo=FUSO_OPERACAO
+        )
+
+    def esta_vencido(self, agora=None, hora_limite=None):
+        if not self.prazo:
+            return False
+        agora = agora or datetime.now(FUSO_OPERACAO)
+        if agora.tzinfo is None:
+            agora = agora.replace(tzinfo=FUSO_OPERACAO)
+        if (self.premise_type or "").upper() in TICKET_TRANSFER_TYPES:
+            return agora > self.prazo_em(hora_limite)
+        return agora.astimezone(FUSO_OPERACAO).date() > self.prazo
 
     @property
     def vencido(self):
-        prazo = self.prazo
-        return bool(prazo) and date.today() > prazo
+        return self.esta_vencido()
 
     @property
     def nao_conforme(self):
         return self.vencido and not self.hcview_resolvido and self.premise_status != "FINALIZADA"
 
     def to_dict(self):
+        prazo_hora = self.hora_prazo()
+        prazo_em = self.prazo_em(prazo_hora or None)
+        vencido = self.esta_vencido(hora_limite=prazo_hora or None)
+        nao_conforme = vencido and not self.hcview_resolvido and self.premise_status != "FINALIZADA"
         return {
             "premise_id": self.premise_id,
             "premise_type": self.premise_type,
@@ -230,8 +285,10 @@ class Ticket(db.Model):
             "work_date": self.work_date.strftime("%Y-%m-%d") if self.work_date else None,
             "end_date": self.end_date.strftime("%Y-%m-%d") if self.end_date else None,
             "prazo": self.prazo.strftime("%Y-%m-%d") if self.prazo else None,
-            "vencido": self.vencido,
-            "nao_conforme": self.nao_conforme,
+            "prazo_hora": prazo_hora,
+            "prazo_data_hora": prazo_em.strftime("%Y-%m-%d %H:%M") if prazo_em else None,
+            "vencido": vencido,
+            "nao_conforme": nao_conforme,
             "resolvido": bool(self.hcview_resolvido),
             "resolvido_em": self.hcview_resolvido_em.strftime("%Y-%m-%d %H:%M:%S") if self.hcview_resolvido_em else None,
             "resolvido_por_nome": self.hcview_resolvido_por_nome or "",

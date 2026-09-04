@@ -157,7 +157,9 @@ Tickets gerados pela ferramenta de planejamento de premissas (gig2_hc_premises):
 | **RP** (Ramp Down) | Redução programada de HC | RME do setor |
 | **ON** (New Hire) | Contratação de novo HC | EXPERT |
 
-**Prazo:** 3 dias antes da data solicitada (`work_date`). Após o prazo sem conclusão, o ticket fica **Não conforme**.
+**Prazo:** LS e LT vencem na própria data solicitada (`work_date`), no horário configurado para o shift de destino. Só depois desse horário ficam **Não conforme**. Os demais tipos mantêm a antecedência de 3 dias.
+
+No **LS**, os colaboradores validados ficam com retorno automático agendado para `end_date`, recuperando o setor e a escala de origem.
 
 **Como resolver:**
 1. Clique em **Resolver Pendência** → vai direto para o LIST filtrado pelo turno/setor do responsável.

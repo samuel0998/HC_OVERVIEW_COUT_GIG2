@@ -145,6 +145,9 @@ function renderTabela() {
     } else if ((item.status === "VTE" || item.status === "VTO") && item.status_temporario_fim) {
       agendado = `<div class="scheduled-note">🕐 Retorno automático: ${formatarDataBR(item.status_temporario_fim)}</div>`;
     }
+    if (item.ls_retorno_data) {
+      agendado += `<div class="scheduled-note">↩ Retorno LS #${item.ls_ticket_id || "—"}: ${formatarDataBR(item.ls_retorno_data)} para ${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}</div>`;
+    }
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${idx + 1}</td>

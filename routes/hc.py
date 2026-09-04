@@ -330,6 +330,10 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
             "status_agendado": registro.status_agendado or "",
             "area": registro.area or "",
             "turno": registro.turno or "",
+            "ls_retorno_data": registro.ls_retorno_data.isoformat() if registro.ls_retorno_data else "",
+            "ls_area_origem": registro.ls_area_origem or "",
+            "ls_turno_origem": registro.ls_turno_origem or "",
+            "ls_ticket_id": registro.ls_ticket_id,
         }
         if registro.aplicar_status_por_data(hoje, agora):
             alterou = True
@@ -338,7 +342,24 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
                 "status_agendado": registro.status_agendado or "",
                 "area": registro.area or "",
                 "turno": registro.turno or "",
+                "ls_retorno_data": registro.ls_retorno_data.isoformat() if registro.ls_retorno_data else "",
+                "ls_area_origem": registro.ls_area_origem or "",
+                "ls_turno_origem": registro.ls_turno_origem or "",
+                "ls_ticket_id": registro.ls_ticket_id,
             }
+            if antes["ls_retorno_data"] and not depois["ls_retorno_data"]:
+                _registrar(
+                    "retorno_ls",
+                    registro,
+                    (
+                        f"Retorno automático do LS #{antes['ls_ticket_id']}: "
+                        f"setor/escala {antes['area'] or '-'} / {antes['turno'] or '-'} → "
+                        f"{depois['area'] or '-'} / {depois['turno'] or '-'}"
+                    ),
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
             temporario_antes = antes["status"] if antes["status"] in ("VTE", "VTO") else antes["status_agendado"]
             if temporario_antes in ("VTE", "VTO"):
                 if registro.status == "OPERACIONAL":
@@ -704,6 +725,10 @@ def _ticket_cola(t):
             f"Mude Área para {destino['setor'] or '—'} e Turno para {destino['turno_hc'] or '—'}.",
             "Clique em Salvar alteração. Repita até completar a quantidade.",
         ]
+        if tipo == "LS" and t.end_date:
+            passos.append(
+                f"O retorno para {origem['label']} será automático em {t.end_date.strftime('%d/%m/%Y')}."
+            )
     elif tipo in ("TOFF", "RP"):
         instrucao = f"Desligue {quem} de {destino['label']}."
         passos = [
@@ -722,6 +747,11 @@ def _ticket_cola(t):
         instrucao = "Consulte o time de Planejamento para entender o pedido."
         passos = []
 
+    prazo_em = t.prazo_em()
+    prazo_label = (
+        prazo_em.strftime("%d/%m/%Y %H:%M")
+        if prazo_em else t.prazo.strftime("%d/%m/%Y") if t.prazo else None
+    )
     return {
         "premise_id": t.premise_id,
         "tipo_label": t.tipo_label,
@@ -730,8 +760,9 @@ def _ticket_cola(t):
         "cargo": cargo,
         "quantidade": qtd,
         "progresso": progresso,
-        "prazo": t.prazo.strftime("%d/%m/%Y") if t.prazo else None,
+        "prazo": prazo_label,
         "vencido": t.vencido,
+        "retorno_ls": t.end_date.strftime("%d/%m/%Y") if tipo == "LS" and t.end_date else None,
         "origem": origem,
         "destino": destino,
         "instrucao": instrucao,
@@ -935,6 +966,65 @@ def _log_ticket_nao_validado(t, progresso, necessarias):
         )
 
 
+def _agendar_retornos_ls(t, acoes):
+    """Vincula cada colaborador validado no LS ao retorno da sua propria origem."""
+    if (t.premise_type or "").upper() != "LS" or not t.end_date:
+        return []
+
+    from models.registro_atividade import RegistroAtividade
+
+    agendados = []
+    for acao in acoes:
+        colaborador = HCGig2.query.get(acao.operador_id) if acao.operador_id else None
+        if colaborador is None and acao.operador_login:
+            colaborador = HCGig2.query.filter(
+                db.func.lower(db.func.trim(HCGig2.login)) == acao.operador_login.strip().lower()
+            ).first()
+        if colaborador is None:
+            continue
+
+        antes_acao = _json_dict(acao.dados_anteriores)
+        area_origem = antes_acao.get("area") or _match_valor_conhecido(t.source_sector_key, AREAS) or t.source_sector_key
+        turno_origem = antes_acao.get("turno") or _match_valor_conhecido(t.source_shift_name, TURNOS) or t.source_shift_name
+        if not area_origem or not turno_origem:
+            continue
+
+        dados_ant = {
+            "area": colaborador.area or "",
+            "turno": colaborador.turno or "",
+            "ls_retorno_data": colaborador.ls_retorno_data.isoformat() if colaborador.ls_retorno_data else "",
+            "ls_ticket_id": colaborador.ls_ticket_id,
+        }
+        colaborador.ls_retorno_data = t.end_date
+        colaborador.ls_area_origem = area_origem
+        colaborador.ls_turno_origem = turno_origem
+        colaborador.ls_ticket_id = t.premise_id
+        dados_nov = {
+            "area": colaborador.area or "",
+            "turno": colaborador.turno or "",
+            "ls_retorno_data": t.end_date.isoformat(),
+            "ls_area_origem": area_origem,
+            "ls_turno_origem": turno_origem,
+            "ls_ticket_id": t.premise_id,
+        }
+        db.session.add(RegistroAtividade(
+            tipo="agendamento_ls",
+            operador_id=colaborador.id,
+            operador_login=colaborador.login,
+            operador_nome=colaborador.nome_completo,
+            usuario_login=acao.usuario_login,
+            usuario_nome=acao.usuario_nome,
+            descricao=(
+                f"Retorno do LS #{t.premise_id} agendado para {t.end_date.strftime('%d/%m/%Y')}: "
+                f"{colaborador.area or '-'} / {colaborador.turno or '-'} → {area_origem} / {turno_origem}"
+            ),
+            dados_anteriores=json.dumps(dados_ant),
+            dados_novos=json.dumps(dados_nov),
+        ))
+        agendados.append(colaborador.id)
+    return agendados
+
+
 def _concluir_ticket_se_validado(t, verbose=False):
     if t.hcview_resolvido:
         return True, max(t.amount or 1, 1), max(t.amount or 1, 1)
@@ -942,6 +1032,10 @@ def _concluir_ticket_se_validado(t, verbose=False):
     necessarias = max(t.amount or 1, 1)
     acoes = _acoes_validas_ticket(t)
     progresso = len(acoes)
+    if (t.premise_type or "").upper() == "LS" and (
+        not t.end_date or (t.work_date and t.end_date < t.work_date)
+    ):
+        return False, progresso, necessarias
     if progresso < necessarias:
         if verbose:
             _log_ticket_nao_validado(t, progresso, necessarias)
@@ -954,6 +1048,7 @@ def _concluir_ticket_se_validado(t, verbose=False):
     t.hcview_resolvido_por_nome = acao_final.usuario_nome
 
     from models.registro_atividade import RegistroAtividade
+    retornos_ls = _agendar_retornos_ls(t, acoes[:necessarias])
     db.session.add(RegistroAtividade(
         tipo="ticket_resolvido",
         usuario_login=acao_final.usuario_login,
@@ -965,6 +1060,8 @@ def _concluir_ticket_se_validado(t, verbose=False):
         dados_novos=json.dumps({
             "ticket_id": t.premise_id,
             "acao_ids": [acao.id for acao in acoes[:necessarias]],
+            "retornos_ls_operador_ids": retornos_ls,
+            "retorno_ls_em": t.end_date.isoformat() if retornos_ls and t.end_date else None,
         }),
     ))
     return True, progresso, necessarias
@@ -1645,6 +1742,11 @@ def resolver_ticket(premise_id):
         return jsonify({"erro": "Ticket cancelado pelo time de Planning."}), 409
     if ticket.hcview_arquivado:
         return jsonify({"erro": "Ticket arquivado pelo time de Planning - indisponivel para validacao."}), 409
+    if (ticket.premise_type or "").upper() == "LS":
+        if not ticket.end_date:
+            return jsonify({"erro": "O ticket LS precisa ter uma data de retorno (end_date)."}), 422
+        if ticket.work_date and ticket.end_date < ticket.work_date:
+            return jsonify({"erro": "A data de retorno do LS não pode ser anterior à data solicitada."}), 422
 
     # Vale para todas as premissas, inclusive ON: o responsavel (owner) ou um EXPERT.
     if not eh_expert:

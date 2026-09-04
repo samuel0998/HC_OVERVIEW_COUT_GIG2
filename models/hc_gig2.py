@@ -1,5 +1,6 @@
 import unicodedata
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from models import db
 
 
@@ -41,6 +42,11 @@ class HCGig2(db.Model):
     vte_turno_origem = db.Column(db.String(50), nullable=True)
     vte_area_destino = db.Column(db.String(50), nullable=True)
     vte_turno_destino = db.Column(db.String(50), nullable=True)
+    # Labor Share: retorna para a alocacao de origem na data final do ticket.
+    ls_retorno_data = db.Column(db.Date, nullable=True)
+    ls_area_origem = db.Column(db.String(50), nullable=True)
+    ls_turno_origem = db.Column(db.String(50), nullable=True)
+    ls_ticket_id = db.Column(db.Integer, nullable=True)
     # Campos legados mantidos para compatibilidade
     previsao_afastamento = db.Column(db.Boolean, nullable=False, default=False)
     data_afastamento = db.Column(db.Date, nullable=True)
@@ -129,14 +135,26 @@ class HCGig2(db.Model):
 
         return False
 
+    def limpar_retorno_ls(self):
+        self.ls_retorno_data = None
+        self.ls_area_origem = None
+        self.ls_turno_origem = None
+        self.ls_ticket_id = None
+
     def aplicar_status_por_data(self, hoje=None, agora=None):
-        hoje = hoje or date.today()
+        hoje = hoje or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
         agora = agora or datetime.utcnow()
         status_anterior = self.status
         alocacao_anterior = (self.area, self.turno)
 
         alterou_bloqueios = False
         self._ativar_status_agendado(hoje, agora)
+
+        if self.ls_retorno_data and hoje >= self.ls_retorno_data:
+            self.area = self.ls_area_origem or self.area
+            self.turno = self.ls_turno_origem or self.turno
+            self.limpar_retorno_ls()
+            alterou_bloqueios = True
 
         if self.status in ("VTE", "VTO") and self.status_temporario_fim and agora >= self.status_temporario_fim:
             if self.status == "VTE":
@@ -211,6 +229,10 @@ class HCGig2(db.Model):
             "vte_turno_origem": self.vte_turno_origem or "",
             "vte_area_destino": self.vte_area_destino or "",
             "vte_turno_destino": self.vte_turno_destino or "",
+            "ls_retorno_data": self.ls_retorno_data.strftime("%Y-%m-%d") if self.ls_retorno_data else None,
+            "ls_area_origem": self.ls_area_origem or "",
+            "ls_turno_origem": self.ls_turno_origem or "",
+            "ls_ticket_id": self.ls_ticket_id,
             "previsao_afastamento": self.previsao_afastamento,
             "data_afastamento": self.data_afastamento.strftime("%Y-%m-%d") if self.data_afastamento else None,
             "causa_afastamento": self.causa_afastamento or "",
