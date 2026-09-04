@@ -74,7 +74,11 @@
                     <option value="LC1">LC1 — Somente Dashboard</option>
                     <option value="LC3">LC3 — Dashboard + Novo HC + LIST + Pendências</option>
                     <option value="LC5">LC5 — Tudo exceto Histórico e Excluir</option>
+                    <option value="LC-RH-ANALYTICS">LC-RH-ANALYTICS — Como LC5, sem cadastrar e sem excluir</option>
                     <option value="EXPERT">EXPERT — Acesso Total</option>
+                    {% if current_user.pode_conceder_hard_expert %}
+                    <option value="LC-HARD-EXPERT">LC-HARD-EXPERT — EXPERT + arquivar/cancelar tickets (Planning)</option>
+                    {% endif %}
                 </select>
             </div>
         </div>
@@ -183,8 +187,8 @@ function renderTabela(lista) {
         const acessoBadge = o.permission_hcview
             ? '<span class="badge operacional">Ativo</span>'
             : '<span class="badge off">Bloqueado</span>';
-        const nivelCls = { LC1: 'ferias', LC3: 'licenca', LC5: 'operacional', EXPERT: 'off' }[o.permission_level_hcview] || '';
-        const nivelLabel = { LC1: 'LC1', LC3: 'LC3', LC5: 'LC5', EXPERT: 'EXPERT' }[o.permission_level_hcview] || '—';
+        const nivelCls = { LC1: 'ferias', LC3: 'licenca', LC5: 'operacional', 'LC-RH-ANALYTICS': 'treinamento', EXPERT: 'off', 'LC-HARD-EXPERT': 'desligado' }[o.permission_level_hcview] || '';
+        const nivelLabel = { LC1: 'LC1', LC3: 'LC3', LC5: 'LC5', 'LC-RH-ANALYTICS': 'RH-ANALYTICS', EXPERT: 'EXPERT', 'LC-HARD-EXPERT': 'HARD EXPERT' }[o.permission_level_hcview] || '—';
         const nivelBadge = o.permission_level_hcview
             ? `<span class="badge ${nivelCls}">${nivelLabel}</span>`
             : '<span style="color:var(--muted);">—</span>';
@@ -214,8 +218,20 @@ function abrirModal(o) {
     document.getElementById('modal-titulo').textContent = 'Editar Permissão';
     document.getElementById('modal-operador-info').textContent = `Operador: ${o.nome} (${o.login})`;
     document.getElementById('p-acesso').value = o.permission_hcview ? 'true' : 'false';
-    document.getElementById('p-nivel').value = o.permission_level_hcview || 'LC1';
-    document.getElementById('msg-perm').textContent = '';
+    const nivelSel = document.getElementById('p-nivel');
+    const alvo = o.permission_level_hcview || 'LC1';
+    const temOpcao = [...nivelSel.options].some(op => op.value === alvo);
+    const msg = document.getElementById('msg-perm');
+    if (!temOpcao) {
+        // Operador tem LC-HARD-EXPERT e este usuário não pode conceder/remover.
+        const op = new Option(alvo + ' (bloqueado — só Planning altera)', alvo);
+        op.disabled = true; nivelSel.add(op, 0);
+        msg.style.color = '#b45309';
+        msg.textContent = 'Nível LC-HARD-EXPERT só pode ser alterado pelo login autorizado (Planning).';
+    } else {
+        msg.textContent = '';
+    }
+    nivelSel.value = alvo;
     document.getElementById('modal-perm').classList.remove('hidden');
 }
 

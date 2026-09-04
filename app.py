@@ -316,6 +316,13 @@ def _migrate_tickets_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_em TIMESTAMP"))
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_por_login VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_resolvido_por_nome VARCHAR(150)"))
+        # Gestao pelo time de Planning (LC-HARD-EXPERT): arquivar / cancelar ticket.
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_arquivado BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_arquivado_por VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_arquivado_em TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado_por VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado_em TIMESTAMP"))
 
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "

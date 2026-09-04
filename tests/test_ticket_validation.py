@@ -186,6 +186,29 @@ class TicketValidationTest(unittest.TestCase):
         )
         self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
 
+    def test_on_valida_novo_pit_em_treinamento_turno_adm(self):
+        # New Hire: cadastro entra como Treinamento e PIT recebe turno 'ADM'.
+        # A escala/periodo do ticket nao pode bloquear - so' cargo + setor.
+        acao = registro(
+            "adicao",
+            {},
+            {"cargo": "PIT", "area": "INBOUND", "turno": "ADM", "status": "Treinamento"},
+        )
+        premissa = ticket(
+            "ON", labor_type="PIT",
+            sector_key="INBOUND", escala="BLUE", turno="Night", shift_name="BLUE NIGHT",
+        )
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE NIGHT"))
+
+    def test_on_rejeita_setor_errado(self):
+        acao = registro(
+            "adicao",
+            {},
+            {"cargo": "PIT", "area": "OUTBOUND", "turno": "ADM", "status": "Treinamento"},
+        )
+        premissa = ticket("ON", labor_type="PIT", sector_key="INBOUND", shift_name="BLUE NIGHT")
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE NIGHT"))
+
     def test_lt_rejeita_cargo_errado(self):
         # ticket pede PIT; moveram um Analista -> nao valida
         acao = registro(

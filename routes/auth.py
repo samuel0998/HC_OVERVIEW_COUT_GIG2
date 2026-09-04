@@ -269,9 +269,15 @@ def atualizar_permissao(login_val):
             operador.permission_hcview = bool(data["permission_hcview"])
 
         if "permission_level_hcview" in data:
+            from models.operadores import NIVELS_HC
             nivel = (data["permission_level_hcview"] or "").strip()
-            if nivel not in ("LC1", "LC3", "LC5", "EXPERT", ""):
+            if nivel not in (*NIVELS_HC, ""):
                 return jsonify({"erro": "Nivel invalido."}), 400
+            # LC-HARD-EXPERT: só o login autorizado concede (e não pode rebaixar
+            # quem já tem, a não ser o próprio login autorizado).
+            mexendo_hard = "LC-HARD-EXPERT" in (nivel, operador.permission_level_hcview or "")
+            if mexendo_hard and not current_user.pode_conceder_hard_expert:
+                return jsonify({"erro": "Somente o login autorizado (Planning) pode conceder ou remover LC-HARD-EXPERT."}), 403
             operador.permission_level_hcview = nivel or None
 
         db.session.commit()

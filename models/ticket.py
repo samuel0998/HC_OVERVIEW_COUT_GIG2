@@ -112,6 +112,16 @@ class Ticket(db.Model):
     hcview_resolvido_por_login = db.Column(db.String(50))
     hcview_resolvido_por_nome = db.Column(db.String(150))
 
+    # Gestao pelo time de Planning (LC-HARD-EXPERT):
+    #   arquivado -> some das Pendencias do owner; EXPERT ve so' leitura; nao valida.
+    #   cancelado -> some pra todo mundo (equivale a excluir o ticket).
+    hcview_arquivado = db.Column(db.Boolean, default=False)
+    hcview_arquivado_por = db.Column(db.String(50))
+    hcview_arquivado_em = db.Column(db.DateTime)
+    hcview_cancelado = db.Column(db.Boolean, default=False)
+    hcview_cancelado_por = db.Column(db.String(50))
+    hcview_cancelado_em = db.Column(db.DateTime)
+
     # ── Acessores: novo -> legado ─────────────────────────────────
     @property
     def sector_key(self):
@@ -226,5 +236,9 @@ class Ticket(db.Model):
             "resolvido_em": self.hcview_resolvido_em.strftime("%Y-%m-%d %H:%M:%S") if self.hcview_resolvido_em else None,
             "resolvido_por_nome": self.hcview_resolvido_por_nome or "",
             "labor_validado_em": self.labor_validado_at.strftime("%Y-%m-%d %H:%M:%S") if self.labor_validado_at else None,
+            "arquivado": bool(self.hcview_arquivado),
+            "arquivado_por": self.hcview_arquivado_por or "",
+            "arquivado_em": self.hcview_arquivado_em.strftime("%Y-%m-%d %H:%M:%S") if self.hcview_arquivado_em else None,
+            "cancelado": bool(self.hcview_cancelado),
             "nota": self.premise_note_snapshot or "",
         }

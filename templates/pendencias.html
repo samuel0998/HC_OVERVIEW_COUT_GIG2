@@ -200,14 +200,19 @@ async function migrarPortalTickets() {
 </script>
 
 <div class="card" style="margin-top:20px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
         <h2 style="margin:0;font-size:18px;">Tickets de premissas (LS · LT · TOFF · RP · ON)</h2>
-        <span id="ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button type="button" id="btn-tickets-ativos" class="btn btn-sm primary" onclick="mudarAbaTickets(false)">Em aberto</button>
+            <button type="button" id="btn-tickets-arquivados" class="btn btn-sm" style="display:none;" onclick="mudarAbaTickets(true)">Arquivados</button>
+            <span id="ticket-loading" style="font-size:13px;color:var(--muted);">Carregando...</span>
+        </div>
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
         Prazo de cada ticket: <strong>3 dias antes da data solicitada</strong>. A conclusão é validada pelas ações registradas no HC; sem conclusão até lá, o ticket fica <strong>Não conforme</strong>.
         {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto.
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
+        {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner) e <code>✕</code> para cancelar (exclui o ticket).{% endif %}
     </p>
     <div class="table-wrap">
         <table>
@@ -293,12 +298,21 @@ async function migrarPortalTickets() {
 })();
 
 (function () {
+    let abaArquivados = false;
+
     async function carregarTickets() {
         try {
-            const res = await fetch('/api/hc/tickets-pendentes');
+            const res = await fetch('/api/hc/tickets-pendentes' + (abaArquivados ? '?arquivados=1' : ''));
             const data = await res.json();
             document.getElementById('ticket-loading').textContent = '';
 
+            // Aba "Arquivados" só para EXPERT+
+            const btnArq = document.getElementById('btn-tickets-arquivados');
+            btnArq.style.display = data.pode_ver_arquivados ? '' : 'none';
+            document.getElementById('btn-tickets-ativos').className = 'btn btn-sm' + (abaArquivados ? '' : ' primary');
+            btnArq.className = 'btn btn-sm' + (abaArquivados ? ' primary' : '');
+
+            const podeGerenciar = !!data.pode_gerenciar;   // LC-HARD-EXPERT (Planning)
             const tbody = document.getElementById('ticket-tbody');
 
             if (data.integracao_disponivel === false) {
@@ -308,7 +322,8 @@ async function migrarPortalTickets() {
             }
 
             if (data.tickets.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket de premissa em aberto. Tudo em dia!</td></tr>';
+                const vazio = abaArquivados ? 'Nenhum ticket arquivado.' : 'Nenhum ticket de premissa em aberto. Tudo em dia!';
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;padding:32px;color:var(--muted);">${vazio}</td></tr>`;
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
@@ -319,7 +334,9 @@ async function migrarPortalTickets() {
                     : `${t.sector_key || '—'} (${t.destino_escala || '—'})`;
 
                 let statusBadge;
-                if (t.resolvido) {
+                if (t.arquivado) {
+                    statusBadge = '<span class="badge ausencia">Arquivado</span>';
+                } else if (t.resolvido) {
                     statusBadge = '<span class="badge operacional">Concluído</span>';
                 } else if (t.nao_conforme) {
                     statusBadge = '<span class="badge off">Não conforme</span>';
@@ -328,6 +345,27 @@ async function migrarPortalTickets() {
                 }
 
                 const responsavel = t.owner_nome || t.owner_login || t.responsible_name || '—';
+
+                // Botões de gestão (Planning): arquivar/desarquivar + cancelar
+                let gestao = '';
+                if (podeGerenciar) {
+                    gestao = t.arquivado
+                        ? `<button type="button" class="btn btn-sm" title="Desarquivar" onclick="arquivarTicket(${t.premise_id}, false)">+ desarquivar</button>`
+                        : `<button type="button" class="btn btn-sm" title="Arquivar (some para o owner)" onclick="arquivarTicket(${t.premise_id}, true)">– arquivar</button>`;
+                    gestao += ` <button type="button" class="btn btn-sm danger" title="Cancelar / excluir ticket" onclick="cancelarTicket(${t.premise_id})">✕ cancelar</button>`;
+                }
+
+                // Ação principal: só quando NÃO arquivado e NÃO resolvido
+                let acao;
+                if (t.arquivado) {
+                    acao = '<span style="color:var(--muted);font-size:12px;">Arquivado — só o time de Planning</span>';
+                } else if (t.resolvido) {
+                    acao = '—';
+                } else {
+                    acao = `<a href="${t.resolver_url}" target="_blank" class="btn btn-sm primary">Resolver Pendência</a>
+                        <button type="button" class="btn btn-sm" onclick="validarTicketConcluido(${t.premise_id})">Validar conclusão</button>
+                        <small style="display:block;margin-top:5px;color:var(--muted);">Ações: ${t.progresso}/${t.quantidade_necessaria}</small>`;
+                }
 
                 return `<tr>
                     <td>${t.tipo_label}</td>
@@ -338,19 +376,22 @@ async function migrarPortalTickets() {
                     <td>${t.work_date || '—'}</td>
                     <td>${t.prazo || '—'}</td>
                     <td>${statusBadge}</td>
-                    <td style="white-space:nowrap;">
-                        ${!t.resolvido ? `<a href="${t.resolver_url}" target="_blank" class="btn btn-sm primary">Resolver Pendência</a>
-                        <button type="button" class="btn btn-sm" onclick="validarTicketConcluido(${t.premise_id})">Validar conclusão</button>
-                        <small style="display:block;margin-top:5px;color:var(--muted);">Ações: ${t.progresso}/${t.quantidade_necessaria}</small>` : '—'}
-                    </td>
+                    <td style="white-space:nowrap;">${acao}${gestao ? '<div style="margin-top:6px;">' + gestao + '</div>' : ''}</td>
                 </tr>`;
             }).join('');
 
-            document.getElementById('ticket-total-label').textContent = `${data.total} ticket(s) em aberto`;
+            const label = abaArquivados ? 'ticket(s) arquivado(s)' : 'ticket(s) em aberto';
+            document.getElementById('ticket-total-label').textContent = `${data.total} ${label}`;
         } catch (e) {
             document.getElementById('ticket-loading').textContent = 'Erro ao carregar.';
         }
     }
+
+    window.mudarAbaTickets = function (arquivados) {
+        abaArquivados = !!arquivados;
+        document.getElementById('ticket-loading').textContent = 'Carregando...';
+        carregarTickets();
+    };
 
     window.validarTicketConcluido = async function (premiseId) {
         try {
@@ -363,6 +404,34 @@ async function migrarPortalTickets() {
             carregarTickets();
         } catch (e) {
             alert('Erro ao concluir ticket.');
+        }
+    };
+
+    window.arquivarTicket = async function (premiseId, arquivar) {
+        if (arquivar && !confirm('Arquivar este ticket? Ele deixa de aparecer para o owner.')) return;
+        try {
+            const res = await fetch(`/api/hc/tickets/${premiseId}/arquivar`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ arquivar: arquivar }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.erro || 'Erro ao arquivar.'); return; }
+            carregarTickets();
+        } catch (e) {
+            alert('Erro ao arquivar ticket.');
+        }
+    };
+
+    window.cancelarTicket = async function (premiseId) {
+        if (!confirm('Cancelar este ticket? Ele é excluído e não volta a aparecer.')) return;
+        try {
+            const res = await fetch(`/api/hc/tickets/${premiseId}/cancelar`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) { alert(data.erro || 'Erro ao cancelar.'); return; }
+            carregarTickets();
+        } catch (e) {
+            alert('Erro ao cancelar ticket.');
         }
     };
 

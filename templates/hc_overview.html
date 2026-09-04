@@ -19,12 +19,14 @@
     <p>Selecione uma opção para continuar</p>
 </div>
 <div class="home-buttons">
-    {% if current_user.can_edit %}
+    {% if current_user.can_add_colaborador %}
     <a href="{{ url_for('hc.novo_hc') }}" class="home-btn">
         <div class="home-btn-icon">+</div>
         <div class="home-btn-label">Novo HC {{ active_fc_label }}</div>
         <div class="home-btn-desc">Cadastrar novo colaborador</div>
     </a>
+    {% endif %}
+    {% if current_user.can_edit %}
     <a href="{{ url_for('hc.atualizar') }}" class="home-btn">
         <div class="home-btn-icon">&#9998;</div>
         <div class="home-btn-label">LIST</div>

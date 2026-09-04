@@ -527,15 +527,19 @@ def _ticket_periodo(turno_campo, shift_combinado):
 
 def _lado_pedido_bate(cargo_hc, turno_hc, area_hc, *, cargo_ticket, setor_ticket, escala_ticket, periodo_ticket):
     """Um lado do pedido (origem OU destino) bate com o estado do colaborador?
-    CARGO, SETOR, ESCALA e PERIODO precisam bater. Campo que o ticket nao informa
-    nao e' cobrado; campo informado que NAO bate reprova."""
+    CARGO e SETOR sao obrigatorios. ESCALA e PERIODO so' reprovam se o colaborador
+    tiver um valor concreto que CONTRADIZ o pedido - se o turno do HC ainda nao
+    diz escala/periodo (ex.: recem-cadastrado em Treinamento, PIT com turno 'ADM'),
+    nao bloqueia."""
     if not _cargo_ticket_corresponde(cargo_hc, cargo_ticket):
         return False
     if not _area_corresponde(area_hc, setor_ticket):
         return False
-    if escala_ticket and _escala_de(turno_hc) != escala_ticket:
+    escala_hc = _escala_de(turno_hc)
+    if escala_ticket and escala_hc and escala_hc != escala_ticket:
         return False
-    if periodo_ticket and _periodo_de(turno_hc) != periodo_ticket:
+    periodo_hc = _periodo_de(turno_hc)
+    if periodo_ticket and periodo_hc and periodo_hc != periodo_ticket:
         return False
     return True
 
@@ -940,11 +944,16 @@ def _sincronizar_tickets_por_acoes(tickets):
     return alterou
 
 
-def _tickets_visiveis():
-    """Tickets em aberto (nao finalizados/nao resolvidos) visiveis para o usuario
-    logado: EXPERT ve tudo (acompanhamento); demais niveis veem so' os tickets em
-    que sao o owner (quem precisa agir). Vale para TODAS as premissas, inclusive
-    ON - o owner de ON vem de source_responsible_login/responsible_login."""
+def _tickets_visiveis(arquivados=False):
+    """Tickets visiveis para o usuario logado.
+
+    arquivados=False (padrao): tickets EM ABERTO, nao arquivados/cancelados/resolvidos.
+        EXPERT+ ve tudo; demais niveis so' os tickets em que sao o owner.
+    arquivados=True: SO' os arquivados (nao cancelados/resolvidos). So' EXPERT+ ve
+        (para os demais retorna lista vazia). Leitura - nao valida nem resolve.
+
+    Owner vale para TODAS as premissas, inclusive ON (owner vem de
+    source_responsible_login/responsible_login)."""
     try:
         tickets = (
             Ticket.query
@@ -960,10 +969,25 @@ def _tickets_visiveis():
         db.session.rollback()
         return None  # tabela 'tickets' indisponivel nesta FC (integracao externa nao provisionada)
 
-    tickets = [t for t in tickets if t is not None]
+    # Cancelado/resolvido somem pra todo mundo, sempre.
+    tickets = [
+        t for t in tickets
+        if t is not None and not t.hcview_cancelado and not t.hcview_resolvido
+    ]
+
+    eh_expert = current_user.is_admin
+
+    if arquivados:
+        if not eh_expert:
+            return []
+        arq = [t for t in tickets if t.hcview_arquivado]
+        arq.sort(key=lambda t: t.prazo or t.work_date or date.max)
+        return arq
+
+    ativos = [t for t in tickets if not t.hcview_arquivado]
 
     try:
-        _sincronizar_tickets_por_acoes(tickets)
+        _sincronizar_tickets_por_acoes(ativos)
     except Exception:
         # A leitura dos tickets continua disponivel mesmo que um historico legado
         # incompleto nao possa ser validado automaticamente.
@@ -971,10 +995,10 @@ def _tickets_visiveis():
 
     login_atual = (current_user.login or "").strip().lower()
     visiveis = []
-    for t in tickets:
-        if t.hcview_resolvido:
+    for t in ativos:
+        if t.hcview_resolvido:  # a sincronizacao acima pode ter resolvido
             continue
-        if current_user.is_admin:
+        if eh_expert:
             visiveis.append(t)
             continue
         owner = (t.owner_login or "").strip().lower()
@@ -998,7 +1022,7 @@ def home():
 @hc_bp.route("/novo")
 @login_required
 def novo_hc():
-    if not current_user.can_edit:
+    if not current_user.can_add_colaborador:
         abort(403)
     return render_template("newcolaborator.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
@@ -1073,9 +1097,63 @@ def listar_colaboradores():
     return jsonify([r.to_dict() for r in registros])
 
 
+@hc_bp.route("/api/hc/ferias/<login>", methods=["GET"])
+@hc_bp.route("/api/hc/ferias", methods=["GET"])
+@login_required
+def consultar_ferias(login=None):
+    """Dia que o colaborador SAI de férias/licença e o dia que VOLTA.
+    Uso: /api/hc/ferias/<login>  ou  /api/hc/ferias?login=<login>"""
+    login = (login or request.args.get("login") or "").strip().lower()
+    if not login:
+        return jsonify({"erro": "Informe o login: /api/hc/ferias/<login>"}), 400
+
+    hc = HCGig2.query.filter(
+        db.func.lower(db.func.trim(HCGig2.login)) == login
+    ).first()
+    if not hc:
+        return jsonify({"erro": f"Nenhum colaborador com login '{login}'."}), 404
+
+    # Ativa status agendado se a data já chegou (mesma regra do resto do sistema).
+    _aplicar_regra_hc_atual([hc])
+
+    hoje = date.today()
+    if hc.status in ("Férias", "Licença"):
+        tipo, situacao = hc.status, "em_andamento"
+    elif hc.status_agendado in ("Férias", "Licença"):
+        tipo, situacao = hc.status_agendado, "agendado"
+    elif hc.status == "OFF" and hc.off_origem in ("Férias", "Licença"):
+        tipo, situacao = hc.off_origem, "pendente_sem_data"
+    else:
+        tipo, situacao = None, "sem_afastamento"
+
+    sai = hc.data_inicio_licenca
+    volta = hc.data_fim_licenca
+    dias = (volta - sai).days if sai and volta else None
+    dias_ate_voltar = (volta - hoje).days if volta else None
+
+    return jsonify({
+        "login": hc.login,
+        "nome_completo": hc.nome_completo,
+        "cargo": hc.cargo,
+        "area": hc.area or "",
+        "turno": hc.turno or "",
+        "status_atual": hc.status,
+        "status_agendado": hc.status_agendado or "",
+        "tipo": tipo or "",
+        "situacao": situacao,
+        "sai_em": sai.strftime("%Y-%m-%d") if sai else None,
+        "volta_em": volta.strftime("%Y-%m-%d") if volta else None,
+        "dias_afastado": dias,
+        "dias_ate_voltar": dias_ate_voltar,
+        "hoje": hoje.strftime("%Y-%m-%d"),
+    })
+
+
 @hc_bp.route("/api/hc", methods=["POST"])
 @login_required
 def novo_colaborador():
+    if not current_user.can_add_colaborador:
+        return jsonify({"erro": "Sem permissao para cadastrar colaborador."}), 403
     data = request.get_json() or {}
 
     login = (data.get("login") or "").strip() or None
@@ -1430,7 +1508,8 @@ def listar_tickets_pendentes():
     if not current_user.can_edit:
         return jsonify({"erro": "Sem permissao."}), 403
 
-    visiveis = _tickets_visiveis()
+    arquivados = _parse_bool(request.args.get("arquivados"), default=False)
+    visiveis = _tickets_visiveis(arquivados=arquivados)
     if visiveis is None:
         return jsonify({"tickets": [], "total": 0, "integracao_disponivel": False})
 
@@ -1461,7 +1540,56 @@ def listar_tickets_pendentes():
             item["cargo_label"] = _formatar_cargo(t.labor_type) or (t.labor_type or "").strip()
         itens.append(item)
 
-    return jsonify({"tickets": itens, "total": len(itens), "integracao_disponivel": True})
+    return jsonify({
+        "tickets": itens,
+        "total": len(itens),
+        "integracao_disponivel": True,
+        "arquivados": arquivados,
+        "pode_gerenciar": current_user.is_hard_expert,   # arquivar / cancelar (Planning)
+        "pode_ver_arquivados": current_user.is_admin,    # EXPERT+ ve a aba de arquivados
+    })
+
+
+@hc_bp.route("/api/hc/tickets/<int:premise_id>/arquivar", methods=["POST"])
+@login_required
+def arquivar_ticket(premise_id):
+    """Arquiva/desarquiva um ticket (botao -/+). So' o time de Planning (LC-HARD-EXPERT).
+    Ticket arquivado some das Pendencias do owner; EXPERT ve so' leitura na aba
+    'Arquivados' e nao pode validar/resolver."""
+    if not current_user.is_hard_expert:
+        return jsonify({"erro": "Somente o time de Planning (LC-HARD-EXPERT) pode arquivar tickets."}), 403
+    ticket = Ticket.query.get(premise_id)
+    if ticket is None:
+        return jsonify({"erro": "Ticket nao encontrado."}), 404
+
+    data = request.get_json(silent=True) or {}
+    arquivar = _parse_bool(data.get("arquivar"), default=not bool(ticket.hcview_arquivado))
+    ticket.hcview_arquivado = arquivar
+    ticket.hcview_arquivado_por = current_user.login if arquivar else None
+    ticket.hcview_arquivado_em = datetime.utcnow() if arquivar else None
+    db.session.commit()
+    return jsonify({
+        "mensagem": "Ticket arquivado." if arquivar else "Ticket desarquivado.",
+        "arquivado": arquivar,
+    })
+
+
+@hc_bp.route("/api/hc/tickets/<int:premise_id>/cancelar", methods=["POST"])
+@login_required
+def cancelar_ticket(premise_id):
+    """Cancela (equivale a excluir) um ticket. So' o time de Planning (LC-HARD-EXPERT).
+    Ticket cancelado some para todos - nao volta a aparecer."""
+    if not current_user.is_hard_expert:
+        return jsonify({"erro": "Somente o time de Planning (LC-HARD-EXPERT) pode cancelar tickets."}), 403
+    ticket = Ticket.query.get(premise_id)
+    if ticket is None:
+        return jsonify({"erro": "Ticket nao encontrado."}), 404
+
+    ticket.hcview_cancelado = True
+    ticket.hcview_cancelado_por = current_user.login
+    ticket.hcview_cancelado_em = datetime.utcnow()
+    db.session.commit()
+    return jsonify({"mensagem": "Ticket cancelado."})
 
 
 @hc_bp.route("/api/hc/tickets/<int:premise_id>/resolver", methods=["POST"])
@@ -1472,6 +1600,11 @@ def resolver_ticket(premise_id):
 
     ticket = Ticket.query.get_or_404(premise_id)
     eh_expert = current_user.is_admin
+
+    if ticket.hcview_cancelado:
+        return jsonify({"erro": "Ticket cancelado pelo time de Planning."}), 409
+    if ticket.hcview_arquivado:
+        return jsonify({"erro": "Ticket arquivado pelo time de Planning - indisponivel para validacao."}), 409
 
     # Vale para todas as premissas, inclusive ON: o responsavel (owner) ou um EXPERT.
     if not eh_expert:
