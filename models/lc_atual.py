@@ -10,6 +10,7 @@ class LCAtual(db.Model):
     login = db.Column(db.String(50), nullable=False, index=True)
     process_name = db.Column(db.String(150), nullable=False, index=True)
     lc_level = db.Column(db.String(50), nullable=False, index=True)
+    horas_processo = db.Column(db.Float, nullable=True)
     week = db.Column(db.String(20), nullable=True, index=True)
     fc = db.Column(db.String(20), nullable=True, index=True)
     rate_na_lc = db.Column(db.String(50), nullable=True)
@@ -22,6 +23,7 @@ class LCAtual(db.Model):
             "login": self.login or "",
             "process_name": self.process_name or "",
             "lc_level": self.lc_level or "",
+            "horas_processo": round(self.horas_processo, 2) if self.horas_processo is not None else None,
             "week": self.week or "",
             "fc": self.fc or "",
             "rate_na_lc": self.rate_na_lc or "",

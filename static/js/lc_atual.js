@@ -81,6 +81,7 @@ function renderTabela(registros) {
       <td>${item.login || "-"}</td>
       <td>${item.nome_completo || "-"}</td>
       <td>${item.process_name || "-"}</td>
+      <td>${item.horas_processo === null || item.horas_processo === undefined ? "-" : Number(item.horas_processo).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + "h"}</td>
       <td><span class="badge treinamento">${item.lc_level || "-"}</span></td>
       <td>${item.cargo || "-"}</td>
       <td>${item.area || "-"}</td>
@@ -101,7 +102,7 @@ async function carregarLC(initial = false) {
   if (initial) applyInitialFilters(data.filtros || {});
   renderTabela(data.registros || []);
   const resumo = data.resumo || {};
-  resumoLC.textContent = `AA com LC cadastrada: ${resumo.produtivos || 0} | AA do HC sem LC cadastrada: ${resumo.improdutivos || 0}`;
+  resumoLC.textContent = `Associados com LC cadastrada: ${resumo.produtivos || 0} | Associados do HC sem LC cadastrada: ${resumo.improdutivos || 0}`;
   syncUrl();
 }
 

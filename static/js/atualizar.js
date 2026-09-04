@@ -49,6 +49,9 @@ async function carregarColaPendencia() {
       : `<span class="cola-lado">${_esc(c.destino.label)}</span>`;
 
     const passos = (c.passos || []).map(p => `<li>${_esc(p)}</li>`).join("");
+    const comentario = c.comentario
+      ? `<div class="cola-comentario"><strong>💬 Comentário da premissa:</strong> ${_esc(c.comentario)}</div>`
+      : "";
 
     box.innerHTML = `
       <div class="cola-head">
@@ -56,6 +59,7 @@ async function carregarColaPendencia() {
         <span class="cola-badge${c.vencido ? " vencido" : ""}">${c.progresso}/${c.quantidade} feito · prazo ${_esc(c.prazo || "—")}</span>
       </div>
       <p class="cola-instrucao">${_esc(c.instrucao)}</p>
+      ${comentario}
       <div class="cola-rota">${rota}</div>
       <ol class="cola-passos">${passos}</ol>
       <p class="cola-obs">A validação confere <strong>cargo, setor, escala e turno</strong>. Se algum não bater com o pedido, a pendência não é dada como resolvida.</p>
@@ -406,7 +410,15 @@ arquivoImportLC.addEventListener("change", async () => {
   const data = await res.json();
   if (!res.ok) return showMessage(data.erro || "Erro na importacao de LC.", true);
 
-  showMessage(`${data.mensagem} Inseridos: ${data.inseridos}. Fora do HC descartados: ${data.descartados_sem_hc || 0}`);
+  let msg = `${data.mensagem} Registros de processo: ${data.inseridos}`;
+  if (data.colaboradores_atualizados !== undefined) {
+    msg += ` | Associados atualizados: ${data.colaboradores_atualizados}`;
+  }
+  msg += ` | Fora do HC descartados: ${data.descartados_sem_hc || 0}`;
+  if (data.ignorados_nao_associados) {
+    msg += ` | Outros cargos ignorados: ${data.ignorados_nao_associados}`;
+  }
+  showMessage(msg);
 
   const container = document.getElementById("erros-import-lc");
   if (container && data.erros && data.erros.length) {

@@ -83,19 +83,58 @@ def _clean_excel_value(value):
 
 
 def _read_lc_upload(arquivo):
-    """Localiza o cabecalho da base de LC mesmo quando ha titulo antes da tabela."""
+    """Localiza o cabecalho da LC tradicional ou do relatorio largo de horas."""
     arquivo.seek(0)
     preview = pd.read_excel(arquivo, header=None, dtype=str, nrows=20)
     header_row = None
     for idx, row in preview.iterrows():
         colunas = {_normalizar(value) for value in row if _clean_excel_value(value)}
-        if "login" in colunas and "process name" in colunas and "lc level" in colunas:
+        formato_tradicional = "process name" in colunas and "lc level" in colunas
+        formato_horas = "employee id" in colunas and "job title" in colunas
+        if "login" in colunas and (formato_tradicional or formato_horas):
             header_row = idx
             break
     if header_row is None:
-        raise ValueError("Cabecalho nao encontrado. Esperado: Login, Process Name e LC Level.")
+        raise ValueError(
+            "Cabecalho nao encontrado. Esperado o formato LC tradicional ou "
+            "o relatorio 'Total de horas do Associado no Processo'."
+        )
     arquivo.seek(0)
     return pd.read_excel(arquivo, header=header_row, dtype=str)
+
+
+def _horas_float(valor):
+    if valor is None or pd.isna(valor):
+        return None
+    if isinstance(valor, (int, float)):
+        return max(float(valor), 0.0)
+    texto = str(valor).strip()
+    if not texto or texto.lower() in ("nan", "none", "-"):
+        return None
+    if "," in texto and "." in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+    elif "," in texto:
+        texto = texto.replace(",", ".")
+    try:
+        return max(float(texto), 0.0)
+    except ValueError:
+        return None
+
+
+def _lc_por_horas(horas):
+    """Faixas oficiais: LC1 ate 40h; LC2 80h; LC3 120h; LC4 160h; LC5 400h."""
+    horas = float(horas)
+    if horas <= 40:
+        return "LC1"
+    if horas <= 80:
+        return "LC2"
+    if horas <= 120:
+        return "LC3"
+    if horas <= 160:
+        return "LC4"
+    if horas <= 400:
+        return "LC5"
+    return "LC6(VET)"
 
 
 def _read_csv_upload(arquivo):
@@ -697,6 +736,7 @@ def _ticket_cola(t):
         "destino": destino,
         "instrucao": instrucao,
         "passos": passos,
+        "comentario": (t.premise_note_snapshot or "").strip(),
     }
 
 
@@ -2217,63 +2257,114 @@ def importar_lc_excel():
     col_login = _find_col(df, "login")
     col_process = _find_col(df, "process name") or _find_col(df, "process")
     col_lc_level = _find_col(df, "lc level") or _find_col(df, "level")
+    col_employee_id = _find_col(df, "employee id")
+    col_job_title = _find_col(df, "job title")
+    formato_horas = bool(col_login and col_employee_id and col_job_title and not (col_process and col_lc_level))
 
-    if not col_login and len(df.columns) > 1:
-        col_login = df.columns[1]
-    if not col_process and len(df.columns) > 5:
-        col_process = df.columns[5]
-    if not col_lc_level and len(df.columns) > 6:
-        col_lc_level = df.columns[6]
-
-    faltando = []
-    if not col_login:
-        faltando.append("Login (coluna B)")
-    if not col_process:
-        faltando.append("Process Name (coluna F)")
-    if not col_lc_level:
-        faltando.append("LC Level (coluna G)")
-    if faltando:
-        return jsonify({"erro": f"Colunas ausentes: {', '.join(faltando)}"}), 400
+    if not formato_horas:
+        if not col_login and len(df.columns) > 1:
+            col_login = df.columns[1]
+        faltando = []
+        if not col_login:
+            faltando.append("Login")
+        if not col_process:
+            faltando.append("Process Name")
+        if not col_lc_level:
+            faltando.append("LC Level")
+        if faltando:
+            return jsonify({"erro": f"Colunas ausentes: {', '.join(faltando)}"}), 400
 
     try:
-        LCAtual.query.delete()
+        hc_por_login = {
+            (item.login or "").strip().lower(): item
+            for item in HCGig2.query.all()
+            if (item.login or "").strip()
+        }
+        if formato_horas:
+            logins_associados = [
+                login for login, hc in hc_por_login.items()
+                if _cargo_eh(hc.cargo, "AA", "Associado")
+            ]
+            if logins_associados:
+                LCAtual.query.filter(
+                    db.func.lower(db.func.trim(LCAtual.login)).in_(logins_associados)
+                ).delete(synchronize_session=False)
+        else:
+            LCAtual.query.delete()
 
         inseridos = 0
         ignorados = 0
         descartados_sem_hc = 0
+        ignorados_nao_associados = 0
         erros = []
-        logins_hc = {
-            (item.login or "").strip().lower()
-            for item in HCGig2.query.all()
-            if (item.login or "").strip()
-        }
-
-        for idx, row in df.iterrows():
-            try:
+        colaboradores_importados = set()
+        if formato_horas:
+            metadados = {"employee id", "login", "manager", "job title"}
+            colunas_processos = [
+                coluna for coluna in df.columns
+                if _normalizar(coluna) not in metadados
+                and not _normalizar(coluna).startswith("total")
+            ]
+            for idx, row in df.iterrows():
                 login = _clean_excel_value(row.get(col_login))
-                process_name = _clean_excel_value(row.get(col_process))
-                lc_level = _clean_excel_value(row.get(col_lc_level))
-
-                if not login and not process_name and not lc_level:
+                if not login:
                     ignorados += 1
                     continue
-
-                if not login or not process_name or not lc_level:
-                    erros.append(f"Linha {idx + 2}: login, Process Name e LC Level sao obrigatorios.")
-                    continue
-
-                if login.lower() not in logins_hc:
+                hc = hc_por_login.get(login.lower())
+                if not hc:
                     descartados_sem_hc += 1
                     continue
+                if not _cargo_eh(hc.cargo, "AA", "Associado"):
+                    ignorados_nao_associados += 1
+                    continue
 
-                db.session.add(LCAtual(
-                    login=login,
-                    process_name=process_name,
-                    lc_level=lc_level,
-                ))
-                inseridos += 1
-            except Exception as e:
-                erros.append(f"Linha {idx + 2}: {str(e)}")
+                registros_login = 0
+                for coluna_processo in colunas_processos:
+                    valor_bruto = row.get(coluna_processo)
+                    horas = _horas_float(valor_bruto)
+                    if horas is None:
+                        continue
+                    db.session.add(LCAtual(
+                        login=login,
+                        process_name=str(coluna_processo).strip(),
+                        horas_processo=horas,
+                        lc_level=_lc_por_horas(horas),
+                    ))
+                    inseridos += 1
+                    registros_login += 1
+
+                if registros_login:
+                    colaboradores_importados.add(login.lower())
+                else:
+                    ignorados += 1
+        else:
+            for idx, row in df.iterrows():
+                try:
+                    login = _clean_excel_value(row.get(col_login))
+                    process_name = _clean_excel_value(row.get(col_process))
+                    lc_level = _clean_excel_value(row.get(col_lc_level))
+
+                    if not login and not process_name and not lc_level:
+                        ignorados += 1
+                        continue
+
+                    if not login or not process_name or not lc_level:
+                        erros.append(f"Linha {idx + 2}: login, Process Name e LC Level sao obrigatorios.")
+                        continue
+
+                    if login.lower() not in hc_por_login:
+                        descartados_sem_hc += 1
+                        continue
+
+                    db.session.add(LCAtual(
+                        login=login,
+                        process_name=process_name,
+                        lc_level=lc_level,
+                    ))
+                    inseridos += 1
+                    colaboradores_importados.add(login.lower())
+                except Exception as e:
+                    erros.append(f"Linha {idx + 2}: {str(e)}")
 
         db.session.commit()
     except Exception as e:
@@ -2281,10 +2372,13 @@ def importar_lc_excel():
         return jsonify({"erro": f"Erro ao gravar LC no banco: {str(e)}"}), 500
 
     result = {
-        "mensagem": "Base de LC renovada com sucesso.",
+        "mensagem": "Horas e níveis de LC atualizados com sucesso." if formato_horas else "Base de LC renovada com sucesso.",
         "inseridos": inseridos,
+        "colaboradores_atualizados": len(colaboradores_importados),
         "ignorados": ignorados,
         "descartados_sem_hc": descartados_sem_hc,
+        "ignorados_nao_associados": ignorados_nao_associados,
+        "formato": "horas_por_processo" if formato_horas else "lc_tradicional",
     }
     if erros:
         result["erros"] = erros
@@ -2304,6 +2398,7 @@ def exportar_lc_excel():
     dados = [{
         "Login": r.login,
         "Process Name": r.process_name,
+        "Horas no Processo": r.horas_processo,
         "LC Level": r.lc_level,
     } for r in registros]
 

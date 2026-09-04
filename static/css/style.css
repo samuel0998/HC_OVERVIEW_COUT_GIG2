@@ -584,6 +584,7 @@ tbody tr:hover { background: #f0f6ff; }
 }
 .cola-badge.vencido { background: #f6c9c7; color: #8a1c17; }
 .cola-instrucao { margin: 6px 0; font-size: 14px; font-weight: 600; color: #333; }
+.cola-comentario { margin: 8px 0; padding: 9px 11px; background: #fff; border: 1px solid #e7c75f; border-radius: 7px; font-size: 13px; color: #493700; white-space: pre-wrap; }
 .cola-rota {
   display: flex;
   align-items: center;

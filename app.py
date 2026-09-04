@@ -344,6 +344,7 @@ def _migrate_lc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS week VARCHAR(20)"))
         conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS fc VARCHAR(20)"))
         conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS rate_na_lc VARCHAR(50)"))
+        conn.execute(db.text("ALTER TABLE lc_atual ADD COLUMN IF NOT EXISTS horas_processo DOUBLE PRECISION"))
 
 
 def _migrate_operadores_table():

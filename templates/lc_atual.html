@@ -8,6 +8,14 @@
 </div>
 
 <div class="card">
+    <div style="margin-bottom:14px;padding:12px 14px;background:#f8fafc;border:1px solid #dbe3ec;border-radius:8px;">
+        <strong>Legenda por horas no processo:</strong>
+        <div style="display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:8px;font-size:13px;">
+            <span>🔴 LC1: 0–40h</span><span>🟠 LC2: acima de 40–80h</span>
+            <span>🔵 LC3: acima de 80–120h</span><span>🟢 LC4: acima de 120–160h</span>
+            <span>🟩 LC5: acima de 160–400h</span><span>🟢 LC6(VET): acima de 400h</span>
+        </div>
+    </div>
     <div class="toolbar lc-toolbar">
         <input id="buscaLC" type="text" placeholder="Pesquisar login, processo, nome, cargo">
         <select id="filtroProcesso" class="filter-select">
@@ -49,6 +57,7 @@
                     <th>Login</th>
                     <th>Nome</th>
                     <th>Processo</th>
+                    <th>Horas no processo</th>
                     <th>LC Level</th>
                     <th>Cargo</th>
                     <th>Area</th>
@@ -62,5 +71,5 @@
     </div>
 </div>
 
-<script src="{{ url_for('static', filename='js/lc_atual.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lc_atual.js') }}?v=horas1"></script>
 {% endblock %}
