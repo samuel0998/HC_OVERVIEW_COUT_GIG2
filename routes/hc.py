@@ -2281,13 +2281,15 @@ def importar_lc_excel():
             if (item.login or "").strip()
         }
         if formato_horas:
-            logins_associados = [
-                login for login, hc in hc_por_login.items()
-                if _cargo_eh(hc.cargo, "AA", "Associado")
-            ]
-            if logins_associados:
+            logins_planilha = {
+                _clean_excel_value(valor).lower()
+                for valor in df[col_login].tolist()
+                if _clean_excel_value(valor)
+            }
+            logins_atualizados = sorted(logins_planilha & set(hc_por_login))
+            if logins_atualizados:
                 LCAtual.query.filter(
-                    db.func.lower(db.func.trim(LCAtual.login)).in_(logins_associados)
+                    db.func.lower(db.func.trim(LCAtual.login)).in_(logins_atualizados)
                 ).delete(synchronize_session=False)
         else:
             LCAtual.query.delete()
@@ -2295,7 +2297,6 @@ def importar_lc_excel():
         inseridos = 0
         ignorados = 0
         descartados_sem_hc = 0
-        ignorados_nao_associados = 0
         erros = []
         colaboradores_importados = set()
         if formato_horas:
@@ -2313,9 +2314,6 @@ def importar_lc_excel():
                 hc = hc_por_login.get(login.lower())
                 if not hc:
                     descartados_sem_hc += 1
-                    continue
-                if not _cargo_eh(hc.cargo, "AA", "Associado"):
-                    ignorados_nao_associados += 1
                     continue
 
                 registros_login = 0
@@ -2377,7 +2375,6 @@ def importar_lc_excel():
         "colaboradores_atualizados": len(colaboradores_importados),
         "ignorados": ignorados,
         "descartados_sem_hc": descartados_sem_hc,
-        "ignorados_nao_associados": ignorados_nao_associados,
         "formato": "horas_por_processo" if formato_horas else "lc_tradicional",
     }
     if erros:

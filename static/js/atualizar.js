@@ -412,12 +412,9 @@ arquivoImportLC.addEventListener("change", async () => {
 
   let msg = `${data.mensagem} Registros de processo: ${data.inseridos}`;
   if (data.colaboradores_atualizados !== undefined) {
-    msg += ` | Associados atualizados: ${data.colaboradores_atualizados}`;
+    msg += ` | Colaboradores atualizados: ${data.colaboradores_atualizados}`;
   }
   msg += ` | Fora do HC descartados: ${data.descartados_sem_hc || 0}`;
-  if (data.ignorados_nao_associados) {
-    msg += ` | Outros cargos ignorados: ${data.ignorados_nao_associados}`;
-  }
   showMessage(msg);
 
   const container = document.getElementById("erros-import-lc");
