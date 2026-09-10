@@ -187,7 +187,7 @@ class TicketValidationTest(unittest.TestCase):
         self.assertFalse(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
 
     def test_on_valida_novo_pit_em_treinamento_turno_adm(self):
-        # New Hire: cadastro entra como Treinamento e PIT recebe turno 'ADM'.
+        # Cadastro legado de PIT em Treinamento com turno 'ADM'.
         # A escala/periodo do ticket nao pode bloquear - so' cargo + setor.
         acao = registro(
             "adicao",

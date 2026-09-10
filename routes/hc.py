@@ -273,9 +273,7 @@ def _parse_bool(value, default=False):
     return default
 
 
-def _turno_inicial(cargo, turno=None):
-    if _cargo_normalizado(cargo) == "PIT":
-        return "ADM"
+def _turno_inicial(turno=None):
     return (turno or "").strip() or None
 
 
@@ -1312,7 +1310,7 @@ def novo_colaborador():
         job=_formatar_job(data.get("job")),
         hora_extra_turno=_formatar_turno_extra(data.get("hora_extra_turno")),
     )
-    colaborador.turno = _turno_inicial(colaborador.cargo, data.get("turno"))
+    colaborador.turno = _turno_inicial(data.get("turno"))
 
     if not colaborador.nome_completo or not colaborador.cargo:
         return jsonify({"erro": "Nome e cargo são obrigatórios."}), 400
@@ -1452,7 +1450,7 @@ def atualizar_colaborador(item_id):
             colaborador.data_inicio_ausencia = None
 
     if colaborador.status == "Treinamento":
-        colaborador.turno = _turno_inicial(colaborador.cargo, colaborador.turno)
+        colaborador.turno = _turno_inicial(colaborador.turno)
 
     colaborador.aplicar_status_por_data()
 
@@ -2038,7 +2036,7 @@ def importar_csv():
             item.login = login
             item.cargo = cargo or ""
             item.area = area
-            item.turno = _turno_inicial(item.cargo, turno) if status == "Treinamento" else turno
+            item.turno = _turno_inicial(turno) if status == "Treinamento" else turno
             item.status = status
             item.presente_fc = presente_fc
             item.presenca_manual = bool(col_presente)
@@ -2116,7 +2114,7 @@ def importar_excel():
         item.area = str(row[normalizadas["area"]]).strip() or None
         turno = str(row[normalizadas["turno"]]).strip() or None
         item.status = str(row[normalizadas["status"]]).strip() or "OPERACIONAL"
-        item.turno = _turno_inicial(item.cargo, turno) if item.status == "Treinamento" else turno
+        item.turno = _turno_inicial(turno) if item.status == "Treinamento" else turno
         col_presente = (
             normalizadas.get("presente_fc")
             or normalizadas.get("presente fc")

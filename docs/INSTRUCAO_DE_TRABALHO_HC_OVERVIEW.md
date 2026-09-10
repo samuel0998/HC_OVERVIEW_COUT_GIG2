@@ -62,10 +62,10 @@ Após o login, a barra superior exibe os módulos disponíveis conforme seu nív
 
 ### 4.3 Regras automáticas no cadastro
 - Todo colaborador novo entra com status **Treinamento** automaticamente.
-- **PIT** entra com turno **ADM** por padrão.
+- **PIT** entra no turno informado no cadastro, inclusive durante o treinamento.
 - O sistema converte automaticamente para **OPERACIONAL** após:
   - **AA/Associado:** 2 dias de cadastro
-  - **PIT:** 5 dias de cadastro (turno é limpo para alocação manual)
+  - **PIT:** 5 dias de cadastro (mantém o turno informado)
 
 ---
 

@@ -170,7 +170,6 @@ class HCGig2(db.Model):
                 self.status = "OPERACIONAL"
             elif cargo == "PIT" and dias >= 5:
                 self.status = "OPERACIONAL"
-                self.turno = None
         elif self.status in ("Ausência", "Ausencia"):
             # Ausência vale só pelo dia marcado (24h). Sem data registrada, assume hoje.
             # A partir do dia seguinte, volta automaticamente para OPERACIONAL.
