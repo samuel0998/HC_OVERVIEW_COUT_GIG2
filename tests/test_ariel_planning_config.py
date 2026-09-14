@@ -44,6 +44,9 @@ class ArielPlanningConfigTest(unittest.TestCase):
                 db.session.execute(Ticket.__table__.select(), bind_arguments={"bind": db.engine}).all()
             db.session.remove()
 
+    def test_ticket_nao_consulta_coluna_ausente_no_ariel(self):
+        self.assertNotIn("associado_id", Ticket.__table__.columns)
+
 
 if __name__ == "__main__":
     unittest.main()

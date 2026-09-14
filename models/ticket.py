@@ -57,7 +57,6 @@ class Ticket(db.Model):
     # porque e' o que o endpoint /resolver e o front usam. SE `premise_id` repetir
     # (1 linha por pessoa), isso precisa virar `id` + ajustar resolver_ticket.
     premise_id = db.Column(db.Integer, primary_key=True)
-    associado_id = db.Column(db.Integer)
 
     premise_type = db.Column(db.String(20))
     premise_name = db.Column(db.String(100))
