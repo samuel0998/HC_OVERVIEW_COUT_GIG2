@@ -1799,29 +1799,42 @@ def debug_tickets_schema():
     def _serial(v):
         return v.isoformat() if hasattr(v, "isoformat") else v
 
-    resposta = {}
-    try:
-        cols = db.session.execute(text(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_name = 'tickets' ORDER BY ordinal_position"
-        )).all()
-        resposta["colunas"] = [{"nome": c[0], "tipo": c[1]} for c in cols]
-    except Exception as e:
-        db.session.rollback()
-        resposta["colunas_erro"] = str(e)
+    # SQL textual não carrega o model `Ticket` e, por isso, não passa pelo
+    # roteamento automático de sessão. Usa explicitamente a mesma fonte externa
+    # selecionada para GIG2, evitando diagnosticar por engano a base local do HC.
+    from app import _ticket_engine_for_fc
+    from models import get_current_fc
 
-    premise_id = request.args.get("premise_id", type=int)
+    engine = _ticket_engine_for_fc(get_current_fc())
+    resposta = {
+        "fc": get_current_fc(),
+        "fonte": "ARIEL_PLANNING" if get_current_fc() == "GIG2" and "ARIEL_PLANNING" in db.engines else get_current_fc(),
+    }
     try:
-        if premise_id is not None:
-            rows = db.session.execute(
-                text("SELECT * FROM tickets WHERE premise_id = :pid"), {"pid": premise_id}
-            ).mappings().all()
-        else:
-            rows = db.session.execute(text("SELECT * FROM tickets LIMIT 10")).mappings().all()
-        resposta["linhas"] = [{k: _serial(v) for k, v in dict(r).items()} for r in rows]
+        with engine.connect() as conn:
+            cols = conn.execute(text(
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'tickets' ORDER BY ordinal_position"
+            )).all()
+            resposta["colunas"] = [{"nome": c[0], "tipo": c[1]} for c in cols]
+
+            resumo = conn.execute(text(
+                "SELECT COALESCE(premise_type, '<vazio>') AS tipo, "
+                "COALESCE(premise_status, '<vazio>') AS status, COUNT(*) AS total "
+                "FROM tickets GROUP BY premise_type, premise_status ORDER BY tipo, status"
+            )).mappings().all()
+            resposta["resumo"] = [dict(item) for item in resumo]
+
+            premise_id = request.args.get("premise_id", type=int)
+            if premise_id is not None:
+                rows = conn.execute(
+                    text("SELECT * FROM tickets WHERE premise_id = :pid"), {"pid": premise_id}
+                ).mappings().all()
+            else:
+                rows = conn.execute(text("SELECT * FROM tickets ORDER BY premise_id DESC LIMIT 10")).mappings().all()
+            resposta["linhas"] = [{k: _serial(v) for k, v in dict(r).items()} for r in rows]
     except Exception as e:
-        db.session.rollback()
-        resposta["linhas_erro"] = str(e)
+        resposta["erro"] = str(e)
 
     return jsonify(resposta)
 
