@@ -18,6 +18,13 @@ def _get_last_tuesday():
     return today - timedelta(days=days_back)
 
 
+def _ticket_engine_for_fc(fc):
+    """Retorna a fonte de tickets do FC selecionado."""
+    if fc == "GIG2" and "ARIEL_PLANNING" in db.engines:
+        return db.engines["ARIEL_PLANNING"]
+    return db.engines[fc]
+
+
 def processar_status_automatico():
     """Automatic status transitions: revert leaves, deadline OFF, archive terminations."""
     from models.hc_gig2 import HCGig2
@@ -222,9 +229,12 @@ def processar_status_automatico():
 
 def _create_operational_tables_for_fc(fc):
     engine = db.engines[fc]
-    # 'tickets' e' de propriedade de uma ferramenta externa (espelha gig2_hc_premises) -
-    # o HC Overview nunca cria essa tabela, so' altera (ver _migrate_tickets_table_for_fc).
-    tabelas = [t for t in db.metadatas[None].tables.values() if t.name != "tickets"]
+    # Essas tabelas pertencem ao Ariel LA Planning. O HC Overview nunca as cria;
+    # apenas le os dados e grava os campos hcview_* ja previstos nas migracoes.
+    tabelas = [
+        t for t in db.metadatas[None].tables.values()
+        if t.name not in {"tickets", "portal_ticket_claims"}
+    ]
     db.metadatas[None].create_all(bind=engine, tables=tabelas)
     print(f"[MIGRATION:{fc}] Tabelas operacionais verificadas.")
 
@@ -232,7 +242,7 @@ def _create_operational_tables_for_fc(fc):
 def _migrate_portal_ticket_claims_for_fc(fc):
     """So' adiciona colunas hcview_* - nunca cria nem recria a tabela (ferramenta externa).
     Se a tabela nao existir nessa FC, pula sem erro."""
-    engine = db.engines[fc]
+    engine = _ticket_engine_for_fc(fc)
     with engine.begin() as conn:
         existe = conn.execute(db.text(
             "SELECT 1 FROM information_schema.tables "
@@ -326,7 +336,7 @@ def _migrate_tickets_table_for_fc(fc):
     populada por uma ferramenta externa que espelha gig2_hc_premises). Se a tabela ainda
     nao existir nessa FC, pula sem erro: a integracao de tickets fica indisponivel ali
     ate a ferramenta externa provisiona-la."""
-    engine = db.engines[fc]
+    engine = _ticket_engine_for_fc(fc)
     with engine.begin() as conn:
         existe = conn.execute(db.text(
             "SELECT 1 FROM information_schema.tables "

@@ -14,6 +14,14 @@ def _postgres_uri(env_name, fallback):
     return fallback
 
 
+def _optional_postgres_uri(env_name):
+    """Retorna uma URL PostgreSQL configurada, ou None quando a integração é opcional."""
+    value = (os.getenv(env_name) or "").strip().strip('"').strip("'")
+    if value.startswith("postgres://"):
+        value = "postgresql://" + value[len("postgres://"):]
+    return value if value.startswith(("postgresql://", "postgresql+psycopg2://")) else None
+
+
 def _build_fc_databases():
     databases = {
         "GIG2": {
@@ -65,6 +73,12 @@ class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "hc-gig2-secret-key")
     FC_DATABASES = _build_fc_databases()
     SQLALCHEMY_DATABASE_URI = FC_DATABASES["GIG2"]["uri"]
-    SQLALCHEMY_BINDS = {key: item["uri"] for key, item in FC_DATABASES.items()}
+    # Os tickets do Ariel LA Planning ficam em uma base separada. A integração é
+    # opcional para manter o HC funcionando enquanto a variável ainda não foi criada.
+    ARIEL_PLANNING_DATABASE_URL = _optional_postgres_uri("ARIEL_PLANNING_DATABASE_URL")
+    SQLALCHEMY_BINDS = {
+        **{key: item["uri"] for key, item in FC_DATABASES.items()},
+        **({"ARIEL_PLANNING": ARIEL_PLANNING_DATABASE_URL} if ARIEL_PLANNING_DATABASE_URL else {}),
+    }
     DEFAULT_FC = os.getenv("DEFAULT_FC", "GIG2")
     SQLALCHEMY_TRACK_MODIFICATIONS = False

@@ -32,6 +32,18 @@ class FCRoutingSession(Session):
             if bind_key is not None:
                 return engines[bind_key]
 
+            # GIG2 recebe tickets de premissa e tickets RH do Ariel LA Planning,
+            # que possui banco próprio. Os demais dados do HC continuam na base
+            # do FC selecionado. Sem a variável opcional, preserva a integração
+            # legada que busca essas tabelas na própria base GIG2.
+            tabela = mapper_inspected.local_table.name
+            if (
+                get_current_fc() == "GIG2"
+                and tabela in {"tickets", "portal_ticket_claims"}
+                and "ARIEL_PLANNING" in engines
+            ):
+                return engines["ARIEL_PLANNING"]
+
         fc = get_current_fc()
         return engines.get(fc) or engines[None]
 

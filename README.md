@@ -12,6 +12,7 @@ Projeto Flask pronto para Railway com PostgreSQL.
 ## Variáveis de ambiente
 Use no Railway:
 - `DATABASE_URL`
+- `ARIEL_PLANNING_DATABASE_URL=${{ ARIEL_LA_PLANNING.DATABASE_PRIVATE_URL }}` para ler tickets de premissa e RH do GIG2
 - `DATABASE_URL_IXD_CNF2=${{ IXD - CNF2.DATABASE_PRIVATE_URL }}` para habilitar a instancia `IXD - CNF2`
 - `SECRET_KEY`
 
