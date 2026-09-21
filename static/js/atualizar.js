@@ -86,6 +86,7 @@ function showMessage(text, isError = false) {
 
 const STATUS_CLASS = {
   "OPERACIONAL": "operacional",
+  "LS":          "ls",
   "VTE":         "vte",
   "VTO":         "vto",
   "Treinamento": "treinamento",
@@ -146,7 +147,8 @@ function renderTabela() {
       agendado = `<div class="scheduled-note">🕐 Retorno automático: ${formatarDataBR(item.status_temporario_fim)}</div>`;
     }
     if (item.ls_retorno_data) {
-      agendado += `<div class="scheduled-note">↩ Retorno LS #${item.ls_ticket_id || "—"}: ${formatarDataBR(item.ls_retorno_data)} para ${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}</div>`;
+      const retorno = formatarDataBR(item.ls_retorno_em || item.ls_retorno_data);
+      agendado += `<div class="scheduled-note">↩ Retorno LS #${item.ls_ticket_id || "manual"}: ${retorno} para ${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}</div>`;
     }
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -174,9 +176,12 @@ function atualizarBlocoStatus() {
   const val = modalStatus.value;
   document.getElementById("blocoLicenca").classList.add("hidden");
   document.getElementById("blocoDesligado").classList.add("hidden");
+  document.getElementById("blocoLS").classList.add("hidden");
   document.getElementById("blocoOperacional").classList.add("hidden");
 
-  if (val === "Licença" || val === "Férias") {
+  if (val === "LS") {
+    document.getElementById("blocoLS").classList.remove("hidden");
+  } else if (val === "Licença" || val === "Férias") {
     document.getElementById("blocoLicenca").classList.remove("hidden");
     document.getElementById("labelLicenca").textContent = `Dados da ${val}`;
   } else if (val === "Desligado") {
@@ -237,6 +242,11 @@ window.abrirEdicao = function (id) {
   document.getElementById("dataDesligamento").value      = item.data_desligamento || "";
   document.getElementById("descricaoDesligamento").value = item.causa_afastamento || "";
 
+  // Em LS ativo, a área atual é o destino; em qualquer outro status ela serve
+  // apenas como sugestão inicial para o novo empréstimo.
+  document.getElementById("lsAreaDestino").value = item.area || "";
+  document.getElementById("lsRetornoData").value = item.ls_retorno_data || "";
+
   atualizarBlocoStatus();
   modal.classList.remove("hidden");
 };
@@ -263,6 +273,9 @@ formEditar.addEventListener("submit", async (e) => {
   } else if (status === "Desligado") {
     payload.data_desligamento = document.getElementById("dataDesligamento").value || null;
     payload.causa_afastamento = document.getElementById("descricaoDesligamento").value;
+  } else if (status === "LS") {
+    payload.ls_area_destino = document.getElementById("lsAreaDestino").value;
+    payload.ls_retorno_data = document.getElementById("lsRetornoData").value || null;
   }
 
   const res = await fetch(`/api/hc/${id}`, {

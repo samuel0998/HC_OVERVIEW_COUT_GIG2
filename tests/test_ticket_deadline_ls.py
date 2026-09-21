@@ -1,5 +1,5 @@
 import unittest
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from models.hc_gig2 import HCGig2
@@ -51,6 +51,32 @@ class TicketDeadlineAndLSReturnTest(unittest.TestCase):
         self.assertEqual(colaborador.turno, "BLUE DAY")
         self.assertIsNone(colaborador.ls_retorno_data)
         self.assertIsNone(colaborador.ls_ticket_id)
+
+    def test_status_ls_do_mesmo_dia_so_retorna_apos_24_horas(self):
+        inicio = datetime(2026, 9, 13, 14, 30)
+        colaborador = HCGig2(
+            nome_completo="Teste LS manual",
+            cargo="PIT",
+            area="OUTBOUND",
+            turno="BLUE DAY",
+            status="LS",
+            ls_retorno_data=date(2026, 9, 13),
+            ls_retorno_em=inicio + timedelta(hours=24),
+            ls_area_origem="INBOUND",
+            ls_turno_origem="BLUE DAY",
+        )
+
+        self.assertFalse(colaborador.aplicar_status_por_data(
+            hoje=date(2026, 9, 14), agora=inicio + timedelta(hours=23, minutes=59)
+        ))
+        self.assertEqual(colaborador.status, "LS")
+        self.assertEqual(colaborador.area, "OUTBOUND")
+
+        self.assertTrue(colaborador.aplicar_status_por_data(
+            hoje=date(2026, 9, 14), agora=inicio + timedelta(hours=24)
+        ))
+        self.assertEqual(colaborador.status, "OPERACIONAL")
+        self.assertEqual(colaborador.area, "INBOUND")
 
 
 if __name__ == "__main__":

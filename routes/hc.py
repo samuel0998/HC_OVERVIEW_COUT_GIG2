@@ -24,7 +24,7 @@ hc_bp = Blueprint("hc", __name__)
 CARGOS  = ["Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
-STATUS  = ["OPERACIONAL", "VTE", "VTO", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
+STATUS  = ["OPERACIONAL", "LS", "VTE", "VTO", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
@@ -329,6 +329,7 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
             "area": registro.area or "",
             "turno": registro.turno or "",
             "ls_retorno_data": registro.ls_retorno_data.isoformat() if registro.ls_retorno_data else "",
+            "ls_retorno_em": registro.ls_retorno_em.isoformat() if registro.ls_retorno_em else "",
             "ls_area_origem": registro.ls_area_origem or "",
             "ls_turno_origem": registro.ls_turno_origem or "",
             "ls_ticket_id": registro.ls_ticket_id,
@@ -341,6 +342,7 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
                 "area": registro.area or "",
                 "turno": registro.turno or "",
                 "ls_retorno_data": registro.ls_retorno_data.isoformat() if registro.ls_retorno_data else "",
+                "ls_retorno_em": registro.ls_retorno_em.isoformat() if registro.ls_retorno_em else "",
                 "ls_area_origem": registro.ls_area_origem or "",
                 "ls_turno_origem": registro.ls_turno_origem or "",
                 "ls_ticket_id": registro.ls_ticket_id,
@@ -828,7 +830,18 @@ def _registro_cumpre_ticket(t, registro, owner_area="", owner_turno=""):
             escala_ticket=dst_escala,
             periodo_ticket=dst_periodo,
         )
-        return mudou_alocacao and origem_ok and destino_ok
+        # LS e' um emprestimo temporario: alem do deslocamento, o historico
+        # precisa registrar a data de retorno pedida. Assim, nao basta o
+        # colaborador estar hoje no setor de destino.
+        retorno_ls_ok = True
+        if tipo == "LS" and getattr(t, "end_date", None):
+            retorno_ls_ok = (
+                depois.get("status") == "LS"
+                and depois.get("ls_retorno_data") == t.end_date.isoformat()
+                and _area_normalizada(depois.get("ls_area_origem"))
+                    == _area_normalizada(t.source_sector_key or owner_area)
+            )
+        return mudou_alocacao and origem_ok and destino_ok and retorno_ls_ok
 
     if tipo in ("TOFF", "RP"):
         if registro.tipo not in ("edicao", "edicao_status"):
@@ -991,9 +1004,26 @@ def _agendar_retornos_ls(t, acoes):
             "area": colaborador.area or "",
             "turno": colaborador.turno or "",
             "ls_retorno_data": colaborador.ls_retorno_data.isoformat() if colaborador.ls_retorno_data else "",
+            "ls_retorno_em": colaborador.ls_retorno_em.isoformat() if colaborador.ls_retorno_em else "",
             "ls_ticket_id": colaborador.ls_ticket_id,
         }
+        # Quando a acao ja foi feita pelo fluxo de status LS, a data, a origem
+        # e o retorno de 24h (se aplicavel) ja foram registrados no historico.
+        # Preserva esse agendamento em vez de troca-lo por meia-noite.
+        if (
+            colaborador.ls_retorno_data == t.end_date
+            and colaborador.ls_area_origem
+            and _area_normalizada(colaborador.ls_area_origem) == _area_normalizada(area_origem)
+        ):
+            colaborador.ls_ticket_id = t.premise_id
+            agendados.append(colaborador.id)
+            continue
         colaborador.ls_retorno_data = t.end_date
+        colaborador.ls_retorno_em = (
+            datetime.combine(t.end_date, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
+            .astimezone(ZoneInfo("UTC"))
+            .replace(tzinfo=None)
+        )
         colaborador.ls_area_origem = area_origem
         colaborador.ls_turno_origem = turno_origem
         colaborador.ls_ticket_id = t.premise_id
@@ -1001,6 +1031,7 @@ def _agendar_retornos_ls(t, acoes):
             "area": colaborador.area or "",
             "turno": colaborador.turno or "",
             "ls_retorno_data": t.end_date.isoformat(),
+            "ls_retorno_em": colaborador.ls_retorno_em.isoformat(),
             "ls_area_origem": area_origem,
             "ls_turno_origem": turno_origem,
             "ls_ticket_id": t.premise_id,
@@ -1361,6 +1392,11 @@ def atualizar_colaborador(item_id):
         "vte_turno_origem": colaborador.vte_turno_origem or "",
         "vte_area_destino": colaborador.vte_area_destino or "",
         "vte_turno_destino": colaborador.vte_turno_destino or "",
+        "ls_retorno_data": colaborador.ls_retorno_data.isoformat() if colaborador.ls_retorno_data else "",
+        "ls_retorno_em": colaborador.ls_retorno_em.isoformat() if colaborador.ls_retorno_em else "",
+        "ls_area_origem": colaborador.ls_area_origem or "",
+        "ls_turno_origem": colaborador.ls_turno_origem or "",
+        "ls_ticket_id": colaborador.ls_ticket_id,
     })
 
     novo_login = (data.get("login") or "").strip() or None
@@ -1391,6 +1427,23 @@ def atualizar_colaborador(item_id):
         if not descricao:
             return jsonify({"erro": "Descrição é obrigatória para Desligamento."}), 400
 
+    retorno_ls = None
+    destino_ls = None
+    area_origem_ls = None
+    turno_origem_ls = None
+    if novo_status == "LS":
+        retorno_ls = _parse_date(data.get("ls_retorno_data"))
+        destino_ls = (data.get("ls_area_destino") or data.get("area") or "").strip()
+        if not retorno_ls:
+            return jsonify({"erro": "Informe a data de retorno do LS."}), 400
+        if retorno_ls < date.today():
+            return jsonify({"erro": "A data de retorno do LS não pode estar no passado."}), 400
+        if not destino_ls:
+            return jsonify({"erro": "Selecione o setor de destino do LS."}), 400
+        # Captura antes da atualizacao generica de area/turno abaixo.
+        area_origem_ls = colaborador.ls_area_origem or colaborador.area
+        turno_origem_ls = colaborador.ls_turno_origem or colaborador.turno
+
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
     colaborador.cargo         = _formatar_cargo(data.get("cargo") or colaborador.cargo)
@@ -1409,7 +1462,40 @@ def atualizar_colaborador(item_id):
 
     # Licença/Férias/Desligado só passam a valer de fato quando a data marcada chega;
     # até lá o colaborador continua com o status atual e a mudança fica "agendada".
-    if novo_status in ("Licença", "Férias"):
+    if novo_status == "LS":
+        # Reaplicar LS em quem já está emprestado conserva a origem inicial.
+        area_origem = area_origem_ls
+        turno_origem = turno_origem_ls
+        if not area_origem:
+            return jsonify({"erro": "O colaborador precisa ter um setor de origem para receber LS."}), 400
+        if _area_normalizada(destino_ls) == _area_normalizada(area_origem):
+            return jsonify({"erro": "O setor de destino do LS deve ser diferente do setor de origem."}), 400
+
+        colaborador.limpar_status_temporario()
+        colaborador.area = destino_ls
+        colaborador.status = "LS"
+        colaborador.status_agendado = None
+        colaborador.data_inicio_licenca = None
+        colaborador.data_fim_licenca = None
+        colaborador.data_desligamento = None
+        colaborador.data_inicio_ausencia = None
+        colaborador.ls_retorno_data = retorno_ls
+        # A data continua registrada para auditoria e validacao do ticket. Se o
+        # LS for aberto hoje, o retorno efetivo so ocorre daqui a 24 horas.
+        agora_utc = datetime.utcnow()
+        colaborador.ls_retorno_em = (
+            agora_utc + timedelta(hours=24)
+            if retorno_ls == hoje
+            else (
+                datetime.combine(retorno_ls, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
+                .astimezone(ZoneInfo("UTC"))
+                .replace(tzinfo=None)
+            )
+        )
+        colaborador.ls_area_origem = area_origem
+        colaborador.ls_turno_origem = turno_origem
+        colaborador.ls_ticket_id = None
+    elif novo_status in ("Licença", "Férias"):
         colaborador.limpar_status_temporario()
         data_inicio = _parse_date(data.get("data_inicio_licenca"))
         data_fim    = _parse_date(data.get("data_fim_licenca"))
@@ -1435,6 +1521,10 @@ def atualizar_colaborador(item_id):
     elif preserva_temporario:
         colaborador.status = novo_status
     else:
+        # Ao encerrar manualmente um LS, cancela seu retorno pendente. Retornos
+        # agendados por tickets mantem status OPERACIONAL e nao entram aqui.
+        if status_anterior == "LS":
+            colaborador.limpar_retorno_ls()
         colaborador.limpar_status_temporario()
         colaborador.status            = novo_status
         colaborador.status_agendado   = None
@@ -1472,6 +1562,11 @@ def atualizar_colaborador(item_id):
         "vte_turno_origem": colaborador.vte_turno_origem or "",
         "vte_area_destino": colaborador.vte_area_destino or "",
         "vte_turno_destino": colaborador.vte_turno_destino or "",
+        "ls_retorno_data": colaborador.ls_retorno_data.isoformat() if colaborador.ls_retorno_data else "",
+        "ls_retorno_em": colaborador.ls_retorno_em.isoformat() if colaborador.ls_retorno_em else "",
+        "ls_area_origem": colaborador.ls_area_origem or "",
+        "ls_turno_origem": colaborador.ls_turno_origem or "",
+        "ls_ticket_id": colaborador.ls_ticket_id,
     })
 
     status_final = colaborador.status
@@ -2779,6 +2874,7 @@ def dashboard_data():
     ferias     = sum(1 for r in registros if r.status == "Férias")
     vte        = sum(1 for r in registros if r.status == "VTE")
     vto        = sum(1 for r in registros if r.status == "VTO")
+    ls         = sum(1 for r in registros if r.status == "LS")
 
     outbound_areas = {"OUTBOUND", "TRANSFER OUT", "INSUMOS", "LP"}
     inbound_areas  = {"INBOUND", "TRANSFER IN", "TRANSFERIN", "C-RET"}
@@ -2904,7 +3000,7 @@ def dashboard_data():
         "por_area":  por_area,
         "por_cargo": por_cargo,
         "por_turno": por_turno,
-        "status": {"OPERACIONAL": operacional, "VTE": vte, "VTO": vto, "Treinamento": treinamento, "Ausência": ausencia, "Licença": licenca, "Férias": ferias, "OFF": off},
+        "status": {"OPERACIONAL": operacional, "LS": ls, "VTE": vte, "VTO": vto, "Treinamento": treinamento, "Ausência": ausencia, "Licença": licenca, "Férias": ferias, "OFF": off},
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {

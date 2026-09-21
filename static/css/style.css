@@ -211,6 +211,7 @@ tbody tr:hover { background: #f0f6ff; }
 .badge.desligado  { background: #f3e8ff; color: #6a1b9a; }
 .badge.vte        { background: #dbeafe; color: #1d4ed8; }
 .badge.vto        { background: #ffedd5; color: #c2410c; }
+.badge.ls         { background: #ede9fe; color: #6d28d9; }
 
 .scheduled-note {
   margin-top: 4px; font-size: 11px; color: #92400e; white-space: nowrap;

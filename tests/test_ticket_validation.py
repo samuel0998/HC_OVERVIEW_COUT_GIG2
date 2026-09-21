@@ -240,6 +240,27 @@ class TicketValidationTest(unittest.TestCase):
         )
         self.assertFalse(_registro_cumpre_ticket(ticket("LS"), acao, "INBOUND", "BLUE DAY"))
 
+    def test_ls_com_end_date_exige_data_de_retorno_no_historico(self):
+        acao = registro(
+            "edicao_status",
+            {"cargo": "AA", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL"},
+            {
+                "cargo": "AA", "area": "OUTBOUND", "turno": "BLUE DAY", "status": "LS",
+                "ls_retorno_data": "2026-09-13", "ls_area_origem": "INBOUND",
+            },
+        )
+        premissa = ticket(
+            "LS", labor_type="AA", source_labor_type="AA", end_date=date(2026, 9, 13),
+            source_sector_key="INBOUND", source_shift_name="BLUE DAY",
+            sector_key="OUTBOUND", shift_name="BLUE DAY",
+        )
+        self.assertTrue(_registro_cumpre_ticket(premissa, acao, "INBOUND", "BLUE DAY"))
+
+        dados_errados = json.loads(acao.dados_novos)
+        dados_errados["ls_retorno_data"] = "2026-09-14"
+        acao_com_data_errada = registro("edicao_status", json.loads(acao.dados_anteriores), dados_errados)
+        self.assertFalse(_registro_cumpre_ticket(premissa, acao_com_data_errada, "INBOUND", "BLUE DAY"))
+
     @patch("routes.hc._ticket_owner_contexto", return_value=("INBOUND", "BLUE DAY"))
     def test_resolver_url_uses_owner_filters_and_keeps_ticket_context(self, _contexto):
         # ticket manda labor_type "AA"; o link deve filtrar por "Associado" (cargo consolidado)

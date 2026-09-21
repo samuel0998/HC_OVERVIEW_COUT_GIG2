@@ -44,6 +44,10 @@ class HCGig2(db.Model):
     vte_turno_destino = db.Column(db.String(50), nullable=True)
     # Labor Share: retorna para a alocacao de origem na data final do ticket.
     ls_retorno_data = db.Column(db.Date, nullable=True)
+    # Momento efetivo do retorno. Mantem-se a data separada para auditoria e para
+    # conferir o pedido do ticket; quando o LS e' aberto para o mesmo dia, este
+    # campo recebe agora + 24h.
+    ls_retorno_em = db.Column(db.DateTime, nullable=True)
     ls_area_origem = db.Column(db.String(50), nullable=True)
     ls_turno_origem = db.Column(db.String(50), nullable=True)
     ls_ticket_id = db.Column(db.Integer, nullable=True)
@@ -137,6 +141,7 @@ class HCGig2(db.Model):
 
     def limpar_retorno_ls(self):
         self.ls_retorno_data = None
+        self.ls_retorno_em = None
         self.ls_area_origem = None
         self.ls_turno_origem = None
         self.ls_ticket_id = None
@@ -150,10 +155,19 @@ class HCGig2(db.Model):
         alterou_bloqueios = False
         self._ativar_status_agendado(hoje, agora)
 
-        if self.ls_retorno_data and hoje >= self.ls_retorno_data:
+        retorno_ls_chegou = (
+            self.ls_retorno_em is not None and agora >= self.ls_retorno_em
+        ) or (
+            self.ls_retorno_em is None
+            and self.ls_retorno_data is not None
+            and hoje >= self.ls_retorno_data
+        )
+        if retorno_ls_chegou:
             self.area = self.ls_area_origem or self.area
             self.turno = self.ls_turno_origem or self.turno
             self.limpar_retorno_ls()
+            if self.status == "LS":
+                self.status = "OPERACIONAL"
             alterou_bloqueios = True
 
         if self.status in ("VTE", "VTO") and self.status_temporario_fim and agora >= self.status_temporario_fim:
@@ -229,6 +243,12 @@ class HCGig2(db.Model):
             "vte_area_destino": self.vte_area_destino or "",
             "vte_turno_destino": self.vte_turno_destino or "",
             "ls_retorno_data": self.ls_retorno_data.strftime("%Y-%m-%d") if self.ls_retorno_data else None,
+            "ls_retorno_em": (
+                self.ls_retorno_em.replace(tzinfo=ZoneInfo("UTC"))
+                .astimezone(ZoneInfo("America/Sao_Paulo"))
+                .strftime("%Y-%m-%dT%H:%M")
+                if self.ls_retorno_em else None
+            ),
             "ls_area_origem": self.ls_area_origem or "",
             "ls_turno_origem": self.ls_turno_origem or "",
             "ls_ticket_id": self.ls_ticket_id,

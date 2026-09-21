@@ -89,6 +89,7 @@
                 </select>
                 <select name="status" id="modalStatus">
                     <option value="OPERACIONAL">OPERACIONAL</option>
+                    <option value="LS">LS — Labor Share</option>
                     <option value="VTE" disabled>VTE (definido por ticket RH)</option>
                     <option value="VTO" disabled>VTO (definido por ticket RH)</option>
                     <option value="Treinamento">Treinamento</option>
@@ -97,6 +98,25 @@
                     <option value="Férias">Férias</option>
                     <option value="Desligado">Desligado</option>
                 </select>
+            </div>
+
+            <!-- Bloco LS -->
+            <div id="blocoLS" class="status-block hidden">
+                <div class="status-block-title">Empréstimo de colaborador (LS)</div>
+                <p class="op-info">Selecione o setor de destino e a data em que o colaborador voltará ao setor de origem. Para a data de hoje, o retorno é agendado para 24 horas após o registro.</p>
+                <div class="form-grid" style="margin-top:10px">
+                    <div>
+                        <label class="field-label" for="lsAreaDestino">Setor de destino *</label>
+                        <select name="ls_area_destino" id="lsAreaDestino">
+                            <option value="">Selecione o setor</option>
+                            {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="field-label" for="lsRetornoData">Data de retorno *</label>
+                        <input type="date" name="ls_retorno_data" id="lsRetornoData">
+                    </div>
+                </div>
             </div>
 
             <!-- Bloco LICENÇA / FÉRIAS -->

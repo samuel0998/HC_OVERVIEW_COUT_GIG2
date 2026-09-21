@@ -313,6 +313,7 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS vte_turno_destino VARCHAR(50)"))
         print(f"[MIGRATION:{fc}] Colunas de VTE/VTO temporarios verificadas.")
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_retorno_data DATE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_retorno_em TIMESTAMP"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_area_origem VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_turno_origem VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_ticket_id INTEGER"))
