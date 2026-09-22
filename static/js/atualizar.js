@@ -18,6 +18,9 @@ const arquivoImportLC = document.getElementById("arquivoImportLC");
 const totalRegistros  = document.getElementById("totalRegistros");
 const modalStatus     = document.getElementById("modalStatus");
 const btnPedirData    = document.getElementById("btnPedirData");
+const chkTransferenciaSite   = document.getElementById("chkTransferenciaSite");
+const avisoTransferenciaSite = document.getElementById("avisoTransferenciaSite");
+const camposLSNormal         = document.getElementById("camposLSNormal");
 
 let cache = [];
 let excluirId = null;
@@ -204,6 +207,17 @@ function atualizarBlocoStatus() {
 
 modalStatus.addEventListener("change", atualizarBlocoStatus);
 
+// ── Transferência definitiva de site (CNF2 <-> IXD - CNF2), dentro do bloco LS ──
+function atualizarBlocoTransferenciaSite() {
+  if (!chkTransferenciaSite) return;
+  const ativo = chkTransferenciaSite.checked;
+  if (camposLSNormal) camposLSNormal.classList.toggle("hidden", ativo);
+  if (avisoTransferenciaSite) avisoTransferenciaSite.style.display = ativo ? "" : "none";
+}
+if (chkTransferenciaSite) {
+  chkTransferenciaSite.addEventListener("change", atualizarBlocoTransferenciaSite);
+}
+
 // Checkboxes sem data
 document.getElementById("semDataInicio").addEventListener("change", function () {
   document.getElementById("dataInicioLicenca").disabled = this.checked;
@@ -247,6 +261,9 @@ window.abrirEdicao = function (id) {
   document.getElementById("lsAreaDestino").value = item.area || "";
   document.getElementById("lsRetornoData").value = item.ls_retorno_data || "";
 
+  if (chkTransferenciaSite) chkTransferenciaSite.checked = false;
+  atualizarBlocoTransferenciaSite();
+
   atualizarBlocoStatus();
   modal.classList.remove("hidden");
 };
@@ -256,6 +273,31 @@ formEditar.addEventListener("submit", async (e) => {
   e.preventDefault();
   const id     = formEditar.id.value;
   const status = formEditar.status.value;
+
+  // Transferência definitiva de site: rota própria, sem os campos normais de LS.
+  if (status === "LS" && chkTransferenciaSite && chkTransferenciaSite.checked) {
+    const nome = formEditar.nome_completo.value;
+    const destinoLabel = chkTransferenciaSite.dataset.destinoLabel;
+    const confirmado = confirm(
+      `Confirma a transferência DEFINITIVA de "${nome}" para ${destinoLabel}?\n\n` +
+      `Ele sai daqui agora e é recriado lá sem setor definido (fica em Pendências até alguém preencher a área). ` +
+      `Essa ação não pode ser desfeita por aqui.`
+    );
+    if (!confirmado) return;
+
+    const res = await fetch(`/api/hc/${id}/transferencia-site`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ destino_fc: chkTransferenciaSite.dataset.destinoFc }),
+    });
+    const result = await res.json();
+    if (!res.ok) return showMessage(result.erro || "Erro ao transferir.", true);
+
+    modal.classList.add("hidden");
+    showMessage(result.mensagem);
+    carregarTabela();
+    return;
+  }
 
   const payload = {
     nome_completo: formEditar.nome_completo.value,

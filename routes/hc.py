@@ -9,22 +9,35 @@ from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-from flask import Blueprint, abort, jsonify, render_template, request, send_file
+from flask import Blueprint, abort, current_app, jsonify, render_template, request, send_file
 from flask_login import current_user, login_required
 from sqlalchemy import or_, text
+from sqlalchemy.orm import sessionmaker
 
 from models import db, get_current_fc
 from models.hc_gig2 import HCGig2
 from models.lc_atual import LCAtual
+from models.registro_atividade import RegistroAtividade
 from models.ticket import TICKET_TYPES, Ticket
 from models.turno_config import HCTurnoConfig, ensure_default_turno_config
 
 hc_bp = Blueprint("hc", __name__)
 
 CARGOS  = ["Associado", "PA", "PIT", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
+# Usada só nos formulários de cadastro/edição: "PIT Trainee" é apenas um rótulo de
+# seleção para deixar claro que é um PIT recém-chegado em Treinamento — o cargo
+# gravado no banco é sempre "PIT" puro (ver _formatar_cargo), então ele conta
+# normalmente na capacidade de PIT. Por isso NÃO entra em CARGOS (usada também
+# como filtro do LIST e na importação; lá só fazem sentido valores que existem
+# de fato no banco).
+CARGOS_CADASTRO = ["Associado", "PA", "PIT", "PIT Trainee", "Analista", "Supervisor", "Líder", "Técnico", "Fiscal", "Coordenador", "Gerente"]
 AREAS   = ["INBOUND", "OUTBOUND", "TRANSFER IN", "TRANSFER OUT", "ICQA", "INSUMOS", "LEARNING", "LP", "FACILITIES", "RME", "SUPORTE", "C-RET", "TOM", "ADM"]
 TURNOS  = ["BLUE DAY", "BLUE NIGHT", "RED DAY", "RED NIGHT", "ADM"]
 STATUS  = ["OPERACIONAL", "LS", "VTE", "VTO", "Treinamento", "Ausência", "Licença", "Férias", "Desligado", "OFF"]
+# CNF2 e IXD - CNF2 são o mesmo FC físico rodando em dois bancos separados.
+# A troca de site é a única transferência "definitiva" (não-LS) suportada hoje:
+# manda o cadastro de um banco pro outro (ver transferir_colaborador_site).
+SITE_TRANSFER_PARTNER = {"CNF2": "IXD_CNF2", "IXD_CNF2": "CNF2"}
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
@@ -178,6 +191,7 @@ def _formatar_cargo(cargo):
         "AA": "Associado",          # AA e Associado sao o mesmo cargo - consolidado
         "ASSOCIADO": "Associado",
         "PIT": "PIT",
+        "PIT TRAINEE": "PIT",        # rotulo de selecao apenas; grava e conta como PIT
         "ANALISTA": "Analista",
         "SUPERVISOR": "Supervisor",
         "LIDER": "Líder",
@@ -281,6 +295,13 @@ def _pendencia_turno_expr():
     return db.and_(HCGig2.status == "OPERACIONAL", HCGig2.cargo == "PIT", HCGig2.turno.is_(None))
 
 
+def _pendencia_transferencia_expr():
+    """Colaborador que chegou por uma transferência definitiva de site (CNF2 <->
+    IXD - CNF2) e ainda não teve o setor definido no destino (ver
+    transferir_colaborador_site)."""
+    return HCGig2.pendente_transferencia_origem.isnot(None)
+
+
 def _pendencia_filtro():
     """Quem precisa de uma data definida. O prazo de terça é só alerta visual: mesmo
     depois de virar OFF automaticamente, o colaborador continua aqui até alguém
@@ -290,6 +311,7 @@ def _pendencia_filtro():
         db.and_(HCGig2.status == "Desligado", HCGig2.data_desligamento.is_(None)),
         db.and_(HCGig2.status == "OFF", HCGig2.off_origem.isnot(None)),
         _pendencia_turno_expr(),
+        _pendencia_transferencia_expr(),
     )
 
 
@@ -375,6 +397,46 @@ def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
                     "edicao_status",
                     registro,
                     descricao,
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
+            elif antes["status"] in ("Ausência", "Ausencia") and registro.status == "OPERACIONAL":
+                # Antes só ficava registrado quando o boot rodava processar_status_automatico
+                # (app.py); como a maioria das viradas de dia acontece com o app já no ar
+                # (esta função roda a cada carregamento do LIST/Pendências), o retorno
+                # automático da Ausência ficava sem nenhum rastro no histórico.
+                _registrar(
+                    "edicao_status",
+                    registro,
+                    "Retorno automático para OPERACIONAL - ausência de 24h encerrada",
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
+            elif antes["status"] in ("Licenca", "Licença", "Ferias", "Férias") and registro.status == "OPERACIONAL":
+                _registrar(
+                    "edicao_status",
+                    registro,
+                    f"Retorno automático para OPERACIONAL - período de {antes['status']} encerrado",
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
+            elif antes["status"] == "Treinamento" and registro.status == "OPERACIONAL":
+                _registrar(
+                    "edicao_status",
+                    registro,
+                    f"Virada automática de Treinamento para OPERACIONAL ({registro.cargo})",
+                    dados_ant=json.dumps(antes),
+                    dados_nov=json.dumps(depois),
+                    sistema=True,
+                )
+            elif antes["status_agendado"] and not depois["status_agendado"] and registro.status == antes["status_agendado"]:
+                _registrar(
+                    "edicao_status",
+                    registro,
+                    f"Ativação automática: '{antes['status_agendado']}' passou a valer (data agendada atingida)",
                     dados_ant=json.dumps(antes),
                     dados_nov=json.dumps(depois),
                     sistema=True,
@@ -1190,7 +1252,7 @@ def home():
 def novo_hc():
     if not current_user.can_add_colaborador:
         abort(403)
-    return render_template("newcolaborator.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
+    return render_template("newcolaborator.html", cargos=CARGOS_CADASTRO, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 @hc_bp.route("/atualizar")
@@ -1198,7 +1260,23 @@ def novo_hc():
 def atualizar():
     if not current_user.can_edit:
         abort(403)
-    return render_template("atualizar.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS, processos=PROCESSOS)
+    fc_atual = get_current_fc()
+    site_destino_fc = SITE_TRANSFER_PARTNER.get(fc_atual)
+    site_destino_label = (
+        current_app.config["FC_DATABASES"].get(site_destino_fc, {}).get("label", site_destino_fc)
+        if site_destino_fc else None
+    )
+    return render_template(
+        "atualizar.html",
+        cargos=CARGOS,
+        cargos_cadastro=CARGOS_CADASTRO,
+        areas=AREAS,
+        turnos=TURNOS,
+        status_list=STATUS,
+        processos=PROCESSOS,
+        site_destino_fc=site_destino_fc,
+        site_destino_label=site_destino_label,
+    )
 
 
 @hc_bp.route("/dashboard")
@@ -1340,6 +1418,7 @@ def novo_colaborador():
         presenca_manual="presente_fc" in data,
         job=_formatar_job(data.get("job")),
         hora_extra_turno=_formatar_turno_extra(data.get("hora_extra_turno")),
+        treinamento_inicio_em=date.today(),
     )
     colaborador.turno = _turno_inicial(data.get("turno"))
 
@@ -1541,6 +1620,21 @@ def atualizar_colaborador(item_id):
 
     if colaborador.status == "Treinamento":
         colaborador.turno = _turno_inicial(colaborador.turno)
+        if status_anterior != "Treinamento":
+            # Novo ciclo de Treinamento (inclusive reaplicado manualmente bem
+            # depois do cadastro original): reconta os dias a partir de hoje,
+            # em vez de usar created_at (ver aplicar_status_por_data). É essa
+            # conta antiga que fazia o status voltar sozinho pra OPERACIONAL
+            # na mesma edição quando o colaborador já tinha sido cadastrado
+            # há mais de 2/5 dias.
+            colaborador.treinamento_inicio_em = hoje
+    elif status_anterior == "Treinamento":
+        colaborador.treinamento_inicio_em = None
+
+    # Qualquer setor definido manualmente resolve a pendência de transferência
+    # definitiva de site (ver transferir_colaborador_site / _pendencia_filtro).
+    if colaborador.area:
+        colaborador.pendente_transferencia_origem = None
 
     colaborador.aplicar_status_por_data()
 
@@ -1606,6 +1700,119 @@ def atualizar_colaborador(item_id):
 
     db.session.commit()
     return jsonify({"mensagem": "Colaborador atualizado com sucesso.", "item": colaborador.to_dict()})
+
+
+def _ensure_destino_migrado(fc):
+    """Roda sob demanda a mesma migração ALTER TABLE do boot (app.py) no banco de
+    destino de uma transferência definitiva de site, cobrindo o caso do IXD - CNF2
+    ainda não ter sido migrado (ele só bootstrapa no primeiro login - ver
+    _inicializar_fc_sob_demanda em routes/auth.py)."""
+    from app import _migrate_hc_table_for_fc
+    _migrate_hc_table_for_fc(fc)
+
+
+@hc_bp.route("/api/hc/<int:item_id>/transferencia-site", methods=["POST"])
+@login_required
+def transferir_colaborador_site(item_id):
+    """Transferência DEFINITIVA de cadastro entre os bancos-irmãos CNF2 e
+    IXD - CNF2 (troca de site, não um empréstimo/LS temporário): o colaborador
+    sai do banco do site atual e é recriado no banco do site de destino, sem
+    setor definido (fica em Pendências lá até alguém preencher a área). Fica
+    registrado como 'transferencia_operacao' no histórico dos dois lados.
+
+    A ordem importa: insere no destino primeiro e só apaga da origem depois de
+    confirmar o commit lá. Se a exclusão da origem falhar depois do sucesso no
+    destino, o pior cenário é registro duplicado (nunca perda de cadastro)."""
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissão para transferir colaboradores."}), 403
+
+    origem_fc = get_current_fc()
+    destino_fc = SITE_TRANSFER_PARTNER.get(origem_fc)
+    if not destino_fc:
+        return jsonify({"erro": "Transferência definitiva de site só está disponível entre CNF2 e IXD - CNF2."}), 400
+
+    data = request.get_json(silent=True) or {}
+    destino_solicitado = (data.get("destino_fc") or "").strip().upper()
+    if destino_solicitado != destino_fc:
+        return jsonify({"erro": "Site de destino inválido para esta operação."}), 400
+
+    colaborador = HCGig2.query.get_or_404(item_id)
+
+    fc_databases = current_app.config["FC_DATABASES"]
+    origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
+    destino_label = fc_databases.get(destino_fc, {}).get("label", destino_fc)
+
+    # Garante que o banco de destino já tem as colunas mais recentes (relevante
+    # sobretudo pro IXD - CNF2, que só migra sob demanda no primeiro login -
+    # ver _inicializar_fc_sob_demanda em routes/auth.py).
+    try:
+        _ensure_destino_migrado(destino_fc)
+    except Exception as e:
+        return jsonify({"erro": f"Não foi possível preparar o banco de {destino_label}: {e}"}), 500
+
+    # 1) Cria o cadastro no banco de destino, sem setor (vira pendência lá).
+    dest_session = sessionmaker(bind=db.engines[destino_fc])()
+    try:
+        novo = HCGig2(
+            nome_completo=colaborador.nome_completo,
+            login=colaborador.login,
+            cargo=colaborador.cargo,
+            area=None,
+            turno=colaborador.turno,
+            status="OPERACIONAL",
+            job=colaborador.job,
+            presente_fc=True,
+            presenca_manual=False,
+            pendente_transferencia_origem=origem_label,
+        )
+        dest_session.add(novo)
+        dest_session.flush()
+        dest_session.add(RegistroAtividade(
+            tipo="transferencia_operacao",
+            operador_id=novo.id,
+            operador_login=novo.login,
+            operador_nome=novo.nome_completo,
+            usuario_login=current_user.login if current_user.is_authenticated else "sistema",
+            usuario_nome=current_user.nome if current_user.is_authenticated else "Sistema",
+            descricao=f"Transferência de operação: recebido de {origem_label}. Aguardando definição de setor.",
+        ))
+        dest_session.commit()
+    except Exception as e:
+        dest_session.rollback()
+        return jsonify({"erro": f"Falha ao transferir para {destino_label}: {e}"}), 500
+    finally:
+        dest_session.close()
+
+    # 2) Só agora remove da origem — o destino já está confirmado.
+    try:
+        _registrar(
+            "transferencia_operacao",
+            colaborador,
+            f"Transferência de operação: enviado para {destino_label} (login {colaborador.login or '-'}).",
+            dados_ant=json.dumps({
+                "area": colaborador.area or "",
+                "turno": colaborador.turno or "",
+                "status": colaborador.status,
+            }),
+            dados_nov=json.dumps({"status": "TRANSFERIDO", "destino_fc": destino_fc}),
+        )
+        db.session.delete(colaborador)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "erro": (
+                f"O colaborador já foi criado em {destino_label}, mas houve falha ao remover o "
+                f"registro original em {origem_label}: {e}. Verifique manualmente para evitar duplicidade."
+            )
+        }), 500
+
+    return jsonify({
+        "mensagem": (
+            f"Colaborador transferido definitivamente para {destino_label}. "
+            f"Ele aparece em Pendências lá aguardando definição de setor."
+        )
+    })
 
 
 @hc_bp.route("/api/hc/<int:item_id>", methods=["DELETE"])
@@ -1716,11 +1923,18 @@ def listar_pendencias():
     tickets = _tickets_visiveis()
     total_tickets = len(tickets) if tickets is not None else 0
 
+    def _pendencia_tipo(p):
+        if p.status == "OPERACIONAL" and p.cargo == "PIT" and not p.turno:
+            return "turno"
+        if p.pendente_transferencia_origem:
+            return "setor"
+        return "data"
+
     return jsonify({
         "pendencias": [
             {
                 **p.to_dict(),
-                "pendencia_tipo": "turno" if p.status == "OPERACIONAL" and p.cargo == "PIT" and not p.turno else "data",
+                "pendencia_tipo": _pendencia_tipo(p),
             }
             for p in pendentes
         ],

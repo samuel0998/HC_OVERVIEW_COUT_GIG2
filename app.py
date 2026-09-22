@@ -318,6 +318,10 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_turno_origem VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_ticket_id INTEGER"))
         print(f"[MIGRATION:{fc}] Colunas de retorno automatico de LS verificadas.")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS treinamento_inicio_em DATE"))
+        print(f"[MIGRATION:{fc}] Coluna treinamento_inicio_em verificada (contagem do Treinamento a partir do inicio real, nao do cadastro).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS pendente_transferencia_origem VARCHAR(30)"))
+        print(f"[MIGRATION:{fc}] Coluna pendente_transferencia_origem verificada (transferencia definitiva entre sites aguardando setor).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

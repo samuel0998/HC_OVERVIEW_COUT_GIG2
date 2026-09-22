@@ -78,6 +78,39 @@ class PITTrainingTest(unittest.TestCase):
         self.assertEqual(colaborador.status, "Treinamento")
         self.assertEqual(colaborador.turno, "RED NIGHT")
 
+    def test_edicao_move_associado_antigo_de_operacional_para_treinamento(self):
+        """Bug relatado: editar um AA/Associado já operacional (cadastrado há
+        muito mais de 2 dias) pra Treinamento não pegava - a rotina automática
+        (aplicar_status_por_data, chamada no fim do PUT) via os dias contados
+        desde created_at e revertia pra OPERACIONAL na mesma edição."""
+        colaborador = HCGig2(
+            nome_completo="Teste AA antigo",
+            cargo="Associado",
+            area="OUTBOUND",
+            turno="RED NIGHT",
+            status="OPERACIONAL",
+            created_at=datetime.utcnow() - timedelta(days=120),
+        )
+        db.session.add(colaborador)
+        db.session.commit()
+
+        response = self.client.put(f"/api/hc/{colaborador.id}", json={
+            "area": "OUTBOUND",
+            "turno": "RED NIGHT",
+            "status": "Treinamento",
+        })
+        self.assertEqual(response.status_code, 200)
+        db.session.refresh(colaborador)
+        self.assertEqual(colaborador.status, "Treinamento")
+        self.assertIsNotNone(colaborador.treinamento_inicio_em)
+
+        # E continua em Treinamento até completar os dias a partir do REINÍCIO
+        # (não do cadastro original, que já teria estourado o prazo há muito).
+        colaborador.aplicar_status_por_data(hoje=colaborador.treinamento_inicio_em + timedelta(days=1))
+        self.assertEqual(colaborador.status, "Treinamento")
+        colaborador.aplicar_status_por_data(hoje=colaborador.treinamento_inicio_em + timedelta(days=2))
+        self.assertEqual(colaborador.status, "OPERACIONAL")
+
 
 if __name__ == "__main__":
     unittest.main()

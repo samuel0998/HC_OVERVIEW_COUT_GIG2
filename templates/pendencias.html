@@ -27,7 +27,8 @@
     </div>
     <p style="margin:0 0 14px;font-size:13px;color:var(--muted);">
         Pendências são registros de <strong>Licença, Férias ou Desligamento</strong> sem data de concretização definida,
-        além de <strong>PIT operacional sem turno</strong> aguardando alocação.
+        <strong>PIT operacional sem turno</strong> aguardando alocação, e colaboradores recebidos por
+        <strong>transferência definitiva de site</strong> aguardando definição de setor.
         O prazo para definição de datas é toda <strong>terça-feira</strong>. Após o prazo, o status passa para <strong>OFF</strong>.
     </p>
     <div class="table-wrap">
@@ -275,7 +276,7 @@ async function migrarPortalTickets() {
                     <td><span class="badge ${statusCls}">${p.status}</span></td>
                     <td style="color:#c62828;font-size:13px;">${pendDesc}</td>
                     <td>
-                        <a href="/atualizar?login=${encodeURIComponent(p.login || p.nome_completo)}" class="btn btn-sm primary">${p.pendencia_tipo === 'turno' ? 'Alocar turno' : 'Definir data'}</a>
+                        <a href="/atualizar?login=${encodeURIComponent(p.login || p.nome_completo)}" class="btn btn-sm primary">${p.pendencia_tipo === 'turno' ? 'Alocar turno' : (p.pendencia_tipo === 'setor' ? 'Definir setor' : 'Definir data')}</a>
                     </td>
                 </tr>`;
             }).join('');
@@ -288,6 +289,7 @@ async function migrarPortalTickets() {
 
     function getPendDesc(p) {
         if (p.pendencia_tipo === 'turno') return 'PIT operacional aguardando alocação de turno';
+        if (p.pendencia_tipo === 'setor') return `Transferido de ${p.pendente_transferencia_origem || '—'} — aguardando definição de setor`;
         if (p.status === 'OFF' && p.off_origem) return `${p.off_origem} vencida — prazo de terça estourado, ainda sem data definida`;
         if (p.status === 'Desligado') return 'Desligamento sem data definida';
         if (p.status === 'Licença') return 'Licença sem data de início/fim';

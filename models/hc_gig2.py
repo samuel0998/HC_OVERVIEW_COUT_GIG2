@@ -51,6 +51,17 @@ class HCGig2(db.Model):
     ls_area_origem = db.Column(db.String(50), nullable=True)
     ls_turno_origem = db.Column(db.String(50), nullable=True)
     ls_ticket_id = db.Column(db.Integer, nullable=True)
+    # Treinamento: data em que o ciclo ATUAL de Treinamento comecou. Usada para
+    # contar os dias de treinamento em vez de created_at, pois um colaborador
+    # antigo pode ser recolocado em Treinamento manualmente muito depois do
+    # cadastro original (ver aplicar_status_por_data). Sem valor (registros
+    # legados / cadastro novo antes desta coluna existir), cai no created_at.
+    treinamento_inicio_em = db.Column(db.Date, nullable=True)
+    # Transferencia definitiva entre sites-irmaos (ex.: CNF2 <-> IXD - CNF2).
+    # Guarda o label do site de origem enquanto o colaborador chega sem setor
+    # definido no banco de destino; fica visivel em Pendencias ate alguem
+    # preencher a area (ver _pendencia_filtro / atualizar_colaborador).
+    pendente_transferencia_origem = db.Column(db.String(30), nullable=True)
     # Campos legados mantidos para compatibilidade
     previsao_afastamento = db.Column(db.Boolean, nullable=False, default=False)
     data_afastamento = db.Column(db.Date, nullable=True)
@@ -67,6 +78,14 @@ class HCGig2(db.Model):
     def _dias_desde_cadastro(self, hoje):
         data_cadastro = self.created_at.date() if self.created_at else hoje
         return (hoje - data_cadastro).days
+
+    def _dias_desde_inicio_treinamento(self, hoje):
+        """Dias desde que o ciclo ATUAL de Treinamento comecou. Prioriza
+        treinamento_inicio_em (setado sempre que o status vira Treinamento de
+        novo, seja no cadastro ou numa edicao manual); sem essa data, cai no
+        created_at para nao quebrar registros legados."""
+        base = self.treinamento_inicio_em or (self.created_at.date() if self.created_at else hoje)
+        return (hoje - base).days
 
     def limpar_bloqueios_afastamento(self):
         anterior = (
@@ -179,11 +198,13 @@ class HCGig2(db.Model):
 
         if self.status == "Treinamento":
             cargo = self._cargo_normalizado()
-            dias = self._dias_desde_cadastro(hoje)
+            dias = self._dias_desde_inicio_treinamento(hoje)
             if cargo in ("AA", "ASSOCIADO") and dias >= 2:
                 self.status = "OPERACIONAL"
+                self.treinamento_inicio_em = None
             elif cargo == "PIT" and dias >= 5:
                 self.status = "OPERACIONAL"
+                self.treinamento_inicio_em = None
         elif self.status in ("Ausência", "Ausencia"):
             # Ausência vale só pelo dia marcado (24h). Sem data registrada, assume hoje.
             # A partir do dia seguinte, volta automaticamente para OPERACIONAL.
@@ -228,6 +249,8 @@ class HCGig2(db.Model):
             "status": self.status,
             "status_agendado": self.status_agendado or "",
             "off_origem": self.off_origem or "",
+            "treinamento_inicio_em": self.treinamento_inicio_em.strftime("%Y-%m-%d") if self.treinamento_inicio_em else None,
+            "pendente_transferencia_origem": self.pendente_transferencia_origem or "",
             "presente_fc": bool(self.presente_fc),
             "job": self.job or "",
             "hora_extra_turno": self.hora_extra_turno or "",

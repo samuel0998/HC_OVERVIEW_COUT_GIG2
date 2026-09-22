@@ -77,7 +77,7 @@
                 <input type="text" name="login" placeholder="Login">
                 <select name="cargo" required>
                     <option value="">Cargo *</option>
-                    {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                    {% for item in cargos_cadastro %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
                 </select>
                 <select name="area">
                     <option value="">Área</option>
@@ -104,7 +104,16 @@
             <div id="blocoLS" class="status-block hidden">
                 <div class="status-block-title">Empréstimo de colaborador (LS)</div>
                 <p class="op-info">Selecione o setor de destino e a data em que o colaborador voltará ao setor de origem. Para a data de hoje, o retorno é agendado para 24 horas após o registro.</p>
-                <div class="form-grid" style="margin-top:10px">
+                {% if site_destino_fc %}
+                <label class="check mt-8" style="display:flex;gap:8px;align-items:flex-start;">
+                    <input type="checkbox" id="chkTransferenciaSite" data-destino-fc="{{ site_destino_fc }}" data-destino-label="{{ site_destino_label }}">
+                    <span>Transferência <strong>definitiva</strong> de site: enviar este cadastro para <strong>{{ site_destino_label }}</strong> (não é empréstimo — sai daqui e some da lista)</span>
+                </label>
+                <p class="op-info" id="avisoTransferenciaSite" style="display:none;color:#c2410c;margin-top:8px;">
+                    ⚠️ Isto move o cadastro para o banco de dados de {{ site_destino_label }}. Ele deixa de existir aqui e é recriado lá <strong>sem setor definido</strong>, aparecendo em Pendências até alguém preencher a área. Essa ação não pode ser desfeita por aqui.
+                </p>
+                {% endif %}
+                <div class="form-grid" style="margin-top:10px" id="camposLSNormal">
                     <div>
                         <label class="field-label" for="lsAreaDestino">Setor de destino *</label>
                         <select name="ls_area_destino" id="lsAreaDestino">
