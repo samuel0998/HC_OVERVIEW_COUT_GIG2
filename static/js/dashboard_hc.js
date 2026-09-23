@@ -367,7 +367,9 @@ async function carregarDashboard() {
   const cargoVals   = Object.values(data.por_cargo);
   const cargoCores  = cargoLabels.map((_, i) => AREA_COLORS[i % AREA_COLORS.length]);
   renderBarV("chartCargo", cargoLabels, cargoVals, cargoCores, (label) => {
-    window.location.href = listUrl({ cargo: label });
+    // No LIST o cargo gravado é sempre "PIT" (o filtro não tem opção "PIT Trainee" -
+    // é só um rótulo visual aqui e lá, ver models/hc_gig2.py:cargo_exibicao).
+    window.location.href = listUrl({ cargo: label === "PIT Trainee" ? "PIT" : label });
   });
 
   // ── Associados e PITs por turno ─────────────────────────────

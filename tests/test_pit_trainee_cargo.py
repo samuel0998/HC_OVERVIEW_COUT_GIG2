@@ -50,8 +50,42 @@ class PITTraineeCargoTest(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 201)
         item = response.get_json()["item"]
+        # No banco/para outras ferramentas (tickets, capacidade) o cargo é "PIT" puro.
         self.assertEqual(item["cargo"], "PIT")
         self.assertEqual(item["status"], "Treinamento")
+        # No front (LIST/Dashboard) precisa aparecer como "PIT Trainee".
+        self.assertTrue(item["pit_trainee"])
+        self.assertEqual(item["cargo_exibicao"], "PIT Trainee")
+
+    def test_edicao_alterna_rotulo_pit_trainee_sem_mudar_cargo_gravado(self):
+        response = self.client.post("/api/hc", json={
+            "nome_completo": "Colaborador PIT",
+            "cargo": "PIT",
+            "area": "INBOUND",
+            "turno": "BLUE DAY",
+        })
+        item_id = response.get_json()["item"]["id"]
+        colaborador = db.session.get(HCGig2, item_id)
+        self.assertFalse(colaborador.pit_trainee)
+        self.assertEqual(colaborador.cargo_exibicao(), "PIT")
+
+        # Marca como PIT Trainee na edição.
+        resp = self.client.put(f"/api/hc/{item_id}", json={
+            "cargo": "PIT Trainee", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL",
+        })
+        self.assertEqual(resp.status_code, 200)
+        item = resp.get_json()["item"]
+        self.assertEqual(item["cargo"], "PIT")
+        self.assertTrue(item["pit_trainee"])
+        self.assertEqual(item["cargo_exibicao"], "PIT Trainee")
+
+        # "Graduação": volta pra PIT puro numa edição seguinte.
+        resp2 = self.client.put(f"/api/hc/{item_id}", json={
+            "cargo": "PIT", "area": "INBOUND", "turno": "BLUE DAY", "status": "OPERACIONAL",
+        })
+        item2 = resp2.get_json()["item"]
+        self.assertFalse(item2["pit_trainee"])
+        self.assertEqual(item2["cargo_exibicao"], "PIT")
 
 
 if __name__ == "__main__":

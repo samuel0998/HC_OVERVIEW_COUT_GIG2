@@ -158,7 +158,7 @@ function renderTabela() {
       <td>${idx + 1}</td>
       <td>${item.nome_completo}</td>
       <td>${item.login || "-"}</td>
-      <td>${item.cargo}</td>
+      <td>${item.cargo_exibicao || item.cargo}</td>
       <td>${item.area  || "-"}</td>
       <td>${item.turno || "-"}</td>
       <td><span class="badge ${sc}">${item.status}</span>${agendado}</td>
@@ -236,7 +236,11 @@ window.abrirEdicao = function (id) {
   formEditar.id.value             = item.id;
   formEditar.nome_completo.value  = item.nome_completo;
   formEditar.login.value          = item.login || "";
-  formEditar.cargo.value          = item.cargo;
+  // "PIT Trainee" é só rótulo visual (grava/computa como "PIT" - ver
+  // models/hc_gig2.py:cargo_exibicao); usa o rótulo aqui pra reabrir a edição
+  // já com "PIT Trainee" selecionado quando for o caso, em vez de resetar
+  // pra "PIT" puro a cada edição.
+  formEditar.cargo.value          = item.cargo_exibicao || item.cargo;
   formEditar.area.value           = item.area  || "";
   formEditar.turno.value          = item.turno || "";
   formEditar.status.value         = item.status;

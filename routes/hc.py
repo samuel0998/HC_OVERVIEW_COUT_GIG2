@@ -1407,10 +1407,12 @@ def novo_colaborador():
         if existente:
             return jsonify({"erro": "Já existe colaborador com esse login."}), 409
 
+    cargo_bruto = data.get("cargo")
     colaborador = HCGig2(
         nome_completo=(data.get("nome_completo") or "").strip(),
         login=login,
-        cargo=_formatar_cargo(data.get("cargo")),
+        cargo=_formatar_cargo(cargo_bruto),
+        pit_trainee=_cargo_normalizado(cargo_bruto) == "PIT TRAINEE",
         area=(data.get("area") or "").strip() or None,
         turno=None,
         status="Treinamento",
@@ -1526,6 +1528,10 @@ def atualizar_colaborador(item_id):
     colaborador.nome_completo = (data.get("nome_completo") or colaborador.nome_completo).strip()
     colaborador.login         = novo_login if novo_login else colaborador.login
     colaborador.cargo         = _formatar_cargo(data.get("cargo") or colaborador.cargo)
+    if data.get("cargo"):
+        # Só reavalia o rótulo "PIT Trainee" quando o cargo veio no payload (o
+        # formulário de edição sempre manda); sem isso, mantém o que já estava.
+        colaborador.pit_trainee = _cargo_normalizado(data.get("cargo")) == "PIT TRAINEE"
     colaborador.area          = (data.get("area") or "").strip() or None
     colaborador.turno         = (data.get("turno") or "").strip() or None
     if "presente_fc" in data:
@@ -1757,6 +1763,7 @@ def transferir_colaborador_site(item_id):
             nome_completo=colaborador.nome_completo,
             login=colaborador.login,
             cargo=colaborador.cargo,
+            pit_trainee=colaborador.pit_trainee,
             area=None,
             turno=colaborador.turno,
             status="OPERACIONAL",
@@ -2323,7 +2330,9 @@ def importar_csv():
             elif login:
                 logins_vistos.add(login)
 
-            cargo = _formatar_cargo(row.get(col_cargo, "")) if col_cargo else ""
+            cargo_bruto_csv = row.get(col_cargo, "") if col_cargo else ""
+            cargo = _formatar_cargo(cargo_bruto_csv)
+            pit_trainee_csv = _cargo_normalizado(cargo_bruto_csv) == "PIT TRAINEE"
 
             area = str(row.get(col_area, "")).strip() if col_area else ""
             area = None if area.lower() in ("nan", "none", "") else area
@@ -2357,6 +2366,7 @@ def importar_csv():
             item.nome_completo = nome
             item.login = login
             item.cargo = cargo or ""
+            item.pit_trainee = pit_trainee_csv
             item.area = area
             item.turno = _turno_inicial(turno) if status == "Treinamento" else turno
             item.status = status
@@ -3103,7 +3113,9 @@ def dashboard_data():
 
     for r in registros:
         por_area[r.area or "—"]   = por_area.get(r.area or "—", 0) + 1
-        por_cargo[r.cargo]        = por_cargo.get(r.cargo, 0) + 1
+        # cargo_exibicao separa PIT Trainee do PIT normal só aqui (visual) - todo o
+        # resto (capacidade, tickets, filtros de cargo) continua olhando r.cargo puro.
+        por_cargo[r.cargo_exibicao()] = por_cargo.get(r.cargo_exibicao(), 0) + 1
         por_turno[r.turno or "—"] = por_turno.get(r.turno or "—", 0) + 1
 
     por_area  = dict(sorted(por_area.items(),  key=lambda x: x[1], reverse=True))

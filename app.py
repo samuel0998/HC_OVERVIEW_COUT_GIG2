@@ -322,6 +322,11 @@ def _migrate_hc_table_for_fc(fc):
         print(f"[MIGRATION:{fc}] Coluna treinamento_inicio_em verificada (contagem do Treinamento a partir do inicio real, nao do cadastro).")
         conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS pendente_transferencia_origem VARCHAR(30)"))
         print(f"[MIGRATION:{fc}] Coluna pendente_transferencia_origem verificada (transferencia definitiva entre sites aguardando setor).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS pit_trainee BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN pit_trainee SET DEFAULT FALSE"))
+        conn.execute(db.text("UPDATE hc_gig2 SET pit_trainee = FALSE WHERE pit_trainee IS NULL"))
+        conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN pit_trainee SET NOT NULL"))
+        print(f"[MIGRATION:{fc}] Coluna pit_trainee verificada (rotulo visual PIT Trainee no LIST/Dashboard; cargo real continua PIT).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

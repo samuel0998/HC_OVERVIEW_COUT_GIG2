@@ -11,6 +11,12 @@ class HCGig2(db.Model):
     nome_completo = db.Column(db.String(150), nullable=False)
     login = db.Column(db.String(50), unique=True, nullable=True, index=True)
     cargo = db.Column(db.String(50), nullable=False, index=True)
+    # Rótulo puramente visual: marca um PIT selecionado como "PIT Trainee" no
+    # cadastro/edição (ver _cargo_normalizado/_formatar_cargo em routes/hc.py).
+    # O campo cargo acima continua gravado como "PIT" sempre - capacidade,
+    # tickets e as demais ferramentas seguem contando normalmente como PIT.
+    # Só controla o que aparece no LIST e no Dashboard (ver to_dict abaixo).
+    pit_trainee = db.Column(db.Boolean, nullable=False, default=False)
     area = db.Column(db.String(50), nullable=True, index=True)
     turno = db.Column(db.String(50), nullable=True, index=True)
     status = db.Column(db.String(20), nullable=False, default="OPERACIONAL", index=True)
@@ -68,6 +74,14 @@ class HCGig2(db.Model):
     causa_afastamento = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def cargo_exibicao(self):
+        """Cargo como deve aparecer no LIST/Dashboard: "PIT Trainee" quando
+        marcado como tal (pit_trainee), senão o cargo gravado normalmente. O
+        campo cargo em si nunca muda - ver comentário na coluna pit_trainee."""
+        if self.cargo == "PIT" and self.pit_trainee:
+            return "PIT Trainee"
+        return self.cargo
 
     def _status_afastamento_ativo(self):
         return self.status in ("Licença", "Férias")
@@ -244,6 +258,8 @@ class HCGig2(db.Model):
             "nome_completo": self.nome_completo,
             "login": self.login or "",
             "cargo": self.cargo,
+            "pit_trainee": bool(self.pit_trainee),
+            "cargo_exibicao": self.cargo_exibicao(),
             "area": self.area or "",
             "turno": self.turno or "",
             "status": self.status,
