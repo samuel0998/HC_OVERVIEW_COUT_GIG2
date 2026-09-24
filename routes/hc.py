@@ -1606,9 +1606,15 @@ def atualizar_colaborador(item_id):
     elif preserva_temporario:
         colaborador.status = novo_status
     else:
-        # Ao encerrar manualmente um LS, cancela seu retorno pendente. Retornos
-        # agendados por tickets mantem status OPERACIONAL e nao entram aqui.
+        # Ao encerrar manualmente um LS (trocando o status pelo dropdown, sem usar
+        # o botão "Retornar agora"), devolve pro setor/escala de origem - igual o
+        # retorno automático faz (ver aplicar_status_por_data). Sem isso, os campos
+        # de área/turno do formulário continuam com o destino do LS (é o que
+        # aparecia pré-preenchido) e a origem some sem nunca ter sido aplicada.
+        # Retornos agendados por tickets mantem status OPERACIONAL e nao entram aqui.
         if status_anterior == "LS":
+            colaborador.area = colaborador.ls_area_origem or colaborador.area
+            colaborador.turno = colaborador.ls_turno_origem or colaborador.turno
             colaborador.limpar_retorno_ls()
         colaborador.limpar_status_temporario()
         colaborador.status            = novo_status
@@ -1706,6 +1712,45 @@ def atualizar_colaborador(item_id):
 
     db.session.commit()
     return jsonify({"mensagem": "Colaborador atualizado com sucesso.", "item": colaborador.to_dict()})
+
+
+@hc_bp.route("/api/hc/<int:item_id>/retornar-ls", methods=["POST"])
+@login_required
+def retornar_ls_antecipado(item_id):
+    """'Puxar de volta' quem emprestou: retorna manualmente um colaborador em LS
+    para o setor/escala de origem antes da data agendada, sem precisar esperar
+    o prazo nem editar campo por campo. Espelha o que o retorno automático faz
+    (ver aplicar_status_por_data), só que disparado na hora pelo botão no LIST."""
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissão para retornar colaboradores de LS."}), 403
+
+    colaborador = HCGig2.query.get_or_404(item_id)
+    if colaborador.status != "LS":
+        return jsonify({"erro": "Este colaborador não está em LS."}), 400
+
+    area_ant = colaborador.area
+    turno_ant = colaborador.turno
+    ls_ticket_id_ant = colaborador.ls_ticket_id
+    retorno_previsto = colaborador.ls_retorno_data
+
+    colaborador.area = colaborador.ls_area_origem or colaborador.area
+    colaborador.turno = colaborador.ls_turno_origem or colaborador.turno
+    colaborador.status = "OPERACIONAL"
+    colaborador.limpar_retorno_ls()
+
+    prazo_txt = retorno_previsto.strftime("%d/%m/%Y") if retorno_previsto else "-"
+    _registrar(
+        "retorno_ls",
+        colaborador,
+        (
+            f"Retorno manual do LS #{ls_ticket_id_ant or 'manual'} antes do prazo (previsto para {prazo_txt}): "
+            f"setor/escala {area_ant or '-'} / {turno_ant or '-'} → {colaborador.area or '-'} / {colaborador.turno or '-'}"
+        ),
+        dados_ant=json.dumps({"status": "LS", "area": area_ant or "", "turno": turno_ant or ""}),
+        dados_nov=json.dumps({"status": "OPERACIONAL", "area": colaborador.area or "", "turno": colaborador.turno or ""}),
+    )
+    db.session.commit()
+    return jsonify({"mensagem": "Colaborador retornado do LS com sucesso.", "item": colaborador.to_dict()})
 
 
 def _ensure_destino_migrado(fc):

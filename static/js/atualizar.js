@@ -151,7 +151,9 @@ function renderTabela() {
     }
     if (item.ls_retorno_data) {
       const retorno = formatarDataBR(item.ls_retorno_em || item.ls_retorno_data);
-      agendado += `<div class="scheduled-note">↩ Retorno LS #${item.ls_ticket_id || "manual"}: ${retorno} para ${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}</div>`;
+      agendado += `<div class="scheduled-note">↩ Retorno LS #${item.ls_ticket_id || "manual"}: ${retorno} para ${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}
+        <button type="button" class="link-btn" onclick="retornarLS(${item.id})">Retornar agora</button>
+      </div>`;
     }
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -350,6 +352,26 @@ formEditar.addEventListener("submit", async (e) => {
   showMessage(`${result.mensagem}${ticketMensagem}`);
   carregarTabela();
 });
+
+// ── Retornar de LS antes do prazo ("puxar de volta" quem emprestou) ────────
+window.retornarLS = async function (id) {
+  const item = cache.find(x => x.id === id);
+  if (!item) return;
+
+  const destino = `${item.ls_area_origem || "—"} / ${item.ls_turno_origem || "—"}`;
+  const confirmado = confirm(
+    `Retornar "${item.nome_completo}" do LS agora, antes do prazo?\n\n` +
+    `Ele volta pro setor/escala de origem (${destino}) e o status volta pra OPERACIONAL.`
+  );
+  if (!confirmado) return;
+
+  const res = await fetch(`/api/hc/${id}/retornar-ls`, { method: "POST" });
+  const result = await res.json();
+  if (!res.ok) return showMessage(result.erro || "Erro ao retornar do LS.", true);
+
+  showMessage(result.mensagem);
+  carregarTabela();
+};
 
 // ── Exclusão ─────────────────────────────────────────────────────
 window.confirmarExcluir = function (id, nome) {
