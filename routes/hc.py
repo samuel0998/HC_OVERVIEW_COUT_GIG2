@@ -174,6 +174,25 @@ def _read_csv_upload(arquivo):
     raise ultimo_erro
 
 
+def _read_excel_import_upload(arquivo):
+    """Le a primeira planilha de um .xlsx/.xls exportado direto (ex.: lista do
+    SharePoint), cabecalho na primeira linha - igual o CSV de colaboradores."""
+    arquivo.seek(0)
+    df = pd.read_excel(arquivo, dtype=str)
+    if len(df.columns) <= 1:
+        raise ValueError("Planilha lida com apenas uma coluna.")
+    return df
+
+
+def _read_colaboradores_upload(arquivo):
+    """Aceita CSV ou Excel (.xlsx/.xls) na importacao de colaboradores - decide
+    pelo nome do arquivo enviado."""
+    nome_arquivo = (arquivo.filename or "").lower()
+    if nome_arquivo.endswith((".xlsx", ".xls")):
+        return _read_excel_import_upload(arquivo)
+    return _read_csv_upload(arquivo)
+
+
 def _cargo_normalizado(cargo):
     return _normalizar(cargo).upper()
 
@@ -2308,14 +2327,16 @@ def pedir_data_desligamento(item_id):
 def importar_csv():
     arquivo = request.files.get("arquivo")
     if not arquivo:
-        return jsonify({"erro": "Envie um arquivo CSV."}), 400
+        return jsonify({"erro": "Envie um arquivo CSV ou Excel (.xlsx)."}), 400
 
     try:
-        df = _read_csv_upload(arquivo)
+        df = _read_colaboradores_upload(arquivo)
     except Exception as e:
-        return jsonify({"erro": f"Erro ao ler CSV: {str(e)}"}), 400
+        return jsonify({"erro": f"Erro ao ler o arquivo: {str(e)}"}), 400
 
-    col_nome = _find_col(df, "nome")
+    # "Title" cobre exports crus de lista do SharePoint, onde a coluna de nome
+    # vem com esse cabecalho em vez de "Nome Completo".
+    col_nome = _find_col(df, "nome") or _find_col(df, "title")
     col_login = _find_col(df, "login")
     col_cargo = _find_col(df, "cargo")
     col_area = _find_col(df, "area")
@@ -2336,7 +2357,7 @@ def importar_csv():
         col_status = _find_col(df, "status")
 
     if not col_nome:
-        return jsonify({"erro": "Coluna 'Nome Completo' não encontrada no CSV."}), 400
+        return jsonify({"erro": "Coluna 'Nome Completo' (ou 'Title') não encontrada no arquivo."}), 400
 
     STATUS_MAP = {
         "operacional": "OPERACIONAL",
