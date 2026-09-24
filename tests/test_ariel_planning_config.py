@@ -17,7 +17,8 @@ class ArielPlanningConfigTest(unittest.TestCase):
             config = importlib.reload(config)
             self.assertEqual(
                 config.Config.SQLALCHEMY_BINDS["ARIEL_PLANNING"],
-                "postgresql://usuario:senha@ariel.internal:5432/railway",
+                # Driver psycopg2 forcado explicitamente - ver _forcar_driver_psycopg2.
+                "postgresql+psycopg2://usuario:senha@ariel.internal:5432/railway",
             )
 
     def test_nao_adiciona_bind_com_valor_invalido(self):
