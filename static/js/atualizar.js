@@ -18,8 +18,9 @@ const arquivoImportLC = document.getElementById("arquivoImportLC");
 const totalRegistros  = document.getElementById("totalRegistros");
 const modalStatus     = document.getElementById("modalStatus");
 const btnPedirData    = document.getElementById("btnPedirData");
-const chkTransferenciaSite   = document.getElementById("chkTransferenciaSite");
+const lsTipoSite             = document.getElementById("lsTipoSite");
 const avisoTransferenciaSite = document.getElementById("avisoTransferenciaSite");
+const avisoEmprestimoSite    = document.getElementById("avisoEmprestimoSite");
 const camposLSNormal         = document.getElementById("camposLSNormal");
 
 let cache = [];
@@ -209,15 +210,20 @@ function atualizarBlocoStatus() {
 
 modalStatus.addEventListener("change", atualizarBlocoStatus);
 
-// ── Transferência definitiva de site (CNF2 <-> IXD - CNF2), dentro do bloco LS ──
-function atualizarBlocoTransferenciaSite() {
-  if (!chkTransferenciaSite) return;
-  const ativo = chkTransferenciaSite.checked;
-  if (camposLSNormal) camposLSNormal.classList.toggle("hidden", ativo);
-  if (avisoTransferenciaSite) avisoTransferenciaSite.style.display = ativo ? "" : "none";
+// ── Empréstimo/transferência entre sites (CNF2 <-> IXD - CNF2), dentro do bloco LS ──
+function atualizarTipoLSSite() {
+  if (!lsTipoSite) return;
+  const tipo = lsTipoSite.value;
+  const definitivo = tipo === "definitivo";
+  const emprestimo = tipo === "emprestimo";
+  // O empréstimo cruzado usa os MESMOS campos do LS normal (setor + data de
+  // retorno) - só a transferência definitiva não tem retorno, então esconde.
+  if (camposLSNormal) camposLSNormal.classList.toggle("hidden", definitivo);
+  if (avisoTransferenciaSite) avisoTransferenciaSite.style.display = definitivo ? "" : "none";
+  if (avisoEmprestimoSite) avisoEmprestimoSite.style.display = emprestimo ? "" : "none";
 }
-if (chkTransferenciaSite) {
-  chkTransferenciaSite.addEventListener("change", atualizarBlocoTransferenciaSite);
+if (lsTipoSite) {
+  lsTipoSite.addEventListener("change", atualizarTipoLSSite);
 }
 
 // Checkboxes sem data
@@ -267,8 +273,8 @@ window.abrirEdicao = function (id) {
   document.getElementById("lsAreaDestino").value = item.area || "";
   document.getElementById("lsRetornoData").value = item.ls_retorno_data || "";
 
-  if (chkTransferenciaSite) chkTransferenciaSite.checked = false;
-  atualizarBlocoTransferenciaSite();
+  if (lsTipoSite) lsTipoSite.value = "local";
+  atualizarTipoLSSite();
 
   atualizarBlocoStatus();
   modal.classList.remove("hidden");
@@ -281,9 +287,9 @@ formEditar.addEventListener("submit", async (e) => {
   const status = formEditar.status.value;
 
   // Transferência definitiva de site: rota própria, sem os campos normais de LS.
-  if (status === "LS" && chkTransferenciaSite && chkTransferenciaSite.checked) {
+  if (status === "LS" && lsTipoSite && lsTipoSite.value === "definitivo") {
     const nome = formEditar.nome_completo.value;
-    const destinoLabel = chkTransferenciaSite.dataset.destinoLabel;
+    const destinoLabel = lsTipoSite.dataset.destinoLabel;
     const confirmado = confirm(
       `Confirma a transferência DEFINITIVA de "${nome}" para ${destinoLabel}?\n\n` +
       `Ele sai daqui agora e é recriado lá sem setor definido (fica em Pendências até alguém preencher a área). ` +
@@ -294,10 +300,44 @@ formEditar.addEventListener("submit", async (e) => {
     const res = await fetch(`/api/hc/${id}/transferencia-site`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ destino_fc: chkTransferenciaSite.dataset.destinoFc }),
+      body: JSON.stringify({ destino_fc: lsTipoSite.dataset.destinoFc }),
     });
     const result = await res.json();
     if (!res.ok) return showMessage(result.erro || "Erro ao transferir.", true);
+
+    modal.classList.add("hidden");
+    showMessage(result.mensagem);
+    carregarTabela();
+    return;
+  }
+
+  // Empréstimo (LS) cruzado: mesmos campos do LS normal, rota própria porque
+  // precisa migrar o cadastro pro banco do site de destino.
+  if (status === "LS" && lsTipoSite && lsTipoSite.value === "emprestimo") {
+    const nome = formEditar.nome_completo.value;
+    const destinoLabel = lsTipoSite.dataset.destinoLabel;
+    const areaDestino = document.getElementById("lsAreaDestino").value;
+    const retornoData = document.getElementById("lsRetornoData").value;
+    if (!areaDestino) return showMessage("Selecione o setor de destino do empréstimo.", true);
+    if (!retornoData) return showMessage("Informe a data de retorno do empréstimo.", true);
+
+    const confirmado = confirm(
+      `Confirma o empréstimo de "${nome}" para ${destinoLabel} / ${areaDestino}, ` +
+      `com retorno previsto para ${formatarDataBR(retornoData)}?`
+    );
+    if (!confirmado) return;
+
+    const res = await fetch(`/api/hc/${id}/emprestimo-site`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destino_fc: lsTipoSite.dataset.destinoFc,
+        area_destino: areaDestino,
+        ls_retorno_data: retornoData,
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok) return showMessage(result.erro || "Erro ao emprestar.", true);
 
     modal.classList.add("hidden");
     showMessage(result.mensagem);

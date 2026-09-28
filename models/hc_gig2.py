@@ -57,6 +57,13 @@ class HCGig2(db.Model):
     ls_area_origem = db.Column(db.String(50), nullable=True)
     ls_turno_origem = db.Column(db.String(50), nullable=True)
     ls_ticket_id = db.Column(db.Integer, nullable=True)
+    # Empréstimo (LS) CRUZADO entre sites-irmãos (CNF2 <-> IXD - CNF2): guarda a
+    # chave do FC de origem enquanto este registro mora temporariamente no banco
+    # de destino. Só existe nesse cenário - LS dentro do mesmo banco nunca usa
+    # este campo. O retorno automático desses registros não pode ser feito aqui
+    # no model (precisa mover o cadastro de um banco pro outro); ver
+    # retorno_ls_cruzado_devido() e routes.hc._aplicar_regra_hc_atual.
+    ls_site_origem = db.Column(db.String(20), nullable=True)
     # Treinamento: data em que o ciclo ATUAL de Treinamento comecou. Usada para
     # contar os dias de treinamento em vez de created_at, pois um colaborador
     # antigo pode ser recolocado em Treinamento manualmente muito depois do
@@ -178,6 +185,28 @@ class HCGig2(db.Model):
         self.ls_area_origem = None
         self.ls_turno_origem = None
         self.ls_ticket_id = None
+        self.ls_site_origem = None
+
+    def _retorno_ls_no_prazo(self, hoje, agora):
+        return (
+            self.ls_retorno_em is not None and agora >= self.ls_retorno_em
+        ) or (
+            self.ls_retorno_em is None
+            and self.ls_retorno_data is not None
+            and hoje >= self.ls_retorno_data
+        )
+
+    def retorno_ls_cruzado_devido(self, hoje=None, agora=None):
+        """True quando este registro é um empréstimo (LS) CRUZADO - mora
+        temporariamente no banco do site de destino (ls_site_origem preenchido)
+        - e o prazo de retorno já chegou. O retorno em si (apagar daqui, recriar
+        no banco de ls_site_origem) precisa ser feito em routes.hc, que tem
+        acesso à sessão/engines de cada banco; este método só sinaliza."""
+        if not self.ls_site_origem:
+            return False
+        hoje = hoje or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
+        agora = agora or datetime.utcnow()
+        return self._retorno_ls_no_prazo(hoje, agora)
 
     def aplicar_status_por_data(self, hoje=None, agora=None):
         hoje = hoje or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
@@ -188,14 +217,12 @@ class HCGig2(db.Model):
         alterou_bloqueios = False
         self._ativar_status_agendado(hoje, agora)
 
-        retorno_ls_chegou = (
-            self.ls_retorno_em is not None and agora >= self.ls_retorno_em
-        ) or (
-            self.ls_retorno_em is None
-            and self.ls_retorno_data is not None
-            and hoje >= self.ls_retorno_data
-        )
-        if retorno_ls_chegou:
+        retorno_ls_chegou = self._retorno_ls_no_prazo(hoje, agora)
+        if retorno_ls_chegou and not self.ls_site_origem:
+            # Empréstimo cruzado (ls_site_origem preenchido) não é tratado aqui:
+            # o retorno exige mover o cadastro de volta pro banco de origem, o
+            # que este método não tem como fazer sozinho (ver
+            # retorno_ls_cruzado_devido, resolvido em routes.hc).
             self.area = self.ls_area_origem or self.area
             self.turno = self.ls_turno_origem or self.turno
             self.limpar_retorno_ls()
@@ -291,6 +318,7 @@ class HCGig2(db.Model):
             "ls_area_origem": self.ls_area_origem or "",
             "ls_turno_origem": self.ls_turno_origem or "",
             "ls_ticket_id": self.ls_ticket_id,
+            "ls_site_origem": self.ls_site_origem or "",
             "previsao_afastamento": self.previsao_afastamento,
             "data_afastamento": self.data_afastamento.strftime("%Y-%m-%d") if self.data_afastamento else None,
             "causa_afastamento": self.causa_afastamento or "",

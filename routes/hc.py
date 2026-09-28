@@ -334,17 +334,22 @@ def _pendencia_filtro():
     )
 
 
+def _usuario_atual(sistema=False):
+    """Login/nome a atribuir num registro de atividade. sistema=True nunca toca
+    current_user - seguro de chamar fora de request (boot, automacao)."""
+    if sistema:
+        return "sistema", "Automação"
+    try:
+        if current_user.is_authenticated:
+            return current_user.login, current_user.nome
+    except Exception:
+        pass
+    return "sistema", "Sistema"
+
+
 def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None, sistema=False):
     """Log an activity to registro_atividade."""
-    from models.registro_atividade import RegistroAtividade
-    if sistema:
-        u_login, u_nome = "sistema", "Automação"
-    else:
-        try:
-            u_login = current_user.login if current_user.is_authenticated else "sistema"
-            u_nome  = current_user.nome  if current_user.is_authenticated else "Sistema"
-        except Exception:
-            u_login, u_nome = "sistema", "Sistema"
+    u_login, u_nome = _usuario_atual(sistema)
 
     reg = RegistroAtividade(
         tipo=tipo,
@@ -360,10 +365,99 @@ def _registrar(tipo, op, descricao, dados_ant=None, dados_nov=None, sistema=Fals
     db.session.add(reg)
 
 
+def _ensure_destino_migrado(fc):
+    """Roda sob demanda a mesma migração ALTER TABLE do boot (app.py) no banco de
+    destino de um movimento entre sites, cobrindo o caso do IXD - CNF2 ainda não
+    ter sido migrado (ele só bootstrapa no primeiro login - ver
+    _inicializar_fc_sob_demanda em routes/auth.py)."""
+    from app import _migrate_hc_table_for_fc
+    _migrate_hc_table_for_fc(fc)
+
+
+def _mover_colaborador_entre_bancos(
+    colaborador, destino_fc, campos_destino, descricao_saida, descricao_chegada,
+    tipo="transferencia_operacao", sistema=False, dados_ant_saida=None, dados_nov_saida=None,
+):
+    """Move um colaborador de um banco (FC) pro outro: cria em destino_fc com
+    campos_destino, loga histórico dos dois lados, e só então apaga o registro
+    de origem (nessa ordem - nunca ao contrário, pra nunca perder um cadastro
+    se a exclusão falhar depois de criado no destino; o pior caso vira
+    duplicidade, nunca perda). Usada tanto pela transferência definitiva quanto
+    pelo empréstimo (LS) cruzado entre sites, na ida e na volta.
+
+    Não comita sozinha - quem chama decide o momento (permite processar vários
+    colaboradores numa única transação por banco)."""
+    _ensure_destino_migrado(destino_fc)
+    u_login, u_nome = _usuario_atual(sistema)
+
+    dest_session = sessionmaker(bind=db.engines[destino_fc])()
+    try:
+        novo = HCGig2(**campos_destino)
+        dest_session.add(novo)
+        dest_session.flush()
+        dest_session.add(RegistroAtividade(
+            tipo=tipo,
+            operador_id=novo.id,
+            operador_login=novo.login,
+            operador_nome=novo.nome_completo,
+            usuario_login=u_login,
+            usuario_nome=u_nome,
+            descricao=descricao_chegada,
+        ))
+        dest_session.commit()
+    except Exception:
+        dest_session.rollback()
+        raise
+    finally:
+        dest_session.close()
+
+    # O destino já está confirmado - só agora remove da origem.
+    _registrar(tipo, colaborador, descricao_saida, dados_ant=dados_ant_saida, dados_nov=dados_nov_saida, sistema=sistema)
+    db.session.delete(colaborador)
+
+
 def _aplicar_regra_hc_atual(registros, hoje=None, commit=True):
     alterou = False
     agora = datetime.utcnow()
+    hoje = hoje or datetime.now(ZoneInfo("America/Sao_Paulo")).date()
     for registro in registros:
+        if registro.retorno_ls_cruzado_devido(hoje, agora):
+            # Empréstimo (LS) cruzado com prazo vencido: precisa voltar pro
+            # banco do site de origem (ver ls_site_origem) - isso não é uma
+            # mudança de campo comum, é mover o cadastro entre bancos, então
+            # fica fora do fluxo genérico de "antes/depois" abaixo.
+            origem_fc = registro.ls_site_origem
+            fc_databases = current_app.config["FC_DATABASES"]
+            origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
+            atual_label = fc_databases.get(get_current_fc(), {}).get("label", get_current_fc())
+            campos_origem = dict(
+                nome_completo=registro.nome_completo,
+                login=registro.login,
+                cargo=registro.cargo,
+                pit_trainee=registro.pit_trainee,
+                area=registro.ls_area_origem,
+                turno=registro.ls_turno_origem,
+                status="OPERACIONAL",
+                job=registro.job,
+                presente_fc=True,
+                presenca_manual=False,
+            )
+            try:
+                _mover_colaborador_entre_bancos(
+                    registro, origem_fc, campos_origem,
+                    descricao_saida=f"Retorno automático do empréstimo: enviado de volta para {origem_label}.",
+                    descricao_chegada=(
+                        f"Retorno automático do empréstimo de {atual_label}: setor/escala restaurados "
+                        f"({registro.ls_area_origem or '-'} / {registro.ls_turno_origem or '-'})."
+                    ),
+                    tipo="retorno_ls",
+                    sistema=True,
+                )
+                alterou = True
+            except Exception as e:
+                print(f"[LS-CRUZADO] Falha ao retornar '{registro.nome_completo}' pra {origem_label}: {e}")
+            continue
+
         antes = {
             "status": registro.status,
             "status_agendado": registro.status_agendado or "",
@@ -1510,6 +1604,12 @@ def atualizar_colaborador(item_id):
     if novo_status in ("VTE", "VTO") and novo_status != colaborador.status:
         return jsonify({"erro": f"O status {novo_status} só pode ser aplicado pela validação de um ticket de RH."}), 400
 
+    if colaborador.status == "LS" and colaborador.ls_site_origem and novo_status != "LS":
+        # Empréstimo cruzado (outro banco): "voltar" exige mover o cadastro pro
+        # banco de origem, o que esta edição genérica não faz. Usa o botão
+        # dedicado "Retornar agora" (retornar_ls_antecipado), que trata isso.
+        return jsonify({"erro": "Este colaborador está emprestado para outro site. Use o botão \"Retornar agora\" pra encerrar o empréstimo."}), 400
+
     status_anterior          = colaborador.status
     status_agendado_anterior = colaborador.status_agendado
     preserva_temporario = (
@@ -1747,17 +1847,52 @@ def retornar_ls_antecipado(item_id):
     if colaborador.status != "LS":
         return jsonify({"erro": "Este colaborador não está em LS."}), 400
 
+    retorno_previsto = colaborador.ls_retorno_data
+    prazo_txt = retorno_previsto.strftime("%d/%m/%Y") if retorno_previsto else "-"
+
+    if colaborador.ls_site_origem:
+        # Empréstimo cruzado (outro banco) - "voltar" aqui significa mover o
+        # cadastro de volta pro banco de origem, não só trocar área/turno.
+        origem_fc = colaborador.ls_site_origem
+        fc_databases = current_app.config["FC_DATABASES"]
+        origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
+        atual_label = fc_databases.get(get_current_fc(), {}).get("label", get_current_fc())
+        campos_origem = dict(
+            nome_completo=colaborador.nome_completo,
+            login=colaborador.login,
+            cargo=colaborador.cargo,
+            pit_trainee=colaborador.pit_trainee,
+            area=colaborador.ls_area_origem,
+            turno=colaborador.ls_turno_origem,
+            status="OPERACIONAL",
+            job=colaborador.job,
+            presente_fc=True,
+            presenca_manual=False,
+        )
+        try:
+            _mover_colaborador_entre_bancos(
+                colaborador, origem_fc, campos_origem,
+                descricao_saida=f"Retorno manual do empréstimo antes do prazo (previsto para {prazo_txt}): enviado de volta para {origem_label}.",
+                descricao_chegada=(
+                    f"Retorno manual do empréstimo de {atual_label} antes do prazo: setor/escala restaurados "
+                    f"({colaborador.ls_area_origem or '-'} / {colaborador.ls_turno_origem or '-'})."
+                ),
+                tipo="retorno_ls",
+            )
+        except Exception as e:
+            return jsonify({"erro": f"Falha ao retornar para {origem_label}: {e}"}), 500
+        db.session.commit()
+        return jsonify({"mensagem": f"Colaborador retornado do empréstimo para {origem_label} com sucesso."})
+
     area_ant = colaborador.area
     turno_ant = colaborador.turno
     ls_ticket_id_ant = colaborador.ls_ticket_id
-    retorno_previsto = colaborador.ls_retorno_data
 
     colaborador.area = colaborador.ls_area_origem or colaborador.area
     colaborador.turno = colaborador.ls_turno_origem or colaborador.turno
     colaborador.status = "OPERACIONAL"
     colaborador.limpar_retorno_ls()
 
-    prazo_txt = retorno_previsto.strftime("%d/%m/%Y") if retorno_previsto else "-"
     _registrar(
         "retorno_ls",
         colaborador,
@@ -1772,13 +1907,118 @@ def retornar_ls_antecipado(item_id):
     return jsonify({"mensagem": "Colaborador retornado do LS com sucesso.", "item": colaborador.to_dict()})
 
 
-def _ensure_destino_migrado(fc):
-    """Roda sob demanda a mesma migração ALTER TABLE do boot (app.py) no banco de
-    destino de uma transferência definitiva de site, cobrindo o caso do IXD - CNF2
-    ainda não ter sido migrado (ele só bootstrapa no primeiro login - ver
-    _inicializar_fc_sob_demanda em routes/auth.py)."""
-    from app import _migrate_hc_table_for_fc
-    _migrate_hc_table_for_fc(fc)
+@hc_bp.route("/api/hc/<int:item_id>/emprestimo-site", methods=["POST"])
+@login_required
+def emprestimo_ls_cruzado(item_id):
+    """Empréstimo (LS) TEMPORÁRIO entre os bancos-irmãos CNF2 e IXD - CNF2:
+    funciona igual o LS normal - mesma regra de retorno (na data marcada, ou
+    24h depois se for hoje) - só que, como os dois sites vivem em bancos
+    separados, o colaborador migra fisicamente pro banco do site de destino
+    enquanto durar o empréstimo, e volta sozinho pro banco de origem quando o
+    prazo chega (ver retorno_ls_cruzado_devido / _aplicar_regra_hc_atual)."""
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissão para emprestar colaboradores."}), 403
+
+    origem_fc = get_current_fc()
+    destino_fc = SITE_TRANSFER_PARTNER.get(origem_fc)
+    if not destino_fc:
+        return jsonify({"erro": "Empréstimo entre sites só está disponível entre CNF2 e IXD - CNF2."}), 400
+
+    data = request.get_json(silent=True) or {}
+    destino_solicitado = (data.get("destino_fc") or "").strip().upper()
+    if destino_solicitado != destino_fc:
+        return jsonify({"erro": "Site de destino inválido para esta operação."}), 400
+
+    area_destino = (data.get("area_destino") or "").strip()
+    if not area_destino:
+        return jsonify({"erro": "Selecione o setor de destino do empréstimo."}), 400
+
+    retorno = _parse_date(data.get("ls_retorno_data"))
+    if not retorno:
+        return jsonify({"erro": "Informe a data de retorno do empréstimo."}), 400
+    hoje = date.today()
+    if retorno < hoje:
+        return jsonify({"erro": "A data de retorno não pode estar no passado."}), 400
+
+    colaborador = HCGig2.query.get_or_404(item_id)
+    if colaborador.status == "LS":
+        return jsonify({"erro": "Este colaborador já está em LS. Finalize o empréstimo atual antes de abrir outro."}), 400
+
+    area_origem = colaborador.area
+    turno_origem = colaborador.turno
+    if not area_origem:
+        return jsonify({"erro": "O colaborador precisa ter um setor de origem para ser emprestado."}), 400
+
+    # Mesma regra do LS normal: emprestado hoje volta 24h depois; qualquer
+    # outra data, volta na meia-noite (horário de Brasília) do dia marcado.
+    agora_utc = datetime.utcnow()
+    ls_retorno_em = (
+        agora_utc + timedelta(hours=24)
+        if retorno == hoje
+        else (
+            datetime.combine(retorno, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
+            .astimezone(ZoneInfo("UTC"))
+            .replace(tzinfo=None)
+        )
+    )
+
+    fc_databases = current_app.config["FC_DATABASES"]
+    origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
+    destino_label = fc_databases.get(destino_fc, {}).get("label", destino_fc)
+
+    campos_destino = dict(
+        nome_completo=colaborador.nome_completo,
+        login=colaborador.login,
+        cargo=colaborador.cargo,
+        pit_trainee=colaborador.pit_trainee,
+        area=area_destino,
+        turno=colaborador.turno,
+        status="LS",
+        job=colaborador.job,
+        presente_fc=True,
+        presenca_manual=False,
+        ls_retorno_data=retorno,
+        ls_retorno_em=ls_retorno_em,
+        ls_area_origem=area_origem,
+        ls_turno_origem=turno_origem,
+        ls_site_origem=origem_fc,
+    )
+
+    try:
+        _mover_colaborador_entre_bancos(
+            colaborador, destino_fc, campos_destino,
+            descricao_saida=(
+                f"Empréstimo (LS) enviado para {destino_label} / {area_destino}; "
+                f"retorno previsto para {retorno.strftime('%d/%m/%Y')}."
+            ),
+            descricao_chegada=(
+                f"Empréstimo (LS) recebido de {origem_label} / {area_origem or '-'} / {turno_origem or '-'}; "
+                f"retorno previsto para {retorno.strftime('%d/%m/%Y')}."
+            ),
+            tipo="agendamento_ls",
+            dados_ant_saida=json.dumps({"status": "OPERACIONAL", "area": area_origem or "", "turno": turno_origem or ""}),
+            dados_nov_saida=json.dumps({"status": "LS", "destino_fc": destino_fc, "area": area_destino}),
+        )
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao emprestar para {destino_label}: {e}"}), 500
+
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "erro": (
+                f"O colaborador já foi criado em {destino_label}, mas houve falha ao remover o "
+                f"registro original em {origem_label}: {e}. Verifique manualmente para evitar duplicidade."
+            )
+        }), 500
+
+    return jsonify({
+        "mensagem": (
+            f"Colaborador emprestado para {destino_label} / {area_destino}, "
+            f"com retorno previsto para {retorno.strftime('%d/%m/%Y')}."
+        )
+    })
 
 
 @hc_bp.route("/api/hc/<int:item_id>/transferencia-site", methods=["POST"])
@@ -1788,11 +2028,7 @@ def transferir_colaborador_site(item_id):
     IXD - CNF2 (troca de site, não um empréstimo/LS temporário): o colaborador
     sai do banco do site atual e é recriado no banco do site de destino, sem
     setor definido (fica em Pendências lá até alguém preencher a área). Fica
-    registrado como 'transferencia_operacao' no histórico dos dois lados.
-
-    A ordem importa: insere no destino primeiro e só apaga da origem depois de
-    confirmar o commit lá. Se a exclusão da origem falhar depois do sucesso no
-    destino, o pior cenário é registro duplicado (nunca perda de cadastro)."""
+    registrado como 'transferencia_operacao' no histórico dos dois lados."""
     if not current_user.can_edit:
         return jsonify({"erro": "Sem permissão para transferir colaboradores."}), 403
 
@@ -1812,62 +2048,37 @@ def transferir_colaborador_site(item_id):
     origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
     destino_label = fc_databases.get(destino_fc, {}).get("label", destino_fc)
 
-    # Garante que o banco de destino já tem as colunas mais recentes (relevante
-    # sobretudo pro IXD - CNF2, que só migra sob demanda no primeiro login -
-    # ver _inicializar_fc_sob_demanda em routes/auth.py).
-    try:
-        _ensure_destino_migrado(destino_fc)
-    except Exception as e:
-        return jsonify({"erro": f"Não foi possível preparar o banco de {destino_label}: {e}"}), 500
+    campos_destino = dict(
+        nome_completo=colaborador.nome_completo,
+        login=colaborador.login,
+        cargo=colaborador.cargo,
+        pit_trainee=colaborador.pit_trainee,
+        area=None,
+        turno=colaborador.turno,
+        status="OPERACIONAL",
+        job=colaborador.job,
+        presente_fc=True,
+        presenca_manual=False,
+        pendente_transferencia_origem=origem_label,
+    )
 
-    # 1) Cria o cadastro no banco de destino, sem setor (vira pendência lá).
-    dest_session = sessionmaker(bind=db.engines[destino_fc])()
     try:
-        novo = HCGig2(
-            nome_completo=colaborador.nome_completo,
-            login=colaborador.login,
-            cargo=colaborador.cargo,
-            pit_trainee=colaborador.pit_trainee,
-            area=None,
-            turno=colaborador.turno,
-            status="OPERACIONAL",
-            job=colaborador.job,
-            presente_fc=True,
-            presenca_manual=False,
-            pendente_transferencia_origem=origem_label,
-        )
-        dest_session.add(novo)
-        dest_session.flush()
-        dest_session.add(RegistroAtividade(
+        _mover_colaborador_entre_bancos(
+            colaborador, destino_fc, campos_destino,
+            descricao_saida=f"Transferência de operação: enviado para {destino_label} (login {colaborador.login or '-'}).",
+            descricao_chegada=f"Transferência de operação: recebido de {origem_label}. Aguardando definição de setor.",
             tipo="transferencia_operacao",
-            operador_id=novo.id,
-            operador_login=novo.login,
-            operador_nome=novo.nome_completo,
-            usuario_login=current_user.login if current_user.is_authenticated else "sistema",
-            usuario_nome=current_user.nome if current_user.is_authenticated else "Sistema",
-            descricao=f"Transferência de operação: recebido de {origem_label}. Aguardando definição de setor.",
-        ))
-        dest_session.commit()
-    except Exception as e:
-        dest_session.rollback()
-        return jsonify({"erro": f"Falha ao transferir para {destino_label}: {e}"}), 500
-    finally:
-        dest_session.close()
-
-    # 2) Só agora remove da origem — o destino já está confirmado.
-    try:
-        _registrar(
-            "transferencia_operacao",
-            colaborador,
-            f"Transferência de operação: enviado para {destino_label} (login {colaborador.login or '-'}).",
-            dados_ant=json.dumps({
+            dados_ant_saida=json.dumps({
                 "area": colaborador.area or "",
                 "turno": colaborador.turno or "",
                 "status": colaborador.status,
             }),
-            dados_nov=json.dumps({"status": "TRANSFERIDO", "destino_fc": destino_fc}),
+            dados_nov_saida=json.dumps({"status": "TRANSFERIDO", "destino_fc": destino_fc}),
         )
-        db.session.delete(colaborador)
+    except Exception as e:
+        return jsonify({"erro": f"Falha ao transferir para {destino_label}: {e}"}), 500
+
+    try:
         db.session.commit()
     except Exception as e:
         db.session.rollback()

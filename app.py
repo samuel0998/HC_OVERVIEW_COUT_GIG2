@@ -327,6 +327,8 @@ def _migrate_hc_table_for_fc(fc):
         conn.execute(db.text("UPDATE hc_gig2 SET pit_trainee = FALSE WHERE pit_trainee IS NULL"))
         conn.execute(db.text("ALTER TABLE hc_gig2 ALTER COLUMN pit_trainee SET NOT NULL"))
         print(f"[MIGRATION:{fc}] Coluna pit_trainee verificada (rotulo visual PIT Trainee no LIST/Dashboard; cargo real continua PIT).")
+        conn.execute(db.text("ALTER TABLE hc_gig2 ADD COLUMN IF NOT EXISTS ls_site_origem VARCHAR(20)"))
+        print(f"[MIGRATION:{fc}] Coluna ls_site_origem verificada (emprestimo/LS cruzado entre sites CNF2 <-> IXD - CNF2).")
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "
             "FROM information_schema.columns "

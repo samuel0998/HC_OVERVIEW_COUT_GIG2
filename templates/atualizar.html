@@ -105,12 +105,19 @@
                 <div class="status-block-title">Empréstimo de colaborador (LS)</div>
                 <p class="op-info">Selecione o setor de destino e a data em que o colaborador voltará ao setor de origem. Para a data de hoje, o retorno é agendado para 24 horas após o registro.</p>
                 {% if site_destino_fc %}
-                <label class="check mt-8" style="display:flex;gap:8px;align-items:flex-start;">
-                    <input type="checkbox" id="chkTransferenciaSite" data-destino-fc="{{ site_destino_fc }}" data-destino-label="{{ site_destino_label }}">
-                    <span>Transferência <strong>definitiva</strong> de site: enviar este cadastro para <strong>{{ site_destino_label }}</strong> (não é empréstimo — sai daqui e some da lista)</span>
-                </label>
+                <div class="mt-8">
+                    <label class="field-label" for="lsTipoSite">Tipo de empréstimo</label>
+                    <select id="lsTipoSite" data-destino-fc="{{ site_destino_fc }}" data-destino-label="{{ site_destino_label }}">
+                        <option value="local" selected>Dentro do site atual</option>
+                        <option value="emprestimo">Emprestar para {{ site_destino_label }} (retorna automaticamente)</option>
+                        <option value="definitivo">Transferência definitiva para {{ site_destino_label }} (não retorna)</option>
+                    </select>
+                </div>
+                <p class="op-info" id="avisoEmprestimoSite" style="display:none;color:#1565c0;margin-top:8px;">
+                    🔁 Empréstimo entre sites: o colaborador migra pro banco de dados de {{ site_destino_label }} enquanto durar o empréstimo, e volta sozinho pra cá (setor/escala de origem) na data de retorno marcada abaixo — mesma regra do LS normal.
+                </p>
                 <p class="op-info" id="avisoTransferenciaSite" style="display:none;color:#c2410c;margin-top:8px;">
-                    ⚠️ Isto move o cadastro para o banco de dados de {{ site_destino_label }}. Ele deixa de existir aqui e é recriado lá <strong>sem setor definido</strong>, aparecendo em Pendências até alguém preencher a área. Essa ação não pode ser desfeita por aqui.
+                    ⚠️ Transferência definitiva: move o cadastro para o banco de dados de {{ site_destino_label }} de vez. Ele deixa de existir aqui e é recriado lá <strong>sem setor definido</strong>, aparecendo em Pendências até alguém preencher a área. Essa ação não pode ser desfeita por aqui.
                 </p>
                 {% endif %}
                 <div class="form-grid" style="margin-top:10px" id="camposLSNormal">
