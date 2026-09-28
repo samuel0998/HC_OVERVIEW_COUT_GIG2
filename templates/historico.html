@@ -35,6 +35,36 @@
                 <button class="btn btn-sm" onclick="carregarAtividades()">&#8635; Atualizar</button>
             </div>
         </div>
+
+        <div style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px;background:#f8fafc;">
+            <div style="font-weight:bold;font-size:13px;color:var(--primary);margin-bottom:8px;">📋 Filtros do relatório (DD)</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <select id="filtro-cargo" class="filter-select" onchange="carregarAtividades()">
+                    <option value="">Todos os cargos</option>
+                    {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select id="filtro-setor" class="filter-select" onchange="carregarAtividades()">
+                    <option value="">Todos os setores</option>
+                    {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select id="filtro-turno" class="filter-select" onchange="carregarAtividades()">
+                    <option value="">Todos os turnos/escalas</option>
+                    {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select id="filtro-status" class="filter-select" onchange="carregarAtividades()">
+                    <option value="">Todos os status</option>
+                    {% for item in status_list %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <input type="date" id="filtro-data-de" class="filter-select" onchange="carregarAtividades()" title="Data inicial" style="min-width:150px;">
+                <span style="color:var(--muted);font-size:13px;">até</span>
+                <input type="date" id="filtro-data-ate" class="filter-select" onchange="carregarAtividades()" title="Data final" style="min-width:150px;">
+                <button class="btn btn-sm" onclick="limparFiltrosDD()">Limpar filtros</button>
+                <button class="btn primary btn-sm" onclick="gerarRelatorioDD()">📊 Gerar relatório (Excel)</button>
+            </div>
+            <p style="margin:8px 0 0;font-size:12px;color:var(--muted);">
+                Cargo/setor/turno/status filtram pela alocação <strong>atual</strong> do colaborador (não pela alocação de quando o evento aconteceu). O relatório em Excel sai com exatamente estes filtros aplicados.
+            </p>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -42,12 +72,16 @@
                         <th>Data/Hora</th>
                         <th>Tipo</th>
                         <th>Operador</th>
+                        <th>Cargo</th>
+                        <th>Setor</th>
+                        <th>Turno</th>
+                        <th>Status</th>
                         <th>Usuário</th>
                         <th>Descrição</th>
                     </tr>
                 </thead>
                 <tbody id="ativ-tbody">
-                    <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
+                    <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -145,15 +179,52 @@ function filtrarPorBusca(itens, termo, textoDe) {
     });
 }
 
-async function carregarAtividades() {
+// Filtros do relatório de DD (cargo/setor/turno/status/período), compartilhados
+// entre o carregamento da tela e a geração do Excel - assim os dois sempre
+// batem com o que está selecionado na tela.
+function _filtrosDD() {
+    const p = new URLSearchParams();
     const tipo = document.getElementById('filtro-tipo').value;
-    const url = '/api/hc/historico?limite=300' + (tipo ? '&tipo=' + tipo : '');
+    const cargo = document.getElementById('filtro-cargo').value;
+    const setor = document.getElementById('filtro-setor').value;
+    const turno = document.getElementById('filtro-turno').value;
+    const status = document.getElementById('filtro-status').value;
+    const dataDe = document.getElementById('filtro-data-de').value;
+    const dataAte = document.getElementById('filtro-data-ate').value;
+    if (tipo) p.set('tipo', tipo);
+    if (cargo) p.set('cargo', cargo);
+    if (setor) p.set('area', setor);
+    if (turno) p.set('turno', turno);
+    if (status) p.set('status', status);
+    if (dataDe) p.set('data_de', dataDe);
+    if (dataAte) p.set('data_ate', dataAte);
+    return p;
+}
+
+function limparFiltrosDD() {
+    document.getElementById('filtro-cargo').value = '';
+    document.getElementById('filtro-setor').value = '';
+    document.getElementById('filtro-turno').value = '';
+    document.getElementById('filtro-status').value = '';
+    document.getElementById('filtro-data-de').value = '';
+    document.getElementById('filtro-data-ate').value = '';
+    carregarAtividades();
+}
+
+function gerarRelatorioDD() {
+    const p = _filtrosDD();
+    window.location.href = `/api/hc/historico/export?${p.toString()}`;
+}
+
+async function carregarAtividades() {
+    const p = _filtrosDD();
+    p.set('limite', '300');
     try {
-        const res = await fetch(url);
+        const res = await fetch(`/api/hc/historico?${p.toString()}`);
         _atividades = await res.json();
         renderAtividades();
     } catch (e) {
-        document.getElementById('ativ-tbody').innerHTML = '<tr><td colspan="5" style="color:red;padding:16px;">Erro ao carregar atividades.</td></tr>';
+        document.getElementById('ativ-tbody').innerHTML = '<tr><td colspan="9" style="color:red;padding:16px;">Erro ao carregar atividades.</td></tr>';
     }
 }
 
@@ -164,17 +235,18 @@ function renderAtividades() {
     const lista = filtrarPorBusca(_atividades, termo, r => [
         r.timestamp, TIPO_LABELS[r.tipo] || r.tipo,
         r.operador_nome, r.operador_login, r.usuario_nome, r.usuario_login,
+        r.cargo_atual, r.area_atual, r.turno_atual, r.status_atual,
         r.descricao,
         ...(r.alteracoes || []).flatMap(a => [a.campo, a.de, a.para]),
     ].join(' '));
 
     if (!_atividades.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro encontrado.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro encontrado.</td></tr>';
         document.getElementById('ativ-total').textContent = '';
         return;
     }
     if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro corresponde à busca.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--muted);">Nenhum registro corresponde à busca.</td></tr>';
         document.getElementById('ativ-total').textContent = `0 de ${_atividades.length} registro(s)`;
         return;
     }
@@ -193,8 +265,12 @@ function renderAtividades() {
             <td style="white-space:nowrap;font-size:12px;">${r.timestamp}</td>
             <td><span class="badge ${cls}" style="font-size:11px;">${label}</span></td>
             <td style="font-size:13px;">${escaparHtml(r.operador_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.operador_login || '')}</span></td>
+            <td style="font-size:12px;">${escaparHtml(r.cargo_atual || '—')}</td>
+            <td style="font-size:12px;">${escaparHtml(r.area_atual || '—')}</td>
+            <td style="font-size:12px;">${escaparHtml(r.turno_atual || '—')}</td>
+            <td style="font-size:12px;">${escaparHtml(r.status_atual || '—')}</td>
             <td style="font-size:13px;">${escaparHtml(r.usuario_nome || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(r.usuario_login || '')}</span></td>
-            <td style="font-size:13px;max-width:430px;">${escaparHtml(r.descricao || '—')}${alteracoes}</td>
+            <td style="font-size:13px;max-width:380px;">${escaparHtml(r.descricao || '—')}${alteracoes}</td>
         </tr>`;
     }).join('');
 

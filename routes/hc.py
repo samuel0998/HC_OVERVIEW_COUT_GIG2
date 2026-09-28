@@ -38,6 +38,18 @@ STATUS  = ["OPERACIONAL", "LS", "VTE", "VTO", "Treinamento", "Ausência", "Licen
 # A troca de site é a única transferência "definitiva" (não-LS) suportada hoje:
 # manda o cadastro de um banco pro outro (ver transferir_colaborador_site).
 SITE_TRANSFER_PARTNER = {"CNF2": "IXD_CNF2", "IXD_CNF2": "CNF2"}
+# Mantido em espelho com TIPO_LABELS em templates/historico.html - usado no
+# relatório de DD exportado (ver exportar_historico).
+TIPO_ATIVIDADE_LABELS = {
+    "adicao": "Adição",
+    "edicao": "Edição",
+    "edicao_status": "Edição de Status",
+    "agendamento_ls": "Retorno LS agendado",
+    "retorno_ls": "Retorno LS",
+    "transferencia_operacao": "Transferência de Operação",
+    "exclusao": "Exclusão",
+    "desligamento_automatico": "Desligamento Automático",
+}
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
     "TRANSFER IN": ["Transfer In Decant", "Each Transfer In", "Pallet Transfer In", "Tote Transfer In", "Transfer In Support", "Transfer In"],
@@ -1421,7 +1433,7 @@ def pendencias_page():
 def historico_page():
     if not current_user.can_historico:
         abort(403)
-    return render_template("historico.html")
+    return render_template("historico.html", cargos=CARGOS, areas=AREAS, turnos=TURNOS, status_list=STATUS)
 
 
 # ── API: Colaboradores ─────────────────────────────────────────
@@ -2433,18 +2445,110 @@ def debug_tickets_schema():
 # ── API: Histórico ─────────────────────────────────────────────
 
 
+def _historico_query(args):
+    """Monta a consulta do Registro de Atividades com os filtros do relatório
+    de DD: tipo, cargo/setor/turno/status ATUAIS do colaborador (join com
+    HCGig2 por operador_id - quem já foi excluído ou transferido de site não
+    bate mais nesses filtros, mas continua aparecendo quando nenhum deles é
+    usado), período e busca livre. Usada tanto pela listagem quanto pela
+    exportação, pra manter os dois sempre consistentes."""
+    tipo = (args.get("tipo") or "").strip()
+    cargo = (args.get("cargo") or "").strip()
+    area = (args.get("area") or "").strip()
+    turno = (args.get("turno") or "").strip()
+    status = (args.get("status") or "").strip()
+    busca = (args.get("q") or "").strip()
+    data_de = _parse_date(args.get("data_de"))
+    data_ate = _parse_date(args.get("data_ate"))
+
+    query = db.session.query(RegistroAtividade, HCGig2).outerjoin(
+        HCGig2, HCGig2.id == RegistroAtividade.operador_id
+    )
+    if tipo:
+        query = query.filter(RegistroAtividade.tipo == tipo)
+    if cargo:
+        query = query.filter(HCGig2.cargo == cargo)
+    if area:
+        query = query.filter(HCGig2.area == area)
+    if turno:
+        query = query.filter(HCGig2.turno == turno)
+    if status:
+        query = query.filter(HCGig2.status == status)
+    if data_de:
+        query = query.filter(RegistroAtividade.timestamp >= datetime.combine(data_de, datetime.min.time()))
+    if data_ate:
+        query = query.filter(RegistroAtividade.timestamp < datetime.combine(data_ate + timedelta(days=1), datetime.min.time()))
+    if busca:
+        like = f"%{busca}%"
+        query = query.filter(or_(
+            RegistroAtividade.operador_nome.ilike(like),
+            RegistroAtividade.operador_login.ilike(like),
+            RegistroAtividade.usuario_nome.ilike(like),
+            RegistroAtividade.descricao.ilike(like),
+        ))
+    return query.order_by(RegistroAtividade.timestamp.desc())
+
+
 @hc_bp.route("/api/hc/historico", methods=["GET"])
 @login_required
 def listar_historico():
-    from models.registro_atividade import RegistroAtividade
     limite = int(request.args.get("limite", 200))
-    tipo = request.args.get("tipo", "").strip()
+    linhas = _historico_query(request.args).limit(limite).all()
 
-    query = RegistroAtividade.query
-    if tipo:
-        query = query.filter(RegistroAtividade.tipo == tipo)
-    registros = query.order_by(RegistroAtividade.timestamp.desc()).limit(limite).all()
-    return jsonify([r.to_dict() for r in registros])
+    resultado = []
+    for reg, colaborador in linhas:
+        item = reg.to_dict()
+        item["cargo_atual"] = colaborador.cargo_exibicao() if colaborador else ""
+        item["area_atual"] = colaborador.area or "" if colaborador else ""
+        item["turno_atual"] = colaborador.turno or "" if colaborador else ""
+        item["status_atual"] = colaborador.status if colaborador else ""
+        resultado.append(item)
+    return jsonify(resultado)
+
+
+@hc_bp.route("/api/hc/historico/export", methods=["GET"])
+@login_required
+def exportar_historico():
+    """Relatório de DD: exporta o Registro de Atividades filtrado (mesmos
+    filtros da tela - tipo, cargo/setor/turno/status atuais, período, busca)
+    pra Excel, com o cargo/setor/turno/status atual do colaborador em colunas
+    próprias pra facilitar pivotar/filtrar fora do sistema."""
+    if not current_user.can_historico:
+        return jsonify({"erro": "Sem permissão para exportar o histórico."}), 403
+
+    linhas = _historico_query(request.args).limit(5000).all()
+
+    dados = []
+    for reg, colaborador in linhas:
+        d = reg.to_dict()
+        dados.append({
+            "Data/Hora": d["timestamp"] or "",
+            "Tipo": TIPO_ATIVIDADE_LABELS.get(d["tipo"], d["tipo"]),
+            "Colaborador": d["operador_nome"] or "",
+            "Login": d["operador_login"] or "",
+            "Cargo atual": colaborador.cargo_exibicao() if colaborador else "",
+            "Setor atual": (colaborador.area or "") if colaborador else "",
+            "Turno/Escala atual": (colaborador.turno or "") if colaborador else "",
+            "Status atual": colaborador.status if colaborador else "",
+            "Usuário responsável": d["usuario_nome"] or "",
+            "Login responsável": d["usuario_login"] or "",
+            "Descrição": d["descricao"] or "",
+        })
+
+    df = pd.DataFrame(dados)
+    fc_exportacao = _identificador_fc_exportacao()
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Historico_DD")
+    output.seek(0)
+
+    agora = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%d_%H%M")
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"dd_historico_{fc_exportacao}_{agora}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @hc_bp.route("/api/hc/historico-operacional", methods=["GET"])
