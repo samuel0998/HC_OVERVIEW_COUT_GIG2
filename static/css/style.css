@@ -212,6 +212,7 @@ tbody tr:hover { background: #f0f6ff; }
 .badge.vte        { background: #dbeafe; color: #1d4ed8; }
 .badge.vto        { background: #ffedd5; color: #c2410c; }
 .badge.ls         { background: #ede9fe; color: #6d28d9; }
+.badge.promocao   { background: #fef08a; color: #854d0e; }
 
 .scheduled-note {
   margin-top: 4px; font-size: 11px; color: #92400e; white-space: nowrap;

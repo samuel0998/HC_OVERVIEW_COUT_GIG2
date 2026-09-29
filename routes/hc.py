@@ -44,6 +44,7 @@ TIPO_ATIVIDADE_LABELS = {
     "adicao": "Adição",
     "edicao": "Edição",
     "edicao_status": "Edição de Status",
+    "promocao": "Promoção",
     "agendamento_ls": "Retorno LS agendado",
     "retorno_ls": "Retorno LS",
     "transferencia_operacao": "Transferência de Operação",
@@ -1562,7 +1563,7 @@ def novo_colaborador():
         dados_nov=json.dumps({
             "nome_completo": colaborador.nome_completo,
             "login": colaborador.login or "",
-            "cargo": colaborador.cargo,
+            "cargo": colaborador.cargo_exibicao(),
             "area": colaborador.area or "",
             "turno": colaborador.turno or "",
             "status": colaborador.status,
@@ -1585,7 +1586,7 @@ def atualizar_colaborador(item_id):
     dados_ant = json.dumps({
         "nome_completo": colaborador.nome_completo,
         "login": colaborador.login or "",
-        "cargo": colaborador.cargo,
+        "cargo": colaborador.cargo_exibicao(),
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
         "status": colaborador.status,
@@ -1784,7 +1785,7 @@ def atualizar_colaborador(item_id):
     dados_nov = json.dumps({
         "nome_completo": colaborador.nome_completo,
         "login": colaborador.login or "",
-        "cargo": colaborador.cargo,
+        "cargo": colaborador.cargo_exibicao(),
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
         "status": colaborador.status,
@@ -1828,11 +1829,20 @@ def atualizar_colaborador(item_id):
         partes_movimentacao.append(f"setor: {antes_dict.get('area') or '-'} → {depois_dict.get('area') or '-'}")
     if antes_dict.get("turno") != depois_dict.get("turno"):
         partes_movimentacao.append(f"turno/escala: {antes_dict.get('turno') or '-'} → {depois_dict.get('turno') or '-'}")
-    if antes_dict.get("cargo") != depois_dict.get("cargo"):
+    houve_troca_cargo = antes_dict.get("cargo") != depois_dict.get("cargo")
+    if houve_troca_cargo:
         partes_movimentacao.append(f"cargo: {antes_dict.get('cargo') or '-'} → {depois_dict.get('cargo') or '-'}")
     detalhes = partes_movimentacao + partes_status
     msg_status = f" ({'; '.join(detalhes)})" if detalhes else ""
-    tipo = "edicao_status" if partes_status else "edicao"
+    # Troca de cargo (ex.: Associado -> PIT, Associado -> PIT Trainee) vira o
+    # próprio tipo "promocao", tendo prioridade sobre edição de status - fica
+    # filtrável separado no Histórico, pra relatório de DD de promoções.
+    if houve_troca_cargo:
+        tipo = "promocao"
+    elif partes_status:
+        tipo = "edicao_status"
+    else:
+        tipo = "edicao"
     _registrar(
         tipo,
         colaborador,
