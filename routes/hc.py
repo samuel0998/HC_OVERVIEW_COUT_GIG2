@@ -323,6 +323,38 @@ def _turno_inicial(turno=None):
     return (turno or "").strip() or None
 
 
+def _hora_reset_turno(turno):
+    """(hora, minuto) configurados em Gerenciar Permissões > Configuração de
+    Shifts pro turno. Sem config (turno vazio/desconhecido), cai em 00:00."""
+    config = HCTurnoConfig.query.get(turno) if turno else None
+    if config and config.hora_reset:
+        try:
+            hora, minuto = [int(parte) for parte in config.hora_reset.split(":", 1)]
+            return hora, minuto
+        except Exception:
+            pass
+    return 0, 0
+
+
+def _calcular_ls_retorno_em(retorno_data, turno_origem, agora_sp=None):
+    """Horário exato (UTC naive) em que um LS deve voltar sozinho: o PRÓXIMO
+    horário de virada do turno de ORIGEM do colaborador (Configuração de
+    Shifts em /usuarios), a partir da data de retorno marcada - não 24h
+    corridas nem meia-noite fixa. Ex.: sxmoraes é RED DAY (reseta 20:00);
+    emprestado hoje, ele volta hoje às 20:00 (ou amanhã às 20:00, se o
+    empréstimo foi registrado depois das 20:00 de hoje - "próximo turno").
+    Pra uma data futura marcada, cai certinho no reset daquele dia, já que
+    nunca vai estar "no passado" em relação a agora."""
+    hora, minuto = _hora_reset_turno(turno_origem)
+    agora_sp = agora_sp or datetime.now(ZoneInfo("America/Sao_Paulo"))
+    candidato_sp = datetime.combine(
+        retorno_data, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo")
+    ).replace(hour=hora, minute=minuto)
+    if candidato_sp <= agora_sp:
+        candidato_sp += timedelta(days=1)
+    return candidato_sp.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
 def _pendencia_turno_expr():
     return db.and_(HCGig2.status == "OPERACIONAL", HCGig2.cargo == "PIT", HCGig2.turno.is_(None))
 
@@ -1207,11 +1239,7 @@ def _agendar_retornos_ls(t, acoes):
             agendados.append(colaborador.id)
             continue
         colaborador.ls_retorno_data = t.end_date
-        colaborador.ls_retorno_em = (
-            datetime.combine(t.end_date, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
-            .astimezone(ZoneInfo("UTC"))
-            .replace(tzinfo=None)
-        )
+        colaborador.ls_retorno_em = _calcular_ls_retorno_em(t.end_date, turno_origem)
         colaborador.ls_area_origem = area_origem
         colaborador.ls_turno_origem = turno_origem
         colaborador.ls_ticket_id = t.premise_id
@@ -1697,18 +1725,10 @@ def atualizar_colaborador(item_id):
         colaborador.data_desligamento = None
         colaborador.data_inicio_ausencia = None
         colaborador.ls_retorno_data = retorno_ls
-        # A data continua registrada para auditoria e validacao do ticket. Se o
-        # LS for aberto hoje, o retorno efetivo so ocorre daqui a 24 horas.
-        agora_utc = datetime.utcnow()
-        colaborador.ls_retorno_em = (
-            agora_utc + timedelta(hours=24)
-            if retorno_ls == hoje
-            else (
-                datetime.combine(retorno_ls, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
-                .astimezone(ZoneInfo("UTC"))
-                .replace(tzinfo=None)
-            )
-        )
+        # A data continua registrada para auditoria e validacao do ticket. O
+        # retorno efetivo cai no proximo horario de virada do turno de ORIGEM
+        # (Configuracao de Shifts em /usuarios) - ver _calcular_ls_retorno_em.
+        colaborador.ls_retorno_em = _calcular_ls_retorno_em(retorno_ls, turno_origem)
         colaborador.ls_area_origem = area_origem
         colaborador.ls_turno_origem = turno_origem
         colaborador.ls_ticket_id = None
@@ -1971,18 +1991,9 @@ def emprestimo_ls_cruzado(item_id):
     if not area_origem:
         return jsonify({"erro": "O colaborador precisa ter um setor de origem para ser emprestado."}), 400
 
-    # Mesma regra do LS normal: emprestado hoje volta 24h depois; qualquer
-    # outra data, volta na meia-noite (horário de Brasília) do dia marcado.
-    agora_utc = datetime.utcnow()
-    ls_retorno_em = (
-        agora_utc + timedelta(hours=24)
-        if retorno == hoje
-        else (
-            datetime.combine(retorno, datetime.min.time(), tzinfo=ZoneInfo("America/Sao_Paulo"))
-            .astimezone(ZoneInfo("UTC"))
-            .replace(tzinfo=None)
-        )
-    )
+    # Mesma regra do LS normal: retorna no próximo horário de virada do turno
+    # de origem (Configuração de Shifts em /usuarios) - ver _calcular_ls_retorno_em.
+    ls_retorno_em = _calcular_ls_retorno_em(retorno, turno_origem)
 
     fc_databases = current_app.config["FC_DATABASES"]
     origem_label = fc_databases.get(origem_fc, {}).get("label", origem_fc)
