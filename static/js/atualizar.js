@@ -197,7 +197,7 @@ function atualizarBlocoStatus() {
     if (val === "Treinamento") {
       info = "Colaborador em treinamento; ainda não conta como capacidade operacional.";
     } else if (val === "Ausência") {
-      info = "Ausência de 24h: sai da capacidade operacional hoje e volta a OPERACIONAL automaticamente no dia seguinte.";
+      info = "Ausência: sai da capacidade operacional e volta a OPERACIONAL automaticamente na próxima troca de turno (não precisa esperar o dia seguinte).";
     } else if (val === "VTE") {
       info = "VTE aplicado por ticket RH: retorna ao setor/escala de origem e ao status OPERACIONAL após 12h.";
     } else if (val === "VTO") {

@@ -89,7 +89,7 @@ Após o login, a barra superior exibe os módulos disponíveis conforme seu nív
 |--------|-----------|----------------|
 | **OPERACIONAL** | Presente e apto para trabalho | — |
 | **Treinamento** | Recém-admitido em período de integração | Vira OPERACIONAL automaticamente (2d AA / 5d PIT) |
-| **Ausência** | Falta no dia | Dura 24h; volta para OPERACIONAL no dia seguinte automaticamente |
+| **Ausência** | Falta no dia | Volta para OPERACIONAL automaticamente na próxima troca de turno (não espera o dia seguinte) |
 | **Licença** | Afastamento médico ou pessoal | Requer data de início e fim + descrição obrigatória |
 | **Férias** | Período de férias | Requer data de início e fim + descrição obrigatória |
 | **Desligado** | Colaborador desligado | Requer data de desligamento + motivo obrigatório |
@@ -291,7 +291,7 @@ O sistema executa as seguintes ações automáticas sem necessidade de interven�
 | Automação | Quando ocorre | O que faz |
 |-----------|--------------|-----------|
 | **Virada de Treinamento** | Diariamente | AA/Associado → OPERACIONAL após 2 dias; PIT → OPERACIONAL após 5 dias |
-| **Retorno de Ausência** | Dia seguinte | Colaborador com Ausência volta para OPERACIONAL automaticamente |
+| **Retorno de Ausência** | Próxima troca de turno (Configuração de Shifts) | Colaborador com Ausência volta para OPERACIONAL automaticamente |
 | **Ativação de status agendado** | Na data marcada | Licença/Férias/Desligado agendados passam a valer no dia configurado |
 | **Retorno de Licença/Férias** | Na data de fim | Colaborador volta para OPERACIONAL ao término do período |
 | **Arquivamento de desligados** | Na data de desligamento | Colaborador é movido para o Histórico Operacional e removido da lista ativa |

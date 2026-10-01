@@ -736,7 +736,7 @@ tr.is-hidden{display:none}
           <tbody>
             <tr><td><span class="pill ok">OPERACIONAL</span></td><td>Presente e apto para trabalho</td><td>—</td></tr>
             <tr><td><span class="pill info">Treinamento</span></td><td>Recém-admitido em período de integração</td><td>Vira OPERACIONAL automaticamente (2d AA / 5d PIT)</td></tr>
-            <tr><td><span class="pill amber">Ausência</span></td><td>Falta no dia</td><td>Dura 24h; volta para OPERACIONAL no dia seguinte automaticamente</td></tr>
+            <tr><td><span class="pill amber">Ausência</span></td><td>Falta no dia</td><td>Volta para OPERACIONAL automaticamente na próxima troca de turno (não espera o dia seguinte)</td></tr>
             <tr><td><span class="pill">Licença</span></td><td>Afastamento médico ou pessoal</td><td>Requer data de início e fim + descrição obrigatória</td></tr>
             <tr><td><span class="pill">Férias</span></td><td>Período de férias</td><td>Requer data de início e fim + descrição obrigatória</td></tr>
             <tr><td><span class="pill warn">Desligado</span></td><td>Colaborador desligado</td><td>Requer data de desligamento + motivo obrigatório</td></tr>
@@ -988,7 +988,7 @@ tr.is-hidden{display:none}
           <thead><tr><th>Automação</th><th>Quando ocorre</th><th>O que faz</th></tr></thead>
           <tbody>
             <tr><td><strong>Virada de Treinamento</strong></td><td>Diariamente</td><td>AA/Associado → OPERACIONAL após 2 dias; PIT → OPERACIONAL após 5 dias</td></tr>
-            <tr><td><strong>Retorno de Ausência</strong></td><td>Dia seguinte</td><td>Colaborador com Ausência volta para OPERACIONAL automaticamente</td></tr>
+            <tr><td><strong>Retorno de Ausência</strong></td><td>Próxima troca de turno (Configuração de Shifts)</td><td>Colaborador com Ausência volta para OPERACIONAL automaticamente</td></tr>
             <tr><td><strong>Ativação de status agendado</strong></td><td>Na data marcada</td><td>Licença/Férias/Desligado agendados passam a valer no dia configurado</td></tr>
             <tr><td><strong>Retorno de Licença/Férias</strong></td><td>Na data de fim</td><td>Colaborador volta para OPERACIONAL ao término do período</td></tr>
             <tr><td><strong>Arquivamento de desligados</strong></td><td>Na data de desligamento</td><td>Colaborador é movido para o Histórico Operacional e removido da lista ativa</td></tr>
