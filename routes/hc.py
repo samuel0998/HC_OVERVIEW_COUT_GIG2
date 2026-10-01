@@ -630,6 +630,24 @@ def _reset_chamada_por_virada_de_turno():
         registro.presente_fc = True
         registro.presenca_manual = False
 
+    # Faltante (Ausência) volta pra OPERACIONAL na PRÓXIMA troca de turno, não
+    # só no dia seguinte: quem é marcado ausente no Blue Day precisa voltar já
+    # no Blue Night, sem esperar virar a data. aplicar_status_por_data mantém
+    # o retorno por dia como rede de segurança (caso ninguém abra o sistema
+    # até a próxima virada), mas na prática este laço aqui é quem resolve.
+    for ausente in HCGig2.query.filter(HCGig2.status.in_(["Ausência", "Ausencia"])).all():
+        status_ant = ausente.status
+        ausente.status = "OPERACIONAL"
+        ausente.data_inicio_ausencia = None
+        _registrar(
+            "edicao_status",
+            ausente,
+            "Retorno automático para OPERACIONAL - troca de turno encerrou a Ausência",
+            dados_ant=json.dumps({"status": status_ant}),
+            dados_nov=json.dumps({"status": "OPERACIONAL"}),
+            sistema=True,
+        )
+
     for config, reset_key in configs_vencidas:
         config.last_reset_key = reset_key
 
