@@ -53,7 +53,19 @@
     <div id="erros-import-agencias"></div>
     <div id="erros-import-lc"></div>
     <div class="table-wrap">
-        <table>
+        <table class="grid-fixo">
+            <colgroup>
+                <col style="width:3%">
+                <col style="width:16%">
+                <col style="width:9%">
+                <col style="width:9%">
+                <col style="width:9%">
+                <col style="width:8%">
+                <col style="width:10%">
+                <col style="width:11%">
+                <col style="width:13%">
+                <col style="width:12%">
+            </colgroup>
             <thead>
                 <tr>
                     <th>#</th>
@@ -116,13 +128,15 @@
                 <div class="status-block-title">Empréstimo de colaborador (LS)</div>
                 <p class="op-info">Selecione o setor de destino e a data em que o colaborador voltará ao setor de origem. Para a data de hoje, o retorno é agendado para 24 horas após o registro.</p>
                 {% if site_destino_fc %}
-                <div class="mt-8">
-                    <label class="field-label" for="lsTipoSite">Tipo de empréstimo</label>
-                    <select id="lsTipoSite" data-destino-fc="{{ site_destino_fc }}" data-destino-label="{{ site_destino_label }}">
-                        <option value="local" selected>Dentro do site atual</option>
-                        <option value="emprestimo">Emprestar para {{ site_destino_label }} (retorna automaticamente)</option>
-                        <option value="definitivo">Transferência definitiva para {{ site_destino_label }} (não retorna)</option>
-                    </select>
+                <div class="form-grid mt-8">
+                    <div>
+                        <label class="field-label" for="lsTipoSite">Tipo de empréstimo</label>
+                        <select id="lsTipoSite" data-destino-fc="{{ site_destino_fc }}" data-destino-label="{{ site_destino_label }}">
+                            <option value="local" selected>Dentro do site atual</option>
+                            <option value="emprestimo">Emprestar para {{ site_destino_label }} (retorna automaticamente)</option>
+                            <option value="definitivo">Transferência definitiva para {{ site_destino_label }} (não retorna)</option>
+                        </select>
+                    </div>
                 </div>
                 <p class="op-info" id="avisoEmprestimoSite" style="display:none;color:#1565c0;margin-top:8px;">
                     🔁 Empréstimo entre sites: o colaborador migra pro banco de dados de {{ site_destino_label }} enquanto durar o empréstimo, e volta sozinho pra cá (setor/escala de origem) na data de retorno marcada abaixo — mesma regra do LS normal.

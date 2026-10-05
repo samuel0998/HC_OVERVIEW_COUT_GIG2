@@ -194,6 +194,11 @@ table { width: 100%; border-collapse: collapse; font-size: 14px; }
 thead { position: sticky; top: 0; background: var(--primary); color: white; }
 th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
 tbody tr:hover { background: #f0f6ff; }
+
+/* Colunas com largura fixa (ver <colgroup>) - evita que uma coluna (ex.: Status)
+   puxe o grid todo pra fora de proporção conforme o conteúdo de cada linha. */
+.grid-fixo { table-layout: fixed; }
+.grid-fixo th, .grid-fixo td { overflow-wrap: break-word; }
 .total-registros {
   text-align: right; font-size: 13px; color: var(--muted); padding: 8px 4px 0;
 }

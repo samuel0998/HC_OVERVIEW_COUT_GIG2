@@ -1294,12 +1294,19 @@ def _concluir_ticket_se_validado(t, verbose=False):
         return True, max(t.amount or 1, 1), max(t.amount or 1, 1)
 
     necessarias = max(t.amount or 1, 1)
+
+    # LS com retorno pedido incoerente (antes da própria data solicitada) nunca
+    # valida - mas ticket SEM data de retorno (comum: quem resolve é quem
+    # decide/define o retorno no cadastro) valida normalmente, usando a data
+    # que o resolvedor escolheu (obrigatória no formulário de LS - ver
+    # atualizar_colaborador; a checagem fica em _registro_cumpre_ticket).
+    if (t.premise_type or "").upper() == "LS" and t.end_date and t.work_date and t.end_date < t.work_date:
+        if verbose:
+            _log_ticket_nao_validado(t, 0, necessarias)
+        return False, 0, necessarias
+
     acoes = _acoes_validas_ticket(t)
     progresso = len(acoes)
-    if (t.premise_type or "").upper() == "LS" and (
-        not t.end_date or (t.work_date and t.end_date < t.work_date)
-    ):
-        return False, progresso, necessarias
     if progresso < necessarias:
         if verbose:
             _log_ticket_nao_validado(t, progresso, necessarias)
@@ -2390,9 +2397,11 @@ def resolver_ticket(premise_id):
     if ticket.hcview_arquivado:
         return jsonify({"erro": "Ticket arquivado pelo time de Planning - indisponivel para validacao."}), 409
     if (ticket.premise_type or "").upper() == "LS":
-        if not ticket.end_date:
-            return jsonify({"erro": "O ticket LS precisa ter uma data de retorno (end_date)."}), 422
-        if ticket.work_date and ticket.end_date < ticket.work_date:
+        # Sem data de retorno NO TICKET, quem resolve é quem define o retorno
+        # no cadastro (campo obrigatório no formulário de LS) - não bloqueia
+        # aqui. Só rejeita retorno explicitamente incoerente (antes da própria
+        # data solicitada).
+        if ticket.end_date and ticket.work_date and ticket.end_date < ticket.work_date:
             return jsonify({"erro": "A data de retorno do LS não pode ser anterior à data solicitada."}), 422
 
     # Vale para todas as premissas, inclusive ON: o responsavel (owner) ou um EXPERT.
