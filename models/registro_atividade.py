@@ -35,6 +35,7 @@ class RegistroAtividade(db.Model):
             ("area", "Setor"),
             ("turno", "Turno/escala"),
             ("cargo", "Cargo"),
+            ("agencia", "Agência"),
             ("status", "Status"),
             ("status_agendado", "Status agendado"),
             ("job", "Processo"),

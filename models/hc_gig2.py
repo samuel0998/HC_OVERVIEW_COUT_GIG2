@@ -19,6 +19,10 @@ class HCGig2(db.Model):
     pit_trainee = db.Column(db.Boolean, nullable=False, default=False)
     area = db.Column(db.String(50), nullable=True, index=True)
     turno = db.Column(db.String(50), nullable=True, index=True)
+    # Agência terceirizada do colaborador. Carga em massa via Importar Agências
+    # (planilha login -> agência) em routes.hc.importar_agencias; edição manual
+    # também é possível no modal do LIST.
+    agencia = db.Column(db.String(100), nullable=True, index=True)
     status = db.Column(db.String(20), nullable=False, default="OPERACIONAL", index=True)
     presente_fc = db.Column(db.Boolean, nullable=False, default=True, index=True)
     presenca_manual = db.Column(db.Boolean, nullable=False, default=False)
@@ -288,6 +292,7 @@ class HCGig2(db.Model):
             "pit_trainee": bool(self.pit_trainee),
             "cargo_exibicao": self.cargo_exibicao(),
             "area": self.area or "",
+            "agencia": self.agencia or "",
             "turno": self.turno or "",
             "status": self.status,
             "status_agendado": self.status_agendado or "",

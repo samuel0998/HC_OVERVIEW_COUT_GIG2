@@ -197,9 +197,10 @@ def _read_excel_import_upload(arquivo):
     return df
 
 
-def _read_colaboradores_upload(arquivo):
-    """Aceita CSV ou Excel (.xlsx/.xls) na importacao de colaboradores - decide
-    pelo nome do arquivo enviado."""
+def _read_planilha_upload(arquivo):
+    """Aceita CSV ou Excel (.xlsx/.xls) em qualquer import de planilha - decide
+    pelo nome do arquivo enviado. Usada pelo import de colaboradores e pelo
+    import de agências."""
     nome_arquivo = (arquivo.filename or "").lower()
     if nome_arquivo.endswith((".xlsx", ".xls")):
         return _read_excel_import_upload(arquivo)
@@ -1635,6 +1636,7 @@ def atualizar_colaborador(item_id):
         "cargo": colaborador.cargo_exibicao(),
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
+        "agencia": colaborador.agencia or "",
         "status": colaborador.status,
         "status_agendado": colaborador.status_agendado or "",
         "off_origem": colaborador.off_origem or "",
@@ -1717,6 +1719,8 @@ def atualizar_colaborador(item_id):
         colaborador.presenca_manual = True
     colaborador.job           = _formatar_job(data.get("job", colaborador.job))
     colaborador.hora_extra_turno = _formatar_turno_extra(data.get("hora_extra_turno", colaborador.hora_extra_turno))
+    if "agencia" in data:
+        colaborador.agencia = (data.get("agencia") or "").strip() or None
     colaborador.causa_afastamento = (data.get("causa_afastamento") or "").strip() or None
 
     hoje = date.today()
@@ -1826,6 +1830,7 @@ def atualizar_colaborador(item_id):
         "cargo": colaborador.cargo_exibicao(),
         "area": colaborador.area or "",
         "turno": colaborador.turno or "",
+        "agencia": colaborador.agencia or "",
         "status": colaborador.status,
         "status_agendado": colaborador.status_agendado or "",
         "presente_fc": colaborador.presente_fc,
@@ -1867,6 +1872,8 @@ def atualizar_colaborador(item_id):
         partes_movimentacao.append(f"setor: {antes_dict.get('area') or '-'} → {depois_dict.get('area') or '-'}")
     if antes_dict.get("turno") != depois_dict.get("turno"):
         partes_movimentacao.append(f"turno/escala: {antes_dict.get('turno') or '-'} → {depois_dict.get('turno') or '-'}")
+    if antes_dict.get("agencia") != depois_dict.get("agencia"):
+        partes_movimentacao.append(f"agência: {antes_dict.get('agencia') or '-'} → {depois_dict.get('agencia') or '-'}")
     houve_troca_cargo = antes_dict.get("cargo") != depois_dict.get("cargo")
     if houve_troca_cargo:
         partes_movimentacao.append(f"cargo: {antes_dict.get('cargo') or '-'} → {depois_dict.get('cargo') or '-'}")
@@ -2684,7 +2691,7 @@ def importar_csv():
         return jsonify({"erro": "Envie um arquivo CSV ou Excel (.xlsx)."}), 400
 
     try:
-        df = _read_colaboradores_upload(arquivo)
+        df = _read_planilha_upload(arquivo)
     except Exception as e:
         return jsonify({"erro": f"Erro ao ler o arquivo: {str(e)}"}), 400
 
@@ -2813,6 +2820,71 @@ def importar_csv():
     return jsonify(result)
 
 
+@hc_bp.route("/api/hc/import-agencias", methods=["POST"])
+@login_required
+def importar_agencias():
+    """Carga em massa da coluna Agência: planilha com Login (coluna A) e
+    Agência (coluna B) - atualiza só o campo agencia de quem já existe no
+    LIST, casando por login. Diferente do "Importar CSV/Excel" (que renova a
+    base inteira), este é aditivo: quem não está na planilha não é tocado."""
+    if not current_user.can_edit:
+        return jsonify({"erro": "Sem permissão para importar agências."}), 403
+
+    arquivo = request.files.get("arquivo")
+    if not arquivo:
+        return jsonify({"erro": "Envie um arquivo CSV ou Excel (.xlsx)."}), 400
+
+    try:
+        df = _read_planilha_upload(arquivo)
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao ler o arquivo: {str(e)}"}), 400
+
+    col_login = _find_col(df, "login")
+    col_agencia = _find_col(df, "agencia")
+    if not col_login or not col_agencia:
+        # Sem cabeçalho reconhecível, assume a ordem literal pedida: A = login, B = agência.
+        colunas = list(df.columns)
+        if len(colunas) >= 2:
+            col_login, col_agencia = colunas[0], colunas[1]
+        else:
+            return jsonify({"erro": "Planilha precisa ter duas colunas: Login (A) e Agência (B)."}), 400
+
+    atualizados = 0
+    sem_mudanca = 0
+    nao_encontrados = []
+
+    for idx, row in df.iterrows():
+        login_bruto = str(row.get(col_login, "")).strip()
+        if not login_bruto or login_bruto.lower() in ("nan", "none"):
+            continue
+
+        agencia_bruta = str(row.get(col_agencia, "")).strip()
+        agencia = None if agencia_bruta.lower() in ("nan", "none", "") else agencia_bruta
+
+        colaborador = HCGig2.query.filter(
+            db.func.lower(db.func.trim(HCGig2.login)) == login_bruto.lower()
+        ).first()
+        if not colaborador:
+            nao_encontrados.append(login_bruto)
+            continue
+
+        if colaborador.agencia != agencia:
+            colaborador.agencia = agencia
+            atualizados += 1
+        else:
+            sem_mudanca += 1
+
+    db.session.commit()
+
+    return jsonify({
+        "mensagem": f"{atualizados} colaborador(es) com agência atualizada.",
+        "atualizados": atualizados,
+        "sem_mudanca": sem_mudanca,
+        "nao_encontrados": nao_encontrados[:50],
+        "total_nao_encontrados": len(nao_encontrados),
+    })
+
+
 @hc_bp.route("/api/hc/import", methods=["POST"])
 @login_required
 def importar_excel():
@@ -2905,6 +2977,7 @@ def exportar_excel():
     area = request.args.get("area", "").strip()
     turno = request.args.get("turno", "").strip()
     status = request.args.get("status", "").strip()
+    agencia = request.args.get("agencia", "").strip()
 
     registros = [
         r for r in registros
@@ -2914,6 +2987,7 @@ def exportar_excel():
         and (not area or (r.area or "") == area)
         and (not turno or (r.turno or "") == turno)
         and (not status or (r.status or "") == status)
+        and (not agencia or (r.agencia or "") == agencia)
     ]
 
     dados = []
@@ -2926,6 +3000,7 @@ def exportar_excel():
             "Cargo": d["cargo"],
             "Area": d["area"],
             "Turno": d["turno"],
+            "Agência": d["agencia"],
             "Status": d["status"],
             "Chamada": "SIM" if d["presente_fc"] else "NAO",
             "Job": d["job"],
@@ -3491,10 +3566,11 @@ def resolver_rh_ticket(ticket_id):
 @login_required
 def dashboard_data():
     # Cada filtro aceita múltiplos valores separados por vírgula (multi-filtro via Ctrl+clique no front).
-    f_area   = _parse_multi_filtro(request.args.get("area", ""))
-    f_turno  = _parse_multi_filtro(request.args.get("turno", ""))
-    f_status = _parse_multi_filtro(request.args.get("status", ""))
-    f_cargo  = _parse_multi_filtro(request.args.get("cargo", ""))
+    f_area    = _parse_multi_filtro(request.args.get("area", ""))
+    f_turno   = _parse_multi_filtro(request.args.get("turno", ""))
+    f_status  = _parse_multi_filtro(request.args.get("status", ""))
+    f_cargo   = _parse_multi_filtro(request.args.get("cargo", ""))
+    f_agencia = _parse_multi_filtro(request.args.get("agencia", ""))
 
     todos = HCGig2.query.all()
     _aplicar_regra_hc_atual(todos)
@@ -3508,6 +3584,8 @@ def dashboard_data():
         registros = [r for r in registros if r.status in f_status]
     if f_cargo:
         registros = [r for r in registros if r.cargo in f_cargo]
+    if f_agencia:
+        registros = [r for r in registros if (r.agencia or "") in f_agencia]
 
     total      = len(registros)
     operacional = sum(1 for r in registros if r.status == "OPERACIONAL")
@@ -3562,9 +3640,10 @@ def dashboard_data():
             "PIT":       sum(1 for r in registros if _conta_no_turno(r, turno) and _cargo_eh(r.cargo, "PIT")             and r.status == "OPERACIONAL"),
         }
 
-    areas_disponiveis  = sorted({r.area  or "" for r in todos if r.area})
-    turnos_disponiveis = sorted({r.turno for r in todos if r.turno})
-    status_disponiveis = sorted({r.status for r in todos})
+    areas_disponiveis    = sorted({r.area  or "" for r in todos if r.area})
+    turnos_disponiveis   = sorted({r.turno for r in todos if r.turno})
+    status_disponiveis   = sorted({r.status for r in todos})
+    agencias_disponiveis = sorted({r.agencia or "" for r in todos if r.agencia})
 
     hc_por_login = {
         (r.login or "").strip().lower(): r
@@ -3650,12 +3729,13 @@ def dashboard_data():
         "associados_e_pits": associados_e_pits,
         "operacional_por_turno": operacional_por_turno,
         "filtros_disponiveis": {
-            "areas":  areas_disponiveis,
-            "turnos": turnos_disponiveis,
-            "status": status_disponiveis,
-            "cargos": ["Associado", "PIT", "Analista"],
+            "areas":    areas_disponiveis,
+            "turnos":   turnos_disponiveis,
+            "status":   status_disponiveis,
+            "cargos":   ["Associado", "PIT", "Analista"],
+            "agencias": agencias_disponiveis,
         },
-        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo},
+        "filtros_ativos": {"area": f_area, "turno": f_turno, "status": f_status, "cargo": f_cargo, "agencia": f_agencia},
         "lc": {
             "cards": {
                 "total_registros": len(lc_registros),

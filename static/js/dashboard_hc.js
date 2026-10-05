@@ -49,15 +49,16 @@ const LC_LEVEL_COLORS = {
 // ── Estado dos filtros ───────────────────────────────────────────
 // Cada campo guarda uma lista de valores selecionados (OR entre eles).
 // Clique normal = seleção única | Ctrl/Cmd+clique = modo multi-filtro.
-const filtros = { area: [], turno: [], status: [], cargo: [] };
+const filtros = { area: [], turno: [], status: [], cargo: [], agencia: [] };
 const charts  = {};
 
 // ── Utilitários ──────────────────────────────────────────────────
 function appendFiltros(p) {
-  if (filtros.area.length)   p.set("area",   filtros.area.join(","));
-  if (filtros.turno.length)  p.set("turno",  filtros.turno.join(","));
-  if (filtros.status.length) p.set("status", filtros.status.join(","));
-  if (filtros.cargo.length)  p.set("cargo",  filtros.cargo.join(","));
+  if (filtros.area.length)    p.set("area",    filtros.area.join(","));
+  if (filtros.turno.length)   p.set("turno",   filtros.turno.join(","));
+  if (filtros.status.length)  p.set("status",  filtros.status.join(","));
+  if (filtros.cargo.length)   p.set("cargo",   filtros.cargo.join(","));
+  if (filtros.agencia.length) p.set("agencia", filtros.agencia.join(","));
 }
 
 function buildUrl() {
@@ -349,10 +350,11 @@ async function carregarDashboard() {
   document.getElementById("pctIcqa").textContent       = `${data.cards.pct_icqa}%`;
 
   // Pills de filtro
-  renderPills("filterArea",   data.filtros_disponiveis.areas,  "area");
-  renderPills("filterTurno",  data.filtros_disponiveis.turnos, "turno");
-  renderPills("filterStatus", data.filtros_disponiveis.status, "status");
-  renderPills("filterCargo",  data.filtros_disponiveis.cargos, "cargo");
+  renderPills("filterArea",    data.filtros_disponiveis.areas,    "area");
+  renderPills("filterTurno",   data.filtros_disponiveis.turnos,   "turno");
+  renderPills("filterStatus",  data.filtros_disponiveis.status,   "status");
+  renderPills("filterCargo",   data.filtros_disponiveis.cargos,   "cargo");
+  renderPills("filterAgencia", data.filtros_disponiveis.agencias, "agencia");
 
   // ── HC por Área (horizontal) ────────────────────────────────
   const areaLabels = Object.keys(data.por_area);
@@ -476,7 +478,7 @@ async function carregarDashboard() {
 }
 
 document.getElementById("btnLimparFiltros").addEventListener("click", () => {
-  filtros.area = []; filtros.turno = []; filtros.status = []; filtros.cargo = [];
+  filtros.area = []; filtros.turno = []; filtros.status = []; filtros.cargo = []; filtros.agencia = [];
   carregarDashboard();
 });
 
