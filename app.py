@@ -371,6 +371,10 @@ def _migrate_tickets_table_for_fc(fc):
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado BOOLEAN DEFAULT FALSE"))
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado_por VARCHAR(50)"))
         conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_cancelado_em TIMESTAMP"))
+        # Planning programa o desarquivamento automático (data/hora) em vez de
+        # precisar voltar manualmente pra desarquivar - ver programar_desarquivamento_ticket.
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_desarquivar_em TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS hcview_desarquivar_agendado_por VARCHAR(50)"))
 
         result = conn.execute(db.text(
             "SELECT column_name, data_type, is_nullable "

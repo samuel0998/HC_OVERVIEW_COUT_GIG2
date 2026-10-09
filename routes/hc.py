@@ -1352,6 +1352,25 @@ def _sincronizar_tickets_por_acoes(tickets):
     return alterou
 
 
+def _processar_desarquivamentos_programados(tickets):
+    """Ticket arquivado cujo horário programado por Planning já chegou volta
+    sozinho a ficar ativo pro shift - sem precisar ninguém desarquivar na mão
+    (ver programar_desarquivamento_ticket)."""
+    agora = datetime.utcnow()
+    alterou = False
+    for t in tickets:
+        if t.hcview_arquivado and t.hcview_desarquivar_em and agora >= t.hcview_desarquivar_em:
+            t.hcview_arquivado = False
+            t.hcview_arquivado_por = None
+            t.hcview_arquivado_em = None
+            t.hcview_desarquivar_em = None
+            t.hcview_desarquivar_agendado_por = None
+            alterou = True
+    if alterou:
+        db.session.commit()
+    return alterou
+
+
 def _tickets_visiveis(arquivados=False):
     """Tickets visiveis para o usuario logado.
 
@@ -1382,6 +1401,11 @@ def _tickets_visiveis(arquivados=False):
         t for t in tickets
         if t is not None and not t.hcview_cancelado and not t.hcview_resolvido
     ]
+
+    try:
+        _processar_desarquivamentos_programados([t for t in tickets if t.hcview_arquivado])
+    except Exception:
+        db.session.rollback()
 
     eh_expert = current_user.is_admin
 
@@ -2358,10 +2382,56 @@ def arquivar_ticket(premise_id):
     ticket.hcview_arquivado = arquivar
     ticket.hcview_arquivado_por = current_user.login if arquivar else None
     ticket.hcview_arquivado_em = datetime.utcnow() if arquivar else None
+    # Desarquivar na mão ou arquivar de novo cancela um agendamento antigo -
+    # um novo precisa ser programado do zero se for o caso.
+    ticket.hcview_desarquivar_em = None
+    ticket.hcview_desarquivar_agendado_por = None
     db.session.commit()
     return jsonify({
         "mensagem": "Ticket arquivado." if arquivar else "Ticket desarquivado.",
         "arquivado": arquivar,
+    })
+
+
+@hc_bp.route("/api/hc/tickets/<int:premise_id>/programar-desarquivamento", methods=["POST"])
+@login_required
+def programar_desarquivamento_ticket(premise_id):
+    """Planning (LC-HARD-EXPERT) programa dia/hora pro ticket voltar sozinho a
+    ficar ativo pro shift, sem precisar ninguém desarquivar na mão depois (ver
+    _processar_desarquivamentos_programados, rodado a cada listagem de tickets).
+    Chamar sem 'em' cancela um agendamento existente."""
+    if not current_user.is_hard_expert:
+        return jsonify({"erro": "Somente o time de Planning (LC-HARD-EXPERT) pode programar desarquivamento."}), 403
+    ticket = Ticket.query.get(premise_id)
+    if ticket is None:
+        return jsonify({"erro": "Ticket nao encontrado."}), 404
+    if not ticket.hcview_arquivado:
+        return jsonify({"erro": "Só é possível programar desarquivamento de um ticket arquivado."}), 400
+
+    data = request.get_json(silent=True) or {}
+    em_bruto = (data.get("em") or "").strip()
+
+    if not em_bruto:
+        ticket.hcview_desarquivar_em = None
+        ticket.hcview_desarquivar_agendado_por = None
+        db.session.commit()
+        return jsonify({"mensagem": "Agendamento de desarquivamento cancelado.", "item": ticket.to_dict()})
+
+    try:
+        data_hora_local = datetime.fromisoformat(em_bruto)
+    except ValueError:
+        return jsonify({"erro": "Data/hora inválida."}), 400
+    if data_hora_local.tzinfo is None:
+        data_hora_local = data_hora_local.replace(tzinfo=ZoneInfo("America/Sao_Paulo"))
+    if data_hora_local <= datetime.now(ZoneInfo("America/Sao_Paulo")):
+        return jsonify({"erro": "A data/hora programada precisa ser no futuro."}), 400
+
+    ticket.hcview_desarquivar_em = data_hora_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    ticket.hcview_desarquivar_agendado_por = current_user.login
+    db.session.commit()
+    return jsonify({
+        "mensagem": f"Desarquivamento programado para {data_hora_local.strftime('%d/%m/%Y %H:%M')}.",
+        "item": ticket.to_dict(),
     })
 
 

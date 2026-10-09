@@ -122,6 +122,11 @@ class Ticket(db.Model):
     hcview_cancelado = db.Column(db.Boolean, default=False)
     hcview_cancelado_por = db.Column(db.String(50))
     hcview_cancelado_em = db.Column(db.DateTime)
+    # Desarquivamento programado: Planning marca dia/hora e o ticket volta
+    # sozinho a ficar ativo pro shift, sem precisar ninguém desarquivar na mão
+    # (ver routes.hc.programar_desarquivamento_ticket / _processar_desarquivamentos_programados).
+    hcview_desarquivar_em = db.Column(db.DateTime)
+    hcview_desarquivar_agendado_por = db.Column(db.String(50))
 
     # ── Acessores: novo -> legado ─────────────────────────────────
     @property
@@ -295,6 +300,13 @@ class Ticket(db.Model):
             "arquivado": bool(self.hcview_arquivado),
             "arquivado_por": self.hcview_arquivado_por or "",
             "arquivado_em": self.hcview_arquivado_em.strftime("%Y-%m-%d %H:%M:%S") if self.hcview_arquivado_em else None,
+            "desarquivar_em": (
+                self.hcview_desarquivar_em.replace(tzinfo=ZoneInfo("UTC"))
+                .astimezone(FUSO_OPERACAO)
+                .strftime("%Y-%m-%dT%H:%M")
+                if self.hcview_desarquivar_em else None
+            ),
+            "desarquivar_agendado_por": self.hcview_desarquivar_agendado_por or "",
             "cancelado": bool(self.hcview_cancelado),
             "nota": self.premise_note_snapshot or "",
         }

@@ -213,7 +213,7 @@ async function migrarPortalTickets() {
         Para <strong>LS e LT</strong>, o prazo é a própria data solicitada, no horário configurado para o shift. Somente depois desse horário o ticket fica <strong>Não conforme</strong>. Os demais tipos mantêm a antecedência atual.
         {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto.
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
-        {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner) e <code>✕</code> para cancelar (exclui o ticket).{% endif %}
+        {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner), <code>✕</code> para cancelar (exclui o ticket) e, num ticket arquivado, programe dia/hora pra ele voltar sozinho a ficar ativo pro shift.{% endif %}
     </p>
     <div class="table-wrap">
         <table>
@@ -303,6 +303,13 @@ async function migrarPortalTickets() {
 (function () {
     let abaArquivados = false;
 
+    function formatarDataHoraBR(isoLocal) {
+        if (!isoLocal) return '—';
+        const [data, hora] = isoLocal.split('T');
+        const [ano, mes, dia] = data.split('-');
+        return `${dia}/${mes}/${ano} ${hora || ''}`.trim();
+    }
+
     async function carregarTickets() {
         try {
             const res = await fetch('/api/hc/tickets-pendentes' + (abaArquivados ? '?arquivados=1' : ''));
@@ -356,6 +363,19 @@ async function migrarPortalTickets() {
                         ? `<button type="button" class="btn btn-sm" title="Desarquivar" onclick="arquivarTicket(${t.premise_id}, false)">+ desarquivar</button>`
                         : `<button type="button" class="btn btn-sm" title="Arquivar (some para o owner)" onclick="arquivarTicket(${t.premise_id}, true)">– arquivar</button>`;
                     gestao += ` <button type="button" class="btn btn-sm danger" title="Cancelar / excluir ticket" onclick="cancelarTicket(${t.premise_id})">✕ cancelar</button>`;
+
+                    // Programar desarquivamento automático - só faz sentido pra quem já está arquivado.
+                    if (t.arquivado) {
+                        gestao += `
+                            <div style="margin-top:6px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
+                                <input type="datetime-local" id="desarq-input-${t.premise_id}" value="${t.desarquivar_em || ''}" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:6px;">
+                                <button type="button" class="btn btn-sm" title="Programar desarquivamento automático" onclick="programarDesarquivamento(${t.premise_id})">📅 Programar</button>
+                                ${t.desarquivar_em ? `<button type="button" class="btn btn-sm danger" title="Cancelar agendamento" onclick="cancelarProgramacaoDesarquivamento(${t.premise_id})">✕</button>` : ''}
+                            </div>`;
+                        if (t.desarquivar_em) {
+                            gestao += `<div style="font-size:11px;color:var(--muted);margin-top:4px;">🕐 Desarquivamento agendado para ${formatarDataHoraBR(t.desarquivar_em)}${t.desarquivar_agendado_por ? ' (por ' + t.desarquivar_agendado_por + ')' : ''}</div>`;
+                        }
+                    }
                 }
 
                 // Ação principal: só quando NÃO arquivado e NÃO resolvido
@@ -436,6 +456,40 @@ async function migrarPortalTickets() {
             carregarTickets();
         } catch (e) {
             alert('Erro ao cancelar ticket.');
+        }
+    };
+
+    window.programarDesarquivamento = async function (premiseId) {
+        const input = document.getElementById(`desarq-input-${premiseId}`);
+        const em = input ? input.value : '';
+        if (!em) { alert('Escolha a data e hora do desarquivamento.'); return; }
+        try {
+            const res = await fetch(`/api/hc/tickets/${premiseId}/programar-desarquivamento`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ em: em }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.erro || 'Erro ao programar desarquivamento.'); return; }
+            carregarTickets();
+        } catch (e) {
+            alert('Erro ao programar desarquivamento.');
+        }
+    };
+
+    window.cancelarProgramacaoDesarquivamento = async function (premiseId) {
+        if (!confirm('Cancelar o agendamento de desarquivamento? O ticket continua arquivado até alguém agir de novo.')) return;
+        try {
+            const res = await fetch(`/api/hc/tickets/${premiseId}/programar-desarquivamento`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ em: '' }),
+            });
+            const data = await res.json();
+            if (!res.ok) { alert(data.erro || 'Erro ao cancelar agendamento.'); return; }
+            carregarTickets();
+        } catch (e) {
+            alert('Erro ao cancelar agendamento.');
         }
     };
 
