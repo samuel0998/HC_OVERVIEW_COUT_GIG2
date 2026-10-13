@@ -52,6 +52,14 @@ class Operadores(db.Model, UserMixin):
     permission_hcview = db.Column(db.Boolean, default=False, nullable=True)
     permission_level_hcview = db.Column(db.String(20), nullable=True)
 
+    # Bloqueio GLOBAL (controle centralizado de acesso - ver models/central_auth.py):
+    # corta acesso a TODAS as aplicações integradas, inclusive com liberação
+    # (AcessoAplicacao) ainda ativa. Diferente de permission_hcview, que só
+    # controla o próprio HC Overview.
+    bloqueado_global = db.Column(db.Boolean, default=False, nullable=True)
+    bloqueado_em = db.Column(db.DateTime, nullable=True)
+    bloqueado_por = db.Column(db.String(50), nullable=True)
+
     # ── Flask-Login interface ────────────────────────────────────
 
     def get_id(self):
@@ -120,4 +128,7 @@ class Operadores(db.Model, UserMixin):
             "setor": self.setor or "",
             "permission_hcview": bool(self.permission_hcview),
             "permission_level_hcview": self.permission_level_hcview or "",
+            "bloqueado_global": bool(self.bloqueado_global),
+            "bloqueado_em": self.bloqueado_em.strftime("%Y-%m-%d %H:%M:%S") if self.bloqueado_em else None,
+            "bloqueado_por": self.bloqueado_por or "",
         }

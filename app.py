@@ -2,12 +2,13 @@ import json
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, redirect, request, url_for
-from flask_login import LoginManager
+from flask import Flask, jsonify, redirect, request, session, url_for
+from flask_login import LoginManager, current_user, logout_user
 
 from config import Config
 from models import db
 from routes.auth import auth_bp
+from routes.central import central_bp
 from routes.hc import hc_bp
 
 
@@ -400,11 +401,19 @@ def _migrate_lc_table_for_fc(fc):
 
 
 def _migrate_operadores_table():
+    # create_all so' cria tabelas que ainda nao existem - cobre as 4 tabelas
+    # novas do controle central de acesso (models/central_auth.py), desde que
+    # os models ja tenham sido importados (ver bloco de imports em create_app).
     db.metadatas["GIG2"].create_all(bind=db.engines["GIG2"])
     with db.engines["GIG2"].begin() as conn:
         conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_hcview BOOLEAN DEFAULT FALSE"))
         conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS permission_level_hcview VARCHAR(20)"))
-    print("[MIGRATION:GIG2] Tabela central de operadores verificada.")
+        # Bloqueio GLOBAL de acesso (controle centralizado - ver models/central_auth.py):
+        # corta acesso a todas as aplicacoes integradas, mesmo com liberacao ativa.
+        conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS bloqueado_global BOOLEAN DEFAULT FALSE"))
+        conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS bloqueado_em TIMESTAMP"))
+        conn.execute(db.text("ALTER TABLE operadores ADD COLUMN IF NOT EXISTS bloqueado_por VARCHAR(50)"))
+    print("[MIGRATION:GIG2] Tabela central de operadores verificada (+ bloqueio global).")
 
 
 def _bootstrap_databases(app):
@@ -474,6 +483,20 @@ def create_app():
             return jsonify({"erro": "Nao autenticado."}), 401
         return redirect(url_for("auth.login"))
 
+    @app.before_request
+    def _negar_bloqueado_global():
+        """Controle central de acesso: bloqueio global tem que valer na
+        PROXIMA requisicao, mesmo com sessao/cookie ainda valido (nao da' pra
+        confiar em cache positivo). Cobre a propria HC Overview - as demais
+        aplicacoes fazem o equivalente chamando /api/central/autorizar a cada
+        requisicao protegida (ver routes/central.py e docs/central_auth_contrato.md)."""
+        if current_user.is_authenticated and getattr(current_user, "bloqueado_global", False):
+            logout_user()
+            session.pop("fc", None)
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify({"erro": "Acesso bloqueado pelo administrador."}), 403
+            return redirect(url_for("auth.login"))
+
     @app.context_processor
     def inject_fc_context():
         from models import get_current_fc
@@ -495,11 +518,15 @@ def create_app():
         from models.turno_config import HCTurnoConfig  # noqa: F401
         from models.ticket import Ticket  # noqa: F401
         from models.portal_ticket_claims import PortalTicketClaim  # noqa: F401
+        from models.central_auth import (  # noqa: F401
+            Aplicacao, ChaveAplicacao, AcessoAplicacao, AuditoriaCentral,
+        )
 
         _bootstrap_databases(app)
 
     app.register_blueprint(hc_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(central_bp)
     return app
 
 

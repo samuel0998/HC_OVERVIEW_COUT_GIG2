@@ -26,6 +26,33 @@
     </div>
 </div>
 
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
+        <div>
+            <h2 style="margin:0;font-size:18px;">Aplicações integradas</h2>
+            <p style="margin:4px 0 0;color:var(--muted);font-size:13px;">Controle central de acesso: cadastre aqui as aplicações que vão consultar a HC Overview pra saber quem pode entrar.</p>
+        </div>
+        <button class="btn primary btn-sm" onclick="novaAplicacao()">+ Nova aplicação</button>
+    </div>
+    <div id="apps-msg" class="mensagem"></div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Aplicação</th>
+                    <th>Slug</th>
+                    <th>Status</th>
+                    <th>Chaves ativas</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody id="apps-tbody">
+                <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">Carregando...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <h2 style="margin:0;font-size:18px;">Operadores Cadastrados</h2>
@@ -44,11 +71,12 @@
                     <th>Setor</th>
                     <th>Acesso HC</th>
                     <th>Nível</th>
+                    <th>Bloqueio</th>
                     <th>Ações</th>
                 </tr>
             </thead>
             <tbody id="users-tbody">
-                <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
+                <tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Carregando...</td></tr>
             </tbody>
         </table>
     </div>
@@ -89,10 +117,65 @@
     </div>
 </div>
 
+<!-- Modal Integrações (controle central de acesso por aplicação) -->
+<div id="modal-integracoes" class="modal hidden">
+    <div class="modal-content card" style="width:min(920px, 94vw);">
+        <h2 id="integ-titulo" style="margin-top:0;">Integrações do usuário</h2>
+        <div id="msg-integ" class="mensagem"></div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;background:var(--bg-alt);border-radius:8px;margin-bottom:16px;">
+            <div>
+                <strong>Bloqueio global</strong>
+                <p style="margin:2px 0 0;color:var(--muted);font-size:12px;">Corta o acesso a TODAS as aplicações integradas, mesmo com liberação individual ativa.</p>
+                <p id="integ-bloqueio-info" style="margin:4px 0 0;font-size:12px;"></p>
+            </div>
+            <button id="integ-btn-bloqueio" class="btn danger btn-sm" onclick="alternarBloqueioGlobal()">Bloquear globalmente</button>
+        </div>
+
+        <div class="table-wrap" style="max-height:320px;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Aplicação</th>
+                        <th>Acesso liberado</th>
+                        <th>Perfil</th>
+                        <th>Permissões</th>
+                        <th>Expiração</th>
+                        <th>Status</th>
+                        <th>Ações</th>
+                    </tr>
+                </thead>
+                <tbody id="integ-tbody">
+                    <tr><td colspan="7" style="text-align:center;padding:16px;color:var(--muted);">Carregando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top:18px;">
+            <strong style="font-size:13px;">Histórico de liberações deste usuário</strong>
+            <div class="table-wrap" style="max-height:200px;margin-top:8px;">
+                <table>
+                    <thead><tr><th>Quando</th><th>Tipo</th><th>Por</th><th>Descrição</th></tr></thead>
+                    <tbody id="integ-auditoria-tbody">
+                        <tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top:16px;">
+            <button class="btn" onclick="fecharModalIntegracoes()">Fechar</button>
+        </div>
+    </div>
+</div>
+
 <script>
 let todosOperadores = [];
 let editingLogin = null;
 let turnosConfig = [];
+let todasAplicacoes = [];
+let integLogin = null;
+let integNome = null;
 
 async function carregarOperadores() {
     try {
@@ -103,7 +186,116 @@ async function carregarOperadores() {
         renderTabela(data);
     } catch (e) {
         document.getElementById('users-tbody').innerHTML =
-            '<tr><td colspan="6" style="color:red;padding:16px;">Erro ao carregar operadores.</td></tr>';
+            '<tr><td colspan="7" style="color:red;padding:16px;">Erro ao carregar operadores.</td></tr>';
+    }
+}
+
+// ── Aplicações integradas (controle central de acesso) ─────────────────
+async function carregarAplicacoes() {
+    const tbody = document.getElementById('apps-tbody');
+    try {
+        const res = await fetch('/api/central/aplicacoes');
+        const data = await res.json();
+        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="5" style="color:red;padding:16px;">${data.erro || 'Erro ao carregar.'}</td></tr>`; return; }
+        todasAplicacoes = data;
+        renderAplicacoesTabela();
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:red;padding:16px;">Erro ao carregar aplicações.</td></tr>';
+    }
+}
+
+function renderAplicacoesTabela() {
+    const tbody = document.getElementById('apps-tbody');
+    if (!todasAplicacoes.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">Nenhuma aplicação cadastrada ainda.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = todasAplicacoes.map(a => `
+        <tr>
+            <td><strong>${a.nome}</strong>${a.descricao ? `<br><span style="font-size:11px;color:var(--muted);">${a.descricao}</span>` : ''}</td>
+            <td><code>${a.slug}</code></td>
+            <td>${a.ativa ? '<span class="badge operacional">Ativa</span>' : '<span class="badge off">Inativa</span>'}</td>
+            <td>${a.chaves_ativas}</td>
+            <td>
+                <button class="btn btn-sm" onclick="gerenciarChaves(${a.id}, '${a.nome.replace(/'/g, "\\'")}')">Chaves</button>
+                <button class="btn btn-sm" onclick="toggleAplicacaoAtiva(${a.id}, ${!a.ativa})">${a.ativa ? 'Desativar' : 'Ativar'}</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function novaAplicacao() {
+    const nome = prompt('Nome da aplicação (ex.: LaborDash):');
+    if (!nome) return;
+    const slugSugerido = nome.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const slug = prompt('Identificador estável (slug) - não muda depois:', slugSugerido);
+    if (!slug) return;
+    const perfisTxt = prompt('Perfis disponíveis (separados por vírgula, opcional):', '');
+
+    const msg = document.getElementById('apps-msg');
+    try {
+        const res = await fetch('/api/central/aplicacoes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome, slug, perfis_disponiveis: perfisTxt || '' }),
+        });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro ao criar aplicação.'; msg.style.color = 'red'; return; }
+        msg.textContent = 'Aplicação cadastrada.'; msg.style.color = 'green';
+        carregarAplicacoes();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function toggleAplicacaoAtiva(id, ativar) {
+    if (!ativar && !confirm('Desativar esta aplicação? Nenhum usuário consegue mais ser autorizado nela até reativar.')) return;
+    try {
+        await fetch(`/api/central/aplicacoes/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ativa: ativar }),
+        });
+        carregarAplicacoes();
+    } catch (e) {
+        alert('Erro ao atualizar aplicação.');
+    }
+}
+
+async function gerenciarChaves(aplicacaoId, nomeApp) {
+    try {
+        const res = await fetch(`/api/central/aplicacoes/${aplicacaoId}/chaves`);
+        const chaves = await res.json();
+        const linhas = chaves.length
+            ? chaves.map(c => `  - ${c.nome} (${c.prefixo}) ${c.ativa ? 'ATIVA' : 'revogada'}${c.expira_em ? ', expira ' + c.expira_em : ''}`).join('\n')
+            : '  (nenhuma chave ainda)';
+        const acao = prompt(
+            `Chaves de "${nomeApp}":\n${linhas}\n\n` +
+            `Digite "nova" pra gerar uma credencial nova, ou o ID de uma chave acima pra revogar (veja o ID em /api/central/aplicacoes/${aplicacaoId}/chaves). Deixe vazio pra cancelar.`
+        );
+        if (!acao) return;
+        if (acao.trim().toLowerCase() === 'nova') {
+            const nomeChave = prompt('Rótulo da chave (ex.: producao):', 'producao') || 'padrão';
+            const criar = await fetch(`/api/central/aplicacoes/${aplicacaoId}/chaves`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome: nomeChave }),
+            });
+            const dataCriar = await criar.json();
+            if (!criar.ok) { alert(dataCriar.erro || 'Erro ao criar chave.'); return; }
+            alert(
+                `Chave criada! Copie agora - não será mostrada de novo:\n\n${dataCriar.item.segredo}\n\n` +
+                `Configure como HC_APP_API_KEY no servidor da aplicação "${nomeApp}".`
+            );
+        } else if (/^\d+$/.test(acao.trim())) {
+            if (!confirm('Revogar esta chave? A aplicação para de ser autorizada imediatamente.')) return;
+            const revogar = await fetch(`/api/central/chaves/${acao.trim()}/revogar`, { method: 'POST' });
+            if (!revogar.ok) { const d = await revogar.json(); alert(d.erro || 'Erro ao revogar.'); return; }
+            alert('Chave revogada.');
+        }
+        carregarAplicacoes();
+    } catch (e) {
+        alert('Erro ao gerenciar chaves.');
     }
 }
 
@@ -179,7 +371,7 @@ function renderTabela(lista) {
     document.getElementById('users-total').textContent = `${lista.length} operador(es)`;
 
     if (!lista.length) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted);">Nenhum resultado.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);">Nenhum resultado.</td></tr>';
         return;
     }
 
@@ -192,14 +384,19 @@ function renderTabela(lista) {
         const nivelBadge = o.permission_level_hcview
             ? `<span class="badge ${nivelCls}">${nivelLabel}</span>`
             : '<span style="color:var(--muted);">—</span>';
+        const bloqueioBadge = o.bloqueado_global
+            ? '<span class="badge off">🔒 Bloqueado</span>'
+            : '<span style="color:var(--muted);">—</span>';
         return `<tr>
             <td><strong>${o.login}</strong></td>
             <td>${o.nome}</td>
             <td style="font-size:12px;color:var(--muted);">${o.setor}</td>
             <td>${acessoBadge}</td>
             <td>${nivelBadge}</td>
+            <td>${bloqueioBadge}</td>
             <td>
                 <button class="btn btn-sm" onclick="abrirModal(${JSON.stringify(o).replace(/"/g, '&quot;')})">Editar</button>
+                <button class="btn btn-sm" onclick="abrirIntegracoes('${o.login}', '${(o.nome || o.login).replace(/'/g, "\\'")}')">Integrações</button>
             </td>
         </tr>`;
     }).join('');
@@ -266,7 +463,162 @@ document.getElementById('modal-perm').addEventListener('click', function(e) {
     if (e.target === this) fecharModal();
 });
 
+// ── Modal Integrações (acesso central por aplicação) ────────────────────
+let integBloqueadoAtual = false;
+
+async function abrirIntegracoes(login, nome) {
+    integLogin = login;
+    integNome = nome;
+    document.getElementById('integ-titulo').textContent = `Integrações — ${nome} (${login})`;
+    document.getElementById('msg-integ').textContent = '';
+    document.getElementById('modal-integracoes').classList.remove('hidden');
+    if (!todasAplicacoes.length) await carregarAplicacoes();
+    await carregarIntegracoes();
+    await carregarAuditoriaUsuario();
+}
+
+function fecharModalIntegracoes() {
+    document.getElementById('modal-integracoes').classList.add('hidden');
+    integLogin = null;
+}
+
+async function carregarIntegracoes() {
+    const tbody = document.getElementById('integ-tbody');
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/acessos`);
+        const data = await res.json();
+        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="7" style="color:red;padding:16px;">${data.erro || 'Erro.'}</td></tr>`; return; }
+        renderIntegracoesTabela(data);
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:red;padding:16px;">Erro ao carregar.</td></tr>';
+    }
+
+    const operador = todosOperadores.find(o => o.login === integLogin);
+    integBloqueadoAtual = !!(operador && operador.bloqueado_global);
+    const info = document.getElementById('integ-bloqueio-info');
+    const btn = document.getElementById('integ-btn-bloqueio');
+    if (integBloqueadoAtual) {
+        info.textContent = `Bloqueado${operador.bloqueado_por ? ' por ' + operador.bloqueado_por : ''}${operador.bloqueado_em ? ' em ' + operador.bloqueado_em : ''}.`;
+        btn.textContent = 'Desbloquear';
+        btn.className = 'btn primary btn-sm';
+    } else {
+        info.textContent = 'Usuário não está bloqueado.';
+        btn.textContent = 'Bloquear globalmente';
+        btn.className = 'btn danger btn-sm';
+    }
+}
+
+function renderIntegracoesTabela(itens) {
+    const tbody = document.getElementById('integ-tbody');
+    if (!itens.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:16px;color:var(--muted);">Nenhuma aplicação cadastrada ainda.</td></tr>';
+        return;
+    }
+    const statusCls = { ATIVO: 'operacional', EXPIRADO: 'licenca', REVOGADO: 'off' };
+    tbody.innerHTML = itens.map(({ aplicacao: a, acesso }) => {
+        const liberado = !!acesso && acesso.status_calculado === 'ATIVO';
+        const statusBadge = acesso
+            ? `<span class="badge ${statusCls[acesso.status_calculado] || ''}">${acesso.status_calculado}</span>`
+            : '<span style="color:var(--muted);">—</span>';
+        const perfisDatalist = a.perfis_disponiveis.length
+            ? `<input list="perfis-${a.id}" id="integ-perfil-${a.id}" value="${acesso ? acesso.perfil : ''}" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;">
+               <datalist id="perfis-${a.id}">${a.perfis_disponiveis.map(p => `<option value="${p}">`).join('')}</datalist>`
+            : `<input id="integ-perfil-${a.id}" value="${acesso ? acesso.perfil : ''}" placeholder="perfil livre" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;">`;
+        return `<tr>
+            <td><strong>${a.nome}</strong>${!a.ativa ? '<br><span style="font-size:11px;color:#c62828;">app inativa</span>' : ''}</td>
+            <td>${liberado ? '<span class="badge operacional">Sim</span>' : '<span style="color:var(--muted);">Não</span>'}</td>
+            <td>${perfisDatalist}</td>
+            <td><input id="integ-perm-${a.id}" value="${acesso ? acesso.permissoes.join(', ') : ''}" placeholder="ler, editar" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;"></td>
+            <td><input type="datetime-local" id="integ-exp-${a.id}" value="${acesso ? acesso.expira_em || '' : ''}" style="padding:6px;border-radius:6px;border:1px solid var(--border);font-size:12px;"></td>
+            <td>${statusBadge}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm" onclick="salvarAcessoApp(${a.id})">${acesso ? 'Atualizar' : 'Liberar'}</button>
+                ${liberado ? `<button class="btn btn-sm danger" onclick="revogarAcessoApp(${a.id})">Revogar</button>` : ''}
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+async function salvarAcessoApp(aplicacaoId) {
+    const msg = document.getElementById('msg-integ');
+    const perfil = document.getElementById(`integ-perfil-${aplicacaoId}`).value.trim();
+    const permissoes = document.getElementById(`integ-perm-${aplicacaoId}`).value;
+    const expiraEm = document.getElementById(`integ-exp-${aplicacaoId}`).value;
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/acessos/${aplicacaoId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ perfil, permissoes, expira_em: expiraEm || '' }),
+        });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro ao liberar acesso.'; msg.style.color = 'red'; return; }
+        msg.textContent = 'Acesso liberado/atualizado.'; msg.style.color = 'green';
+        carregarIntegracoes();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function revogarAcessoApp(aplicacaoId) {
+    if (!confirm('Revogar o acesso deste usuário a esta aplicação?')) return;
+    const msg = document.getElementById('msg-integ');
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/acessos/${aplicacaoId}/revogar`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro ao revogar.'; msg.style.color = 'red'; return; }
+        msg.textContent = 'Acesso revogado.'; msg.style.color = 'green';
+        carregarIntegracoes();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function alternarBloqueioGlobal() {
+    const bloquear = !integBloqueadoAtual;
+    if (bloquear && !confirm(`Bloquear ${integNome} globalmente? Ele perde acesso a TODAS as aplicações integradas na próxima requisição.`)) return;
+    const msg = document.getElementById('msg-integ');
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/bloquear`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bloquear }),
+        });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro.'; msg.style.color = 'red'; return; }
+        msg.textContent = bloquear ? 'Usuário bloqueado.' : 'Usuário desbloqueado.'; msg.style.color = 'green';
+        await carregarOperadores();
+        await carregarIntegracoes();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function carregarAuditoriaUsuario() {
+    const tbody = document.getElementById('integ-auditoria-tbody');
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/auditoria`);
+        const data = await res.json();
+        if (!res.ok || !data.length) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;padding:12px;color:var(--muted);">Sem histórico ainda.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.map(r => `<tr>
+            <td style="font-size:12px;white-space:nowrap;">${r.timestamp || '—'}</td>
+            <td style="font-size:12px;">${r.tipo}</td>
+            <td style="font-size:12px;">${r.ator_login || '—'}</td>
+            <td style="font-size:12px;">${r.descricao || ''}</td>
+        </tr>`).join('');
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="4" style="color:red;padding:12px;">Erro ao carregar histórico.</td></tr>';
+    }
+}
+
+document.getElementById('modal-integracoes').addEventListener('click', function(e) {
+    if (e.target === this) fecharModalIntegracoes();
+});
+
 carregarTurnosConfig();
 carregarOperadores();
+carregarAplicacoes();
 </script>
 {% endblock %}
