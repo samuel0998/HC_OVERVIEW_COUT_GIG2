@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 def _forcar_driver_psycopg2(url):
@@ -95,6 +96,13 @@ def _build_fc_databases():
 
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "hc-gig2-secret-key")
+    # Login persistente: sem isso, o Flask-Login grava um cookie de SESSAO
+    # (sem "remember"), que o navegador pode descartar antes do esperado -
+    # o usuario cai pra tela de login com frequencia mesmo so' atualizando a
+    # pagina. "remember=True" (ver login_user em routes/auth.py) + estes dois
+    # tempos fazem a sessao/cookie durarem de verdade entre acessos.
+    PERMANENT_SESSION_LIFETIME = timedelta(days=30)
+    REMEMBER_COOKIE_DURATION = timedelta(days=30)
     FC_DATABASES = _build_fc_databases()
     SQLALCHEMY_DATABASE_URI = FC_DATABASES["GIG2"]["uri"]
     # Os tickets do Ariel LA Planning ficam em uma base separada. A integração é

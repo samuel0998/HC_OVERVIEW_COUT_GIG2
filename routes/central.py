@@ -25,7 +25,9 @@ from models.central_auth import (
     Aplicacao,
     AuditoriaCentral,
     ChaveAplicacao,
+    ChaveFisicaUsuario,
     calcular_hash_segredo,
+    extrair_yubikey_id,
 )
 from models.operadores import Operadores
 
@@ -161,6 +163,41 @@ def autorizar():
         } if acesso else None,
     }
     return jsonify(corpo), (200 if autorizado else 403)
+
+
+@central_bp.route("/identificar-por-chave", methods=["POST"])
+def identificar_por_chave():
+    """Resolve QUAL usuário é dono de uma chave de segurança (YubiKey) pelo
+    OTP apresentado - primeiro passo pra uma aplicação consumidora que aceita
+    a chave física como login, antes de checar autorização em /autorizar
+    (são checagens separadas: esta resolve IDENTIDADE, /autorizar resolve
+    PERMISSÃO). Autenticado pela credencial técnica da aplicação, igual ao
+    /autorizar - nunca em nome de um usuário."""
+    chave_app, aplicacao = _resolver_chave_aplicacao()
+    if not aplicacao:
+        return jsonify({"erro": "Credencial da aplicação ausente, inválida, revogada ou expirada."}), 401
+
+    data = request.get_json(silent=True) or {}
+    yubikey_id = extrair_yubikey_id(data.get("otp_ou_id"))
+    if not yubikey_id:
+        return jsonify({"identificado": False, "motivo": "chave_invalida"}), 400
+
+    chave = ChaveFisicaUsuario.query.filter_by(yubikey_id=yubikey_id, ativa=True).first()
+    if not chave:
+        return jsonify({"identificado": False, "motivo": "chave_nao_encontrada"}), 404
+
+    operador = Operadores.query.get(chave.usuario_login)
+    if not operador or operador.bloqueado_global:
+        return jsonify({"identificado": False, "motivo": "usuario_bloqueado_ou_nao_encontrado"}), 403
+
+    chave.ultimo_uso_em = datetime.utcnow()
+    db.session.commit()
+
+    return jsonify({
+        "identificado": True,
+        "usuario_login": operador.login,
+        "usuario": {"login": operador.login, "nome": operador.nome or operador.login},
+    }), 200
 
 
 # ── Administração (cookie + is_admin) ───────────────────────────────────
@@ -428,3 +465,97 @@ def auditoria_usuario(login_val):
         .all()
     )
     return jsonify([r.to_dict() for r in registros])
+
+
+# ── Chaves de segurança (YubiKey) por usuário ───────────────────────────
+
+
+@central_bp.route("/usuarios/<login_val>/chaves-fisicas", methods=["GET"])
+@login_required
+def listar_chaves_fisicas(login_val):
+    negado = _exigir_admin()
+    if negado:
+        return negado
+    login_norm = (login_val or "").strip().lower()
+    chaves = (
+        ChaveFisicaUsuario.query
+        .filter_by(usuario_login=login_norm)
+        .order_by(ChaveFisicaUsuario.cadastrada_em.desc())
+        .all()
+    )
+    return jsonify([c.to_dict() for c in chaves])
+
+
+@central_bp.route("/usuarios/<login_val>/chaves-fisicas", methods=["POST"])
+@login_required
+def cadastrar_chave_fisica(login_val):
+    """Registra uma chave de segurança JÁ EXISTENTE (YubiKey física) pra este
+    usuário - não gera nada, só grava o ID público extraído do OTP informado
+    (ver extrair_yubikey_id). É assim que o próprio usuário "se identifica"
+    depois: tocando a chave, sem digitar senha."""
+    negado = _exigir_admin()
+    if negado:
+        return negado
+    login_norm = (login_val or "").strip().lower()
+    if not Operadores.query.get(login_norm):
+        return jsonify({"erro": "Usuário não encontrado em operadores."}), 404
+
+    data = request.get_json(silent=True) or {}
+    yubikey_id = extrair_yubikey_id(data.get("otp_ou_id"))
+    if not yubikey_id:
+        return jsonify({"erro": "Toque a chave no campo (ou informe os 12 caracteres do ID) - mínimo 12 caracteres."}), 400
+
+    existente = ChaveFisicaUsuario.query.filter_by(yubikey_id=yubikey_id).first()
+    if existente and existente.ativa:
+        dono = "este usuário" if existente.usuario_login == login_norm else f"'{existente.usuario_login}'"
+        return jsonify({"erro": f"Essa chave já está cadastrada para {dono}."}), 409
+
+    apelido = (data.get("apelido") or "").strip() or None
+    if existente and not existente.ativa:
+        # Chave existia (revogada) e está sendo redistribuída pra outro dono.
+        existente.usuario_login = login_norm
+        existente.ativa = True
+        existente.apelido = apelido or existente.apelido
+        existente.cadastrada_por = current_user.login
+        existente.cadastrada_em = datetime.utcnow()
+        existente.revogada_em = None
+        existente.revogada_por = None
+        chave = existente
+        criado = False
+    else:
+        chave = ChaveFisicaUsuario(
+            usuario_login=login_norm,
+            yubikey_id=yubikey_id,
+            apelido=apelido,
+            cadastrada_por=current_user.login,
+        )
+        db.session.add(chave)
+        criado = True
+
+    db.session.flush()
+    _registrar_auditoria(
+        "chave_fisica_cadastrada",
+        usuario_alvo=login_norm,
+        descricao=f"Chave de segurança (ID {yubikey_id}) {'cadastrada' if criado else 'recadastrada'}.",
+    )
+    db.session.commit()
+    return jsonify({"mensagem": "Chave de segurança cadastrada.", "item": chave.to_dict()}), 201
+
+
+@central_bp.route("/chaves-fisicas/<int:chave_id>/revogar", methods=["POST"])
+@login_required
+def revogar_chave_fisica(chave_id):
+    negado = _exigir_admin()
+    if negado:
+        return negado
+    chave = ChaveFisicaUsuario.query.get_or_404(chave_id)
+    chave.ativa = False
+    chave.revogada_em = datetime.utcnow()
+    chave.revogada_por = current_user.login
+    _registrar_auditoria(
+        "chave_fisica_revogada",
+        usuario_alvo=chave.usuario_login,
+        descricao=f"Chave de segurança (ID {chave.yubikey_id}) revogada.",
+    )
+    db.session.commit()
+    return jsonify({"mensagem": "Chave revogada."})

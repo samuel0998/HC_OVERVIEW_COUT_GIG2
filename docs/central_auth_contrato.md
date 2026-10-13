@@ -117,7 +117,72 @@ aplicações — são administrados separadamente.
 
 Nunca coloque `HC_APP_API_KEY` no frontend, no repositório ou em log.
 
-## 8. Extensão futura: identidade via token assinado (JWT)
+## 8. Autenticação por chave de segurança (YubiKey)
+
+Além do login tradicional, a HC Overview aceita identificar um usuário pela
+**chave de segurança física (YubiKey)** que ele já possui — sem senha. Isto é
+**identidade de usuário**, um conceito separado da credencial técnica da
+aplicação (seção 1): uma chave de segurança nunca autentica uma aplicação, e
+uma `ChaveAplicacao` nunca identifica uma pessoa.
+
+### Como funciona
+
+Uma YubiKey em modo OTP, ao ser tocada, "digita" (via teclado USB) uma string
+de até 44 caracteres (alfabeto ModHex). **Os 12 primeiros caracteres são o ID
+público e ESTÁVEL daquela chave física** — não mudam nunca, nem entre toques
+diferentes da mesma chave. O restante (~32 caracteres) é a parte variável, que
+troca a cada toque.
+
+**Simplificação deliberada desta entrega:** só o ID público (12 caracteres) é
+conferido contra o que foi cadastrado. A parte variável do OTP **não** é
+validada contra o Yubico OTP/YubiCloud. Na prática, a chave funciona como um
+identificador fixo ligado à posse física do dispositivo — não como uma senha
+de uso único à prova de repetição ("replay"). Quem tiver os 12 caracteres (ex.:
+visto por cima do ombro, anotado em algum lugar) consegue se identificar como
+o dono da chave. Trate o ID como dado sensível. Se precisar de garantia
+criptográfica real de uso único no futuro, o caminho é validar o OTP completo
+contra a YubiCloud (exige client id/secret próprios da Yubico) — não
+implementado aqui por não haver essa exigência hoje.
+
+### Cadastro (feito por um admin na HC Overview)
+
+Aba Usuários → linha do operador → **Integrações** → seção **Auth — chaves de
+segurança**: toque a chave no campo (ou cole os 12 caracteres do ID) e salve.
+Não existe geração de chave aqui — a chave já existe fisicamente, só é
+registrada contra o `usuario_login` dela.
+
+- `POST /api/central/usuarios/<login>/chaves-fisicas` — cadastra (`otp_ou_id`,
+  `apelido` opcional). 409 se a mesma chave já está ativa pra outro usuário.
+- `GET /api/central/usuarios/<login>/chaves-fisicas` — lista as chaves do usuário.
+- `POST /api/central/chaves-fisicas/<id>/revogar` — revoga (a chave física
+  continua existindo, só deixa de identificar alguém até ser recadastrada).
+
+### `POST /api/central/identificar-por-chave` — pra aplicações consumidoras
+
+Resolve **quem é o dono** de uma chave de segurança apresentada. É um passo
+de **identidade**, separado de **autorização** — depois de identificar o
+usuário, chame `/api/central/autorizar` normalmente (seção 3) com o
+`usuario_login` resolvido.
+
+**Autenticação:** header `Authorization: Bearer <chave_da_aplicacao>` (igual ao `/autorizar`).
+
+**Corpo:** `{"otp_ou_id": "<OTP completo digitado pela chave, ou só os 12 caracteres>"}`
+
+**Respostas:**
+
+| HTTP | Quando | Corpo |
+|---|---|---|
+| `200` | Chave reconhecida e usuário ativo | `{"identificado": true, "usuario_login": "...", "usuario": {...}}` |
+| `404` | Chave não cadastrada em nenhum usuário | `{"identificado": false, "motivo": "chave_nao_encontrada"}` |
+| `403` | Chave cadastrada, mas o usuário está bloqueado globalmente | `{"identificado": false, "motivo": "usuario_bloqueado_ou_nao_encontrado"}` |
+| `400` | Corpo sem `otp_ou_id` válido (menos de 12 caracteres) | `{"identificado": false, "motivo": "chave_invalida"}` |
+| `401` | Credencial da SUA aplicação ausente/inválida/revogada | `{"erro": "..."}` |
+
+Use exatamente o mesmo mapeamento de status da seção 3 pro lado da sua
+aplicação (401 sem credencial local, 503 se a central estiver indisponível,
+nunca liberar acesso sem essa confirmação).
+
+## 9. Extensão futura: identidade via token assinado (JWT)
 
 O projeto atual da HC Overview usa sessão por cookie (Flask-Login) para o
 próprio login de operadores — não há emissão de JWT hoje. Se, no futuro, uma

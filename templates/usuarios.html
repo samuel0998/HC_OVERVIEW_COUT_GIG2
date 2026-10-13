@@ -151,6 +151,31 @@
             </table>
         </div>
 
+        <div style="margin-top:18px;padding:12px 14px;background:var(--bg-alt);border-radius:8px;">
+            <strong>Auth — chaves de segurança (YubiKey)</strong>
+            <p style="margin:2px 0 10px;color:var(--muted);font-size:12px;">
+                Cadastre a chave física JÁ EXISTENTE deste usuário — não gera nada novo.
+                Toque a chave no campo abaixo (ela "digita" o código sozinha) ou cole
+                os 12 primeiros caracteres do ID. Essa chave passa a autenticar o
+                usuário (aqui e em outras aplicações integradas), sem precisar de senha.
+            </p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                <input type="password" id="integ-chave-input" placeholder="Toque a chave aqui..." autocomplete="off"
+                       style="flex:1;min-width:180px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px;">
+                <input type="text" id="integ-chave-apelido" placeholder="Apelido (opcional, ex.: YubiKey azul)"
+                       style="flex:1;min-width:180px;padding:8px 10px;border-radius:6px;border:1px solid var(--border);font-size:13px;">
+                <button class="btn btn-sm primary" onclick="cadastrarChaveFisica()">Cadastrar chave</button>
+            </div>
+            <div class="table-wrap" style="max-height:160px;">
+                <table>
+                    <thead><tr><th>ID público</th><th>Apelido</th><th>Cadastrada em</th><th>Último uso</th><th>Ações</th></tr></thead>
+                    <tbody id="integ-chaves-tbody">
+                        <tr><td colspan="5" style="text-align:center;padding:12px;color:var(--muted);">—</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div style="margin-top:18px;">
             <strong style="font-size:13px;">Histórico de liberações deste usuário</strong>
             <div class="table-wrap" style="max-height:200px;margin-top:8px;">
@@ -475,6 +500,7 @@ async function abrirIntegracoes(login, nome) {
     if (!todasAplicacoes.length) await carregarAplicacoes();
     await carregarIntegracoes();
     await carregarAuditoriaUsuario();
+    await carregarChavesFisicas();
 }
 
 function fecharModalIntegracoes() {
@@ -616,6 +642,77 @@ async function carregarAuditoriaUsuario() {
 document.getElementById('modal-integracoes').addEventListener('click', function(e) {
     if (e.target === this) fecharModalIntegracoes();
 });
+
+// ── Auth — chaves de segurança (YubiKey) do usuário ─────────────────────
+async function carregarChavesFisicas() {
+    const tbody = document.getElementById('integ-chaves-tbody');
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/chaves-fisicas`);
+        const data = await res.json();
+        if (!res.ok) { tbody.innerHTML = `<tr><td colspan="5" style="color:red;padding:12px;">${data.erro || 'Erro.'}</td></tr>`; return; }
+        renderChavesFisicasTabela(data);
+    } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:red;padding:12px;">Erro ao carregar chaves.</td></tr>';
+    }
+}
+
+function renderChavesFisicasTabela(itens) {
+    const tbody = document.getElementById('integ-chaves-tbody');
+    const ativas = itens.filter(c => c.ativa);
+    if (!ativas.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:12px;color:var(--muted);">Nenhuma chave cadastrada ainda.</td></tr>';
+        return;
+    }
+    tbody.innerHTML = ativas.map(c => `
+        <tr>
+            <td><code>${c.yubikey_id}</code></td>
+            <td>${c.apelido || '—'}</td>
+            <td style="font-size:12px;">${c.cadastrada_em || '—'}</td>
+            <td style="font-size:12px;">${c.ultimo_uso_em || 'nunca'}</td>
+            <td><button class="btn btn-sm danger" onclick="revogarChaveFisica(${c.id})">Revogar</button></td>
+        </tr>
+    `).join('');
+}
+
+async function cadastrarChaveFisica() {
+    const msg = document.getElementById('msg-integ');
+    const input = document.getElementById('integ-chave-input');
+    const apelidoInput = document.getElementById('integ-chave-apelido');
+    const otpOuId = input.value.trim();
+    if (otpOuId.length < 12) {
+        msg.textContent = 'Toque a chave no campo (ou informe os 12 caracteres do ID).'; msg.style.color = 'red';
+        return;
+    }
+    try {
+        const res = await fetch(`/api/central/usuarios/${integLogin}/chaves-fisicas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ otp_ou_id: otpOuId, apelido: apelidoInput.value.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro ao cadastrar chave.'; msg.style.color = 'red'; return; }
+        msg.textContent = 'Chave de segurança cadastrada.'; msg.style.color = 'green';
+        input.value = '';
+        apelidoInput.value = '';
+        carregarChavesFisicas();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
+
+async function revogarChaveFisica(chaveId) {
+    if (!confirm('Revogar esta chave de segurança? O usuário deixa de conseguir entrar com ela imediatamente.')) return;
+    const msg = document.getElementById('msg-integ');
+    try {
+        const res = await fetch(`/api/central/chaves-fisicas/${chaveId}/revogar`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) { msg.textContent = data.erro || 'Erro ao revogar.'; msg.style.color = 'red'; return; }
+        msg.textContent = 'Chave revogada.'; msg.style.color = 'green';
+        carregarChavesFisicas();
+    } catch (e) {
+        msg.textContent = 'Erro de comunicação.'; msg.style.color = 'red';
+    }
+}
 
 carregarTurnosConfig();
 carregarOperadores();

@@ -519,7 +519,7 @@ def create_app():
         from models.ticket import Ticket  # noqa: F401
         from models.portal_ticket_claims import PortalTicketClaim  # noqa: F401
         from models.central_auth import (  # noqa: F401
-            Aplicacao, ChaveAplicacao, AcessoAplicacao, AuditoriaCentral,
+            Aplicacao, ChaveAplicacao, AcessoAplicacao, AuditoriaCentral, ChaveFisicaUsuario,
         )
 
         _bootstrap_databases(app)

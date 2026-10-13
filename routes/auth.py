@@ -4,7 +4,10 @@ from flask import Blueprint, current_app, jsonify, redirect, render_template, re
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import func
 
+from datetime import datetime
+
 from models import db
+from models.central_auth import ChaveFisicaUsuario, extrair_yubikey_id
 from models.hc_gig2 import HCGig2
 from models.operadores import Operadores
 from models.turno_config import DEFAULT_TURNO_RESET, HCTurnoConfig, ensure_default_turno_config
@@ -138,14 +141,31 @@ def login():
     selected_fc = session.get("fc") or current_app.config.get("DEFAULT_FC", "GIG2")
 
     if request.method == "POST":
+        yubikey_otp = (request.form.get("yubikey_otp") or "").strip()
         login_val = (request.form.get("login") or "").strip().lower()
         selected_fc = (request.form.get("fc") or selected_fc).strip().upper()
+        chave_fisica = None
+
+        # Login por chave de segurança (YubiKey): a chave "digita" o OTP no
+        # campo - os 12 primeiros caracteres identificam QUAL chave é (ver
+        # models/central_auth.py), e isso resolve direto o login do operador,
+        # sem precisar digitar nada.
+        if yubikey_otp:
+            yubikey_id = extrair_yubikey_id(yubikey_otp)
+            chave_fisica = (
+                ChaveFisicaUsuario.query.filter_by(yubikey_id=yubikey_id, ativa=True).first()
+                if yubikey_id else None
+            )
+            if not chave_fisica:
+                erro = "Chave de segurança não reconhecida ou não cadastrada."
+            else:
+                login_val = chave_fisica.usuario_login
 
         if selected_fc not in current_app.config["FC_DATABASES"]:
-            erro = "FC invalido."
-        else:
+            erro = erro or "FC invalido."
+        elif not erro:
             session["fc"] = selected_fc
-            operador = Operadores.query.filter_by(login=login_val).first()
+            operador = Operadores.query.filter_by(login=login_val).first() if login_val else None
 
             if not operador:
                 erro = "Login nao encontrado no sistema."
@@ -154,7 +174,11 @@ def login():
             else:
                 erro = _inicializar_fc_sob_demanda(selected_fc)
                 if not erro:
-                    login_user(operador)
+                    if chave_fisica:
+                        chave_fisica.ultimo_uso_em = datetime.utcnow()
+                        db.session.commit()
+                    session.permanent = True
+                    login_user(operador, remember=True)
                     next_page = request.args.get("next")
                     return redirect(next_page or url_for("hc.home"))
 

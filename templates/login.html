@@ -6,6 +6,51 @@
     <title>Login | HC Overview</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='images/head-hunting.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Painel "chave de segurança" - estilo inspirado no diálogo nativo do
+           Windows ("Entrar com uma chave de acesso"): cartão central, ícone
+           grande, texto instrutivo discreto, botão Cancelar. */
+        .security-key-overlay {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1000;
+        }
+        .security-key-overlay.hidden { display: none; }
+        .security-key-card {
+            background: #fff; border-radius: 12px; width: min(380px, 90vw);
+            padding: 32px 28px 24px; text-align: center;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+        }
+        .security-key-icon {
+            width: 56px; height: 56px; margin: 0 auto 18px; display: flex;
+            align-items: center; justify-content: center; border-radius: 50%;
+            background: #eef3fb; color: #2b579a;
+        }
+        .security-key-icon svg { width: 30px; height: 30px; }
+        .security-key-card h2 {
+            font-size: 16px; font-weight: 600; margin: 0 0 6px; color: #1a1a1a;
+        }
+        .security-key-card .sk-app {
+            font-size: 12px; color: #6b6b6b; margin: 0 0 18px; word-break: break-all;
+        }
+        .security-key-usb {
+            width: 90px; height: 54px; margin: 0 auto 18px; opacity: 0.85;
+        }
+        .security-key-card p.sk-instrucao {
+            font-size: 13px; color: #3a3a3a; margin: 0 0 20px; line-height: 1.5;
+        }
+        .security-key-input {
+            position: absolute; opacity: 0; pointer-events: none;
+        }
+        .sk-status { font-size: 12px; min-height: 16px; margin-bottom: 14px; }
+        .sk-status.waiting { color: #6b6b6b; }
+        .sk-status.erro { color: #c62828; }
+        .sk-actions { display: flex; justify-content: center; }
+        .link-chave-seguranca {
+            display: inline-block; margin-top: 14px; font-size: 13px;
+            color: var(--primary, #2b579a); cursor: pointer; text-decoration: underline;
+        }
+    </style>
 </head>
 <body class="login-body">
     <div class="login-page">
@@ -24,7 +69,7 @@
             <div class="alert alert-danger">{{ erro }}</div>
             {% endif %}
 
-            <form method="POST" class="login-form">
+            <form method="POST" class="login-form" id="form-login-normal">
                 <div class="login-field">
                     <label for="fc">FC</label>
                     <select id="fc" name="fc" required>
@@ -40,14 +85,90 @@
                 <button type="submit" class="btn primary login-submit">Entrar</button>
             </form>
 
+            <span class="link-chave-seguranca" onclick="abrirChaveSeguranca()">Entrar com uma chave de segurança</span>
+
             <p class="login-version">v1.1.0</p>
         </div>
     </div>
+
+    <!-- Painel de login por chave de segurança (YubiKey) -->
+    <div id="security-key-overlay" class="security-key-overlay hidden">
+        <div class="security-key-card">
+            <div class="security-key-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                    <path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6l8-4z"/>
+                    <path d="M9.5 12.5l2 2 3.5-4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h2>Entrar com uma chave de segurança</h2>
+            <p class="sk-app">HC Overview</p>
+            <p class="sk-instrucao">Insira a chave de segurança na porta USB e toque nela.</p>
+            <p id="sk-status" class="sk-status waiting">Aguardando a chave...</p>
+            <form method="POST" id="form-login-chave">
+                <input type="hidden" name="fc" id="sk-fc-hidden">
+                <input type="password" id="sk-input" name="yubikey_otp" class="security-key-input" autocomplete="off">
+            </form>
+            <div class="sk-actions">
+                <button type="button" class="btn" onclick="fecharChaveSeguranca()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.getElementById('fc').addEventListener('change', function () {
             const logo = this.options[this.selectedIndex].getAttribute('data-logo');
             if (logo) document.getElementById('loginFcLogo').src = logo;
         });
+
+        function abrirChaveSeguranca() {
+            document.getElementById('sk-fc-hidden').value = document.getElementById('fc').value;
+            document.getElementById('sk-status').textContent = 'Aguardando a chave...';
+            document.getElementById('sk-status').className = 'sk-status waiting';
+            const overlay = document.getElementById('security-key-overlay');
+            const input = document.getElementById('sk-input');
+            input.value = '';
+            overlay.classList.remove('hidden');
+            setTimeout(() => input.focus(), 50);
+        }
+
+        function fecharChaveSeguranca() {
+            document.getElementById('security-key-overlay').classList.add('hidden');
+            document.getElementById('sk-input').value = '';
+        }
+
+        // A chave "digita" o OTP via teclado USB e termina com Enter - não
+        // precisa de botão de confirmar, só detectar o Enter (ou o
+        // comprimento típico de 44 caracteres) e enviar o formulário.
+        document.getElementById('sk-input').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                enviarChaveSeguranca();
+            }
+        });
+        document.getElementById('sk-input').addEventListener('input', function () {
+            if (this.value.trim().length >= 44) enviarChaveSeguranca();
+        });
+
+        function enviarChaveSeguranca() {
+            const valor = document.getElementById('sk-input').value.trim();
+            if (valor.length < 12) {
+                document.getElementById('sk-status').textContent = 'Chave incompleta - tente tocar de novo.';
+                document.getElementById('sk-status').className = 'sk-status erro';
+                return;
+            }
+            document.getElementById('sk-status').textContent = 'Validando...';
+            document.getElementById('sk-status').className = 'sk-status waiting';
+            document.getElementById('form-login-chave').submit();
+        }
+
+        // Clique fora do cartão também cancela.
+        document.getElementById('security-key-overlay').addEventListener('click', function (e) {
+            if (e.target === this) fecharChaveSeguranca();
+        });
+
+        {% if erro and erro.startswith('Chave de seguran') %}
+        window.addEventListener('DOMContentLoaded', abrirChaveSeguranca);
+        {% endif %}
     </script>
 </body>
 </html>

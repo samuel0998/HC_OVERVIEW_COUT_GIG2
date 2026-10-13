@@ -10,6 +10,10 @@ Modelos (todos no banco central GIG2, independente do site/FC ativo):
                       perfil, permissões, status (ATIVO/REVOGADO), expiração.
                       É a tabela consultada a cada checagem de autorização -
                       nunca cacheada como "autorizado" entre requisições.
+  ChaveFisicaUsuario - chave de segurança (YubiKey) registrada pra UM usuário -
+                      autentica uma PESSOA (não uma app) pelo ID público e
+                      estável da chave física. Ver nota de segurança no
+                      docstring da classe antes de usar em algo crítico.
   AuditoriaCentral   - quem fez o quê, quando, em cima de qual usuário/app.
                       Nunca grava segredos nem tokens - só metadados.
 
@@ -25,6 +29,24 @@ from models import db
 
 STATUS_ATIVO = "ATIVO"
 STATUS_REVOGADO = "REVOGADO"
+
+# Um OTP de YubiKey (modo padrão) tem até 44 caracteres em ModHex; os 12
+# primeiros são o ID PÚBLICO e ESTÁVEL daquela chave física específica - não
+# mudam nunca. O restante (até ~32 caracteres) é a parte variável/um-uso-só,
+# que troca a cada toque na chave.
+YUBIKEY_ID_LEN = 12
+
+
+def extrair_yubikey_id(otp_ou_id):
+    """Extrai o identificador público (12 caracteres) de uma chave YubiKey a
+    partir do OTP completo digitado/colado, ou do próprio ID já isolado.
+    Aceita qualquer um dos dois porque é assim que a chave "digita" (via
+    teclado USB) quando tocada - só os 12 primeiros caracteres importam pra
+    identificar QUAL chave física é."""
+    valor = (otp_ou_id or "").strip().lower()
+    if len(valor) < YUBIKEY_ID_LEN:
+        return None
+    return valor[:YUBIKEY_ID_LEN]
 
 
 def _gerar_segredo():
@@ -191,6 +213,54 @@ class AcessoAplicacao(db.Model):
             "concedido_em": self.concedido_em.strftime("%Y-%m-%d %H:%M:%S") if self.concedido_em else None,
             "revogado_por": self.revogado_por or "",
             "revogado_em": self.revogado_em.strftime("%Y-%m-%d %H:%M:%S") if self.revogado_em else None,
+        }
+
+
+class ChaveFisicaUsuario(db.Model):
+    """Chave de segurança (YubiKey) registrada pra UM usuário - identifica a
+    PESSOA pelo ID público e estável da chave física, sem senha. Diferente de
+    ChaveAplicacao: aquela autentica uma aplicação (servidor-a-servidor),
+    esta autentica um operador (pessoa), e uma nunca substitui a outra.
+
+    NOTA DE SEGURANÇA (simplificação deliberada, a pedido): só o ID público
+    (os 12 primeiros caracteres do OTP) é conferido aqui. A parte variável do
+    OTP (os ~32 caracteres restantes, que mudam a cada toque na chave) NÃO é
+    validada contra o Yubico OTP/YubiCloud nesta versão. Na prática isso
+    funciona como um identificador fixo ligado à posse física da chave, não
+    como uma senha de uso único à prova de repetição ("replay"): quem souber
+    os 12 caracteres (ex.: viu por cima do ombro, achou anotado) consegue se
+    passar pelo dono dela. Trate o ID como um dado sensível (não exiba
+    completo em telas/log fora da própria administração) e, se precisar de
+    garantia criptográfica real de uso único no futuro, o caminho é validar o
+    OTP completo contra a YubiCloud (precisa de client id/secret da Yubico) -
+    ver docs/central_auth_contrato.md, seção "Autenticação por chave de
+    segurança (YubiKey)"."""
+    __bind_key__ = "GIG2"
+    __tablename__ = "central_chaves_usuario"
+
+    id = db.Column(db.Integer, primary_key=True)
+    usuario_login = db.Column(db.String(50), nullable=False, index=True)
+    yubikey_id = db.Column(db.String(12), nullable=False, unique=True, index=True)
+    apelido = db.Column(db.String(100), nullable=True)
+    ativa = db.Column(db.Boolean, nullable=False, default=True)
+    cadastrada_por = db.Column(db.String(50), nullable=True)
+    cadastrada_em = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    revogada_em = db.Column(db.DateTime, nullable=True)
+    revogada_por = db.Column(db.String(50), nullable=True)
+    ultimo_uso_em = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "usuario_login": self.usuario_login,
+            "yubikey_id": self.yubikey_id,
+            "apelido": self.apelido or "",
+            "ativa": bool(self.ativa),
+            "cadastrada_por": self.cadastrada_por or "",
+            "cadastrada_em": self.cadastrada_em.strftime("%Y-%m-%d %H:%M:%S") if self.cadastrada_em else None,
+            "revogada_em": self.revogada_em.strftime("%Y-%m-%d %H:%M:%S") if self.revogada_em else None,
+            "revogada_por": self.revogada_por or "",
+            "ultimo_uso_em": self.ultimo_uso_em.strftime("%Y-%m-%d %H:%M:%S") if self.ultimo_uso_em else None,
         }
 
 
