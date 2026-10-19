@@ -244,6 +244,7 @@ function renderAplicacoesTabela() {
             <td>
                 <button class="btn btn-sm" onclick="gerenciarChaves(${a.id}, '${a.nome.replace(/'/g, "\\'")}')">Chaves</button>
                 <button class="btn btn-sm" onclick="toggleAplicacaoAtiva(${a.id}, ${!a.ativa})">${a.ativa ? 'Desativar' : 'Ativar'}</button>
+                <button class="btn btn-sm danger" onclick="excluirAplicacao(${a.id}, '${a.nome.replace(/'/g, "\\'")}', ${a.chaves_ativas})">Excluir</button>
             </td>
         </tr>
     `).join('');
@@ -284,6 +285,21 @@ async function toggleAplicacaoAtiva(id, ativar) {
         carregarAplicacoes();
     } catch (e) {
         alert('Erro ao atualizar aplicação.');
+    }
+}
+
+async function excluirAplicacao(id, nome, chavesAtivas) {
+    const aviso = chavesAtivas > 0
+        ? `Excluir "${nome}"? Isso remove definitivamente a aplicação, suas ${chavesAtivas} chave(s) técnica(s) e TODAS as liberações de acesso de usuários a ela. Não pode ser desfeito.`
+        : `Excluir "${nome}"? Isso remove definitivamente a aplicação e qualquer liberação de acesso associada a ela. Não pode ser desfeito.`;
+    if (!confirm(aviso)) return;
+    try {
+        const res = await fetch(`/api/central/aplicacoes/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) { alert(data.erro || 'Erro ao excluir aplicação.'); return; }
+        carregarAplicacoes();
+    } catch (e) {
+        alert('Erro de comunicação ao excluir aplicação.');
     }
 }
 

@@ -284,6 +284,35 @@ def atualizar_aplicacao(aplicacao_id):
     return jsonify({"mensagem": "Aplicação atualizada.", "item": aplicacao.to_dict()})
 
 
+@central_bp.route("/aplicacoes/<int:aplicacao_id>", methods=["DELETE"])
+@login_required
+def excluir_aplicacao(aplicacao_id):
+    """Exclui definitivamente a aplicação (ex.: cadastro de teste) e tudo que
+    depende dela - chaves técnicas e liberações de usuário. Diferente de
+    'Desativar' (reversível, mantém tudo): aqui não tem volta. A auditoria
+    registra o nome/slug antes de apagar; como AuditoriaCentral.aplicacao_id
+    não tem FK, o histórico continua existindo mesmo depois da exclusão."""
+    negado = _exigir_admin()
+    if negado:
+        return negado
+    aplicacao = Aplicacao.query.get_or_404(aplicacao_id)
+    nome, slug = aplicacao.nome, aplicacao.slug
+
+    qtd_chaves = ChaveAplicacao.query.filter_by(aplicacao_id=aplicacao.id).delete()
+    qtd_acessos = AcessoAplicacao.query.filter_by(aplicacao_id=aplicacao.id).delete()
+    _registrar_auditoria(
+        "aplicacao_excluida",
+        aplicacao_id=aplicacao.id,
+        descricao=(
+            f"Aplicação '{nome}' ({slug}) excluída - {qtd_chaves} chave(s) e "
+            f"{qtd_acessos} liberação(ões) de acesso removidas junto."
+        ),
+    )
+    db.session.delete(aplicacao)
+    db.session.commit()
+    return jsonify({"mensagem": f"Aplicação '{nome}' excluída."})
+
+
 @central_bp.route("/aplicacoes/<int:aplicacao_id>/chaves", methods=["GET"])
 @login_required
 def listar_chaves(aplicacao_id):

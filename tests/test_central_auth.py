@@ -296,6 +296,46 @@ class AdministracaoCentralTest(CentralAuthTestBase):
                 self.assertNotIn("segredo", item)
                 self.assertNotIn("hash_segredo", item)
 
+    def test_excluir_aplicacao_remove_chaves_e_acessos_em_cascata(self):
+        """Exclusão (ex.: limpar cadastro de teste) tem que apagar tudo que
+        depende da aplicação - senão a liberação continua "viva" pra outra
+        aplicação que reaproveitasse o mesmo id, e a chave técnica continuaria
+        existindo (hash) sem dono."""
+        app1 = self._criar_app(slug="teste-app", nome="Teste App")
+        chave, segredo = self._criar_chave(app1)
+        db.session.add(Operadores(login="walter", nome="Walter"))
+        db.session.add(AcessoAplicacao(usuario_login="walter", aplicacao_id=app1.id, concedido_por="admin1"))
+        db.session.commit()
+        app_id, chave_id = app1.id, chave.id  # captura antes do delete - os objetos ORM expiram apos o commit da rota
+
+        with self._como(self._admin()):
+            resposta = self.client.delete(f"/api/central/aplicacoes/{app_id}")
+        self.assertEqual(resposta.status_code, 200)
+
+        self.assertIsNone(Aplicacao.query.get(app_id))
+        self.assertIsNone(ChaveAplicacao.query.get(chave_id))
+        self.assertIsNone(AcessoAplicacao.query.filter_by(usuario_login="walter", aplicacao_id=app_id).first())
+
+    def test_excluir_aplicacao_registra_auditoria(self):
+        app1 = self._criar_app(slug="outra-teste", nome="Outra Teste")
+        with self._como(self._admin()):
+            self.client.delete(f"/api/central/aplicacoes/{app1.id}")
+            registros = AuditoriaCentral.query.filter_by(tipo="aplicacao_excluida").all()
+        self.assertEqual(len(registros), 1)
+        self.assertIn("Outra Teste", registros[0].descricao)
+
+    def test_usuario_comum_nao_consegue_excluir_aplicacao(self):
+        app1 = self._criar_app()
+        with self._como(self._usuario_comum()):
+            resposta = self.client.delete(f"/api/central/aplicacoes/{app1.id}")
+        self.assertEqual(resposta.status_code, 403)
+        self.assertIsNotNone(Aplicacao.query.get(app1.id))
+
+    def test_excluir_aplicacao_inexistente_404(self):
+        with self._como(self._admin()):
+            resposta = self.client.delete("/api/central/aplicacoes/9999")
+        self.assertEqual(resposta.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()
