@@ -27,6 +27,10 @@
             <label>Status</label>
             <div id="treeFiltroStatus" class="filter-pills"></div>
         </div>
+        <div class="filter-group" style="min-width:220px;">
+            <label>Cargo</label>
+            <div id="treeFiltroCargo" class="filter-pills"></div>
+        </div>
         <div class="filter-group" style="flex:1;min-width:260px;">
             <label>Setor</label>
             <div id="treeFiltroSetor" class="filter-pills"></div>
@@ -53,6 +57,7 @@ const treeBtnLimpar = document.getElementById('treeBtnLimpar');
 let podeMover = false;
 let dadosAreas = {};       // último payload cru vindo da API (por área)
 let filtroStatus = [];     // vazio = todos
+let filtroCargo = [];      // vazio = todos
 let filtroSetor = [];      // vazio = todos
 let draggedId = null;
 let draggedTurno = null;
@@ -73,6 +78,9 @@ function cardHtml(item, area) {
     const extras = [];
     if (item.job) extras.push(`<span class="tree-card-tag">${item.job}</span>`);
     if (item.agencia) extras.push(`<span class="tree-card-tag">${item.agencia}</span>`);
+    const retornarBtn = (item.status === 'LS' && podeMover)
+        ? `<button type="button" class="link-btn" onclick="treeRetornarLS(event, ${item.id})">Retornar agora</button>`
+        : '';
     return `
     <article class="tree-card" draggable="${podeArrastarEsteCard}" data-id="${item.id}" data-turno="${item.turno || ''}"
              ondragstart="treeDragStart(event, ${item.id}, '${(item.turno || '').replace(/'/g, "\\'")}', '${area.replace(/'/g, "\\'")}')"
@@ -83,6 +91,7 @@ function cardHtml(item, area) {
         </div>
         <div class="tree-card-meta">${item.cargo_exibicao || ''}${item.login ? ' · ' + item.login : ''}</div>
         ${extras.length ? `<div class="tree-card-extras">${extras.join('')}</div>` : ''}
+        ${retornarBtn ? `<div class="tree-card-actions">${retornarBtn}</div>` : ''}
     </article>`;
 }
 
@@ -122,12 +131,16 @@ function renderPills(containerId, valores, selecionados, aoMudar) {
 }
 
 function atualizarFiltroStatus(nova) { filtroStatus = nova; renderizarFiltrosERender(); }
+function atualizarFiltroCargo(nova) { filtroCargo = nova; renderizarFiltrosERender(); }
 function atualizarFiltroSetor(nova) { filtroSetor = nova; renderizarFiltrosERender(); }
 
 function renderizarFiltrosERender() {
-    const statusDisponiveis = [...new Set(Object.values(dadosAreas).flat().map(i => i.status))];
+    const todosItens = Object.values(dadosAreas).flat();
+    const statusDisponiveis = [...new Set(todosItens.map(i => i.status))];
+    const cargosDisponiveis = [...new Set(todosItens.map(i => i.cargo_exibicao).filter(Boolean))].sort();
     const setoresDisponiveis = Object.keys(dadosAreas);
     renderPills('treeFiltroStatus', statusDisponiveis, filtroStatus, atualizarFiltroStatus);
+    renderPills('treeFiltroCargo', cargosDisponiveis, filtroCargo, atualizarFiltroCargo);
     renderPills('treeFiltroSetor', setoresDisponiveis, filtroSetor, atualizarFiltroSetor);
     renderizarBoard();
 }
@@ -140,6 +153,7 @@ function renderizarBoard() {
         .map(([area, itens]) => {
             const filtrados = itens.filter(item => {
                 if (filtroStatus.length && !filtroStatus.includes(item.status)) return false;
+                if (filtroCargo.length && !filtroCargo.includes(item.cargo_exibicao)) return false;
                 if (busca) {
                     const alvo = `${item.nome_completo || ''} ${item.login || ''}`.toLowerCase();
                     if (!alvo.includes(busca)) return false;
@@ -177,7 +191,9 @@ async function carregarTree() {
         if (!podeMover) treeAviso.textContent = 'Seu nível de acesso permite só visualizar a árvore - mover colaboradores exige LC3 ou superior.';
 
         // mantém só os valores de filtro que ainda existem nessa nova carga
-        filtroStatus = filtroStatus.filter(s => Object.values(dadosAreas).flat().some(i => i.status === s));
+        const todosItens = Object.values(dadosAreas).flat();
+        filtroStatus = filtroStatus.filter(s => todosItens.some(i => i.status === s));
+        filtroCargo = filtroCargo.filter(c => todosItens.some(i => i.cargo_exibicao === c));
         filtroSetor = filtroSetor.filter(a => a in dadosAreas);
 
         renderizarFiltrosERender();
@@ -190,9 +206,26 @@ async function carregarTree() {
 treeTurno.addEventListener('change', () => { salvarTurnoPreferido(treeTurno.value); carregarTree(); });
 treeBusca.addEventListener('input', renderizarBoard);
 treeBtnLimpar.addEventListener('click', () => {
-    filtroStatus = []; filtroSetor = []; treeBusca.value = '';
+    filtroStatus = []; filtroCargo = []; filtroSetor = []; treeBusca.value = '';
     renderizarFiltrosERender();
 });
+
+// Retorno antecipado de um LS direto pela árvore - mesmo botão/endpoint que
+// já existe no LIST (POST /api/hc/<id>/retornar-ls): devolve pro setor/
+// escala de origem na hora, sem esperar a data marcada.
+async function treeRetornarLS(e, id) {
+    e.stopPropagation();
+    if (!confirm('Retornar este colaborador do empréstimo (LS) agora, antes do prazo?')) return;
+    try {
+        const res = await fetch(`/api/hc/${id}/retornar-ls`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) { alert(data.erro || 'Erro ao retornar do LS.'); return; }
+        carregarTree();
+    } catch (err) {
+        console.error(err);
+        alert('Erro de comunicação ao retornar do LS.');
+    }
+}
 
 function treeDragStart(e, id, turno, areaOrigem) {
     draggedId = id;
@@ -339,6 +372,8 @@ async function treeDrop(e, areaDestino) {
     font-size: 11px; color: var(--muted); background: var(--bg-alt, #f3f6f9);
     border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
 }
+.tree-card-actions { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border); }
+.tree-card-actions .link-btn { font-size: 12px; }
 
 @media (max-width: 700px) {
     .tree-area-col { min-width: 220px; }
