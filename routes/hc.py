@@ -1512,8 +1512,11 @@ def tree_page():
 def tree_data():
     """Dados pra árvore de drag-and-drop (setor -> colaboradores) de um turno.
     Só mostra quem está "na operação" nesse momento (OPERACIONAL/Treinamento/
-    Ausência) - Licença, Férias, Desligado, LS, OFF etc. não fazem sentido
-    num board de posicionamento ao vivo."""
+    Ausência/LS) - Licença, Férias, Desligado, OFF etc. não fazem sentido num
+    board de posicionamento ao vivo. LS entra porque arrastar um card pra
+    outro setor cria um empréstimo (ver PUT /api/hc/<id>) - a pessoa precisa
+    continuar aparecendo, agora no setor de destino, senão o arrasto "some"
+    com ela da árvore."""
     if not current_user.can_dashboard:
         return jsonify({"erro": "Acesso negado."}), 403
 
@@ -1522,7 +1525,7 @@ def tree_data():
         turno = "BLUE DAY"
 
     colaboradores = HCGig2.query.filter(
-        HCGig2.status.in_(["OPERACIONAL", "Treinamento", "Ausência"]),
+        HCGig2.status.in_(["OPERACIONAL", "Treinamento", "Ausência", "LS"]),
         or_(HCGig2.turno == turno, HCGig2.turno == "ADM"),
     ).order_by(HCGig2.nome_completo.asc()).all()
 

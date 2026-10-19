@@ -14,13 +14,25 @@
                 {% for t in turnos %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
             </select>
         </div>
+        <input type="search" id="treeBusca" placeholder="Buscar por nome ou login..." autocomplete="off"
+               style="flex:1;min-width:200px;max-width:320px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);">
         <div id="treeResumo" style="color:var(--muted);font-size:13px;"></div>
-        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
-            <span><span class="badge operacional">Operacional</span></span>
-            <span><span class="badge treinamento">Treinamento</span></span>
-            <span><span class="badge ausencia">Ausência</span></span>
+        <button id="treeBtnLimpar" class="btn-clear">Limpar filtros</button>
+    </div>
+
+    <div class="filter-hint" style="margin-top:10px;">Segure <kbd>Ctrl</kbd> e clique para selecionar vários valores no mesmo filtro.</div>
+
+    <div style="display:flex;gap:28px;flex-wrap:wrap;margin-top:10px;">
+        <div class="filter-group" style="min-width:220px;">
+            <label>Status</label>
+            <div id="treeFiltroStatus" class="filter-pills"></div>
+        </div>
+        <div class="filter-group" style="flex:1;min-width:260px;">
+            <label>Setor</label>
+            <div id="treeFiltroSetor" class="filter-pills"></div>
         </div>
     </div>
+
     <p id="treeAviso" class="op-info" style="margin:10px 0 0;display:none;"></p>
 </div>
 
@@ -32,15 +44,21 @@
 
 <script>
 const treeTurno = document.getElementById('treeTurno');
+const treeBusca = document.getElementById('treeBusca');
 const treeBoard = document.getElementById('treeBoard');
 const treeResumo = document.getElementById('treeResumo');
 const treeAviso = document.getElementById('treeAviso');
+const treeBtnLimpar = document.getElementById('treeBtnLimpar');
 
 let podeMover = false;
+let dadosAreas = {};       // último payload cru vindo da API (por área)
+let filtroStatus = [];     // vazio = todos
+let filtroSetor = [];      // vazio = todos
 let draggedId = null;
 let draggedTurno = null;
+let draggedAreaOrigem = null;
 
-const STATUS_BADGE_CLASS = { OPERACIONAL: 'operacional', 'Treinamento': 'treinamento', 'Ausência': 'ausencia' };
+const STATUS_BADGE_CLASS = { OPERACIONAL: 'operacional', 'Treinamento': 'treinamento', 'Ausência': 'ausencia', 'LS': 'ls' };
 
 function salvarTurnoPreferido(turno) {
     try { localStorage.setItem('tree_turno', turno); } catch (e) { /* ignore */ }
@@ -49,15 +67,15 @@ function turnoPreferido() {
     try { return localStorage.getItem('tree_turno'); } catch (e) { return null; }
 }
 
-function cardHtml(item) {
+function cardHtml(item, area) {
     const badgeCls = STATUS_BADGE_CLASS[item.status] || 'operacional';
-    const draggableAttr = (podeMover && item.status === 'OPERACIONAL') ? 'true' : 'false';
+    const podeArrastarEsteCard = podeMover && item.status === 'OPERACIONAL' && !!area && area !== 'SEM ÁREA';
     const extras = [];
     if (item.job) extras.push(`<span class="tree-card-tag">${item.job}</span>`);
     if (item.agencia) extras.push(`<span class="tree-card-tag">${item.agencia}</span>`);
     return `
-    <article class="tree-card" draggable="${draggableAttr}" data-id="${item.id}" data-turno="${item.turno || ''}"
-             ondragstart="treeDragStart(event, ${item.id}, '${(item.turno || '').replace(/'/g, "\\'")}')"
+    <article class="tree-card" draggable="${podeArrastarEsteCard}" data-id="${item.id}" data-turno="${item.turno || ''}"
+             ondragstart="treeDragStart(event, ${item.id}, '${(item.turno || '').replace(/'/g, "\\'")}', '${area.replace(/'/g, "\\'")}')"
              ondragend="treeDragEnd(event)">
         <div class="tree-card-top">
             <strong>${item.nome_completo}</strong>
@@ -75,9 +93,75 @@ function areaColHtml(area, itens) {
         <div class="tree-area-stem"></div>
         <h3 class="tree-area-title">${area} <span class="tree-area-count">${itens.length}</span></h3>
         <div class="tree-area-cards">
-            ${itens.map(cardHtml).join('') || '<p class="tree-area-empty">—</p>'}
+            ${itens.map(item => cardHtml(item, area)).join('') || '<p class="tree-area-empty">—</p>'}
         </div>
     </section>`;
+}
+
+// ── Filtros (status + setor, multi-seleção com Ctrl+clique - mesmo padrão do Dashboard) ──
+function renderPills(containerId, valores, selecionados, aoMudar) {
+    const el = document.getElementById(containerId);
+    el.innerHTML = '';
+    valores.forEach(v => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'filter-pill' + (selecionados.includes(v) ? ' active' : '');
+        btn.textContent = v;
+        btn.title = 'Ctrl+clique para selecionar vários';
+        btn.onclick = (e) => {
+            const multi = e.ctrlKey || e.metaKey;
+            const jaSelecionado = selecionados.includes(v);
+            if (multi) {
+                aoMudar(jaSelecionado ? selecionados.filter(x => x !== v) : [...selecionados, v]);
+            } else {
+                aoMudar((jaSelecionado && selecionados.length === 1) ? [] : [v]);
+            }
+        };
+        el.appendChild(btn);
+    });
+}
+
+function atualizarFiltroStatus(nova) { filtroStatus = nova; renderizarFiltrosERender(); }
+function atualizarFiltroSetor(nova) { filtroSetor = nova; renderizarFiltrosERender(); }
+
+function renderizarFiltrosERender() {
+    const statusDisponiveis = [...new Set(Object.values(dadosAreas).flat().map(i => i.status))];
+    const setoresDisponiveis = Object.keys(dadosAreas);
+    renderPills('treeFiltroStatus', statusDisponiveis, filtroStatus, atualizarFiltroStatus);
+    renderPills('treeFiltroSetor', setoresDisponiveis, filtroSetor, atualizarFiltroSetor);
+    renderizarBoard();
+}
+
+function renderizarBoard() {
+    const busca = treeBusca.value.trim().toLowerCase();
+    let totalExibido = 0;
+    const colunas = Object.entries(dadosAreas)
+        .filter(([area]) => !filtroSetor.length || filtroSetor.includes(area))
+        .map(([area, itens]) => {
+            const filtrados = itens.filter(item => {
+                if (filtroStatus.length && !filtroStatus.includes(item.status)) return false;
+                if (busca) {
+                    const alvo = `${item.nome_completo || ''} ${item.login || ''}`.toLowerCase();
+                    if (!alvo.includes(busca)) return false;
+                }
+                return true;
+            });
+            return [area, filtrados];
+        })
+        .filter(([, itens]) => itens.length > 0);
+
+    colunas.forEach(([, itens]) => { totalExibido += itens.length; });
+
+    const totalGeral = Object.values(dadosAreas).flat().length;
+    treeResumo.textContent = (totalExibido === totalGeral)
+        ? `${totalGeral} colaborador(es) na operação · ${colunas.length} setor(es) com gente`
+        : `${totalExibido} de ${totalGeral} colaborador(es) (filtro aplicado) · ${colunas.length} setor(es)`;
+
+    if (!colunas.length) {
+        treeBoard.innerHTML = '<p style="color:var(--muted);padding:20px;">Ninguém encontrado com esses filtros.</p>';
+        return;
+    }
+    treeBoard.innerHTML = colunas.map(([area, itens]) => areaColHtml(area, itens)).join('');
 }
 
 async function carregarTree() {
@@ -88,19 +172,15 @@ async function carregarTree() {
         if (!res.ok) { treeBoard.innerHTML = `<p style="color:red;padding:20px;">${data.erro || 'Erro ao carregar.'}</p>`; return; }
 
         podeMover = !!data.pode_mover;
-        const areas = data.areas || {};
-        const nomesAreas = Object.keys(areas);
-
-        treeResumo.textContent = `${data.total} colaborador(es) na operação · ${nomesAreas.length} setor(es) com gente`;
+        dadosAreas = data.areas || {};
         treeAviso.style.display = podeMover ? 'none' : 'block';
         if (!podeMover) treeAviso.textContent = 'Seu nível de acesso permite só visualizar a árvore - mover colaboradores exige LC3 ou superior.';
 
-        if (!nomesAreas.length) {
-            treeBoard.innerHTML = '<p style="color:var(--muted);padding:20px;">Ninguém na operação para esse turno.</p>';
-            return;
-        }
+        // mantém só os valores de filtro que ainda existem nessa nova carga
+        filtroStatus = filtroStatus.filter(s => Object.values(dadosAreas).flat().some(i => i.status === s));
+        filtroSetor = filtroSetor.filter(a => a in dadosAreas);
 
-        treeBoard.innerHTML = nomesAreas.map(area => areaColHtml(area, areas[area])).join('');
+        renderizarFiltrosERender();
     } catch (e) {
         console.error(e);
         treeBoard.innerHTML = '<p style="color:red;padding:20px;">Erro de comunicação ao carregar a árvore.</p>';
@@ -108,10 +188,16 @@ async function carregarTree() {
 }
 
 treeTurno.addEventListener('change', () => { salvarTurnoPreferido(treeTurno.value); carregarTree(); });
+treeBusca.addEventListener('input', renderizarBoard);
+treeBtnLimpar.addEventListener('click', () => {
+    filtroStatus = []; filtroSetor = []; treeBusca.value = '';
+    renderizarFiltrosERender();
+});
 
-function treeDragStart(e, id, turno) {
+function treeDragStart(e, id, turno, areaOrigem) {
     draggedId = id;
     draggedTurno = turno;
+    draggedAreaOrigem = areaOrigem;
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', String(id)); } catch (err) { /* ignore */ }
     e.currentTarget.classList.add('dragging');
@@ -120,6 +206,7 @@ function treeDragEnd(e) {
     e.currentTarget.classList.remove('dragging');
     draggedId = null;
     draggedTurno = null;
+    draggedAreaOrigem = null;
 }
 function treeAllowDrop(e) {
     e.preventDefault();
@@ -129,23 +216,44 @@ function treeDragLeave(e) {
     e.currentTarget.classList.remove('dragover');
 }
 
+// Arrastar de um setor pra outro é sempre um empréstimo (LS) - precisa de
+// data de retorno (mesma regra do LS feito pelo LIST: sem data de hoje, o
+// retorno cai na próxima troca de turno do setor de origem automaticamente).
 async function treeDrop(e, areaDestino) {
     e.preventDefault();
     e.currentTarget.classList.remove('dragover');
     const id = draggedId || parseInt(e.dataTransfer.getData('text/plain'), 10);
+    const areaOrigem = draggedAreaOrigem;
     const turnoAtual = draggedTurno;
     if (!id) return;
 
-    const areaParaSalvar = (areaDestino === 'SEM ÁREA') ? '' : areaDestino;
+    if (areaDestino === areaOrigem) return; // soltou na mesma coluna - nada a fazer
+
+    if (areaDestino === 'SEM ÁREA') {
+        alert('Não dá pra emprestar para "Sem área" - escolha um setor de destino.');
+        return;
+    }
+
+    const hoje = new Date().toISOString().slice(0, 10);
+    const dataRetorno = prompt(
+        `Empréstimo (LS) de ${areaOrigem} para ${areaDestino}.\nData de retorno (se for hoje, volta sozinho na próxima troca de turno):`,
+        hoje
+    );
+    if (!dataRetorno) return;
 
     try {
         const res = await fetch(`/api/hc/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ area: areaParaSalvar, turno: turnoAtual }),
+            body: JSON.stringify({
+                status: 'LS',
+                ls_area_destino: areaDestino,
+                ls_retorno_data: dataRetorno,
+                turno: turnoAtual,
+            }),
         });
         const data = await res.json();
-        if (!res.ok) { alert(data.erro || 'Erro ao mover colaborador.'); return; }
+        if (!res.ok) { alert(data.erro || 'Erro ao criar o empréstimo (LS).'); return; }
         carregarTree();
     } catch (err) {
         console.error(err);

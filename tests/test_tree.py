@@ -13,6 +13,7 @@ from flask import Flask
 from models import db
 from models.hc_gig2 import HCGig2
 from models.registro_atividade import RegistroAtividade
+from models.turno_config import HCTurnoConfig
 from routes.auth import auth_bp
 from routes.hc import hc_bp
 
@@ -47,6 +48,7 @@ class TreeTestBase(unittest.TestCase):
         self.addCleanup(db.session.remove)
         HCGig2.__table__.create(db.engine)
         RegistroAtividade.__table__.create(db.engine)
+        HCTurnoConfig.__table__.create(db.engine)  # LS consulta a Configuração de Shifts pro retorno
         self.client = app.test_client()
 
     def _como(self, can_dashboard=True, can_edit=True):
@@ -126,29 +128,73 @@ class TreeDadosTest(TreeTestBase):
             resposta = self.client.get("/api/hc/tree")
         self.assertEqual(resposta.status_code, 403)
 
+    def test_colaborador_em_ls_aparece_sob_o_setor_de_destino(self):
+        """Depois de um arrasto (que vira LS), a pessoa não pode sumir da
+        árvore - ela precisa continuar aparecendo, agora no setor pra onde
+        foi emprestada (colaborador.area já é o destino nesse ponto)."""
+        self._colaborador(
+            nome_completo="Emprestado1", cargo="Associado", area="OUTBOUND", turno="BLUE DAY",
+            status="LS", ls_area_origem="INBOUND", ls_turno_origem="BLUE DAY",
+        )
+        with self._como():
+            resposta = self.client.get("/api/hc/tree?turno=BLUE DAY").get_json()
+        nomes = {item["nome_completo"] for item in resposta["areas"].get("OUTBOUND", [])}
+        self.assertIn("Emprestado1", nomes)
+        item = next(i for i in resposta["areas"]["OUTBOUND"] if i["nome_completo"] == "Emprestado1")
+        self.assertEqual(item["status"], "LS")
 
-class TreeMoverViaPutTest(TreeTestBase):
-    """O drag-and-drop da Tree chama o MESMO PUT /api/hc/<id> que o modal de
-    edição do LIST usa - confirma que o payload mínimo que o front manda
-    (area + turno, só isso) move corretamente sem perder o turno. _registrar
-    não é mockado aqui de propósito, pra conferir o texto gravado no histórico."""
 
-    def test_mover_area_preserva_turno_e_demais_campos(self):
+class TreeDragDropViraLSTest(TreeTestBase):
+    """Pedido explícito: arrastar de um setor pra outro na Tree cria um
+    empréstimo (LS) - não uma troca de área crua. O front (tree.html) manda
+    {status: "LS", ls_area_destino, ls_retorno_data, turno} pro MESMO
+    PUT /api/hc/<id> que o LIST já usa - reaproveita toda a regra de LS que
+    já existe (retorno na próxima troca de turno, origem/destino, etc.).
+    _registrar não é mockado aqui, pra conferir o texto gravado no histórico."""
+
+    def test_arrastar_para_outro_setor_cria_ls_com_origem_e_destino_corretos(self):
         colaborador = self._colaborador(
             nome_completo="Movido", login="movido1", cargo="Associado",
             area="INBOUND", turno="BLUE DAY", status="OPERACIONAL", agencia="Agência X",
         )
         with self._como():
-            resposta = self.client.put(f"/api/hc/{colaborador.id}", json={"area": "OUTBOUND", "turno": "BLUE DAY"})
-        self.assertEqual(resposta.status_code, 200)
+            resposta = self.client.put(f"/api/hc/{colaborador.id}", json={
+                "status": "LS", "ls_area_destino": "OUTBOUND", "ls_retorno_data": "2026-12-01", "turno": "BLUE DAY",
+            })
+        self.assertEqual(resposta.status_code, 200, resposta.get_json())
 
         db.session.refresh(colaborador)
-        self.assertEqual(colaborador.area, "OUTBOUND")
-        self.assertEqual(colaborador.turno, "BLUE DAY")  # não foi apagado
-        self.assertEqual(colaborador.status, "OPERACIONAL")
+        self.assertEqual(colaborador.status, "LS")
+        self.assertEqual(colaborador.area, "OUTBOUND")              # já aparece no setor de destino
+        self.assertEqual(colaborador.ls_area_origem, "INBOUND")     # origem capturada automaticamente
+        self.assertEqual(colaborador.ls_turno_origem, "BLUE DAY")
+        self.assertEqual(colaborador.ls_retorno_data.isoformat(), "2026-12-01")
+        self.assertIsNotNone(colaborador.ls_retorno_em)             # já calculado (próxima troca de turno)
+        self.assertEqual(colaborador.turno, "BLUE DAY")             # não foi apagado
         self.assertEqual(colaborador.nome_completo, "Movido")
-        self.assertEqual(colaborador.login, "movido1")
-        self.assertEqual(colaborador.agencia, "Agência X")
+        self.assertEqual(colaborador.agencia, "Agência X")          # intocado
+
+    def test_sem_data_de_retorno_e_rejeitado(self):
+        colaborador = self._colaborador(nome_completo="SemData", cargo="Associado", area="INBOUND", turno="BLUE DAY")
+        with self._como():
+            resposta = self.client.put(f"/api/hc/{colaborador.id}", json={
+                "status": "LS", "ls_area_destino": "OUTBOUND", "turno": "BLUE DAY",
+            })
+        self.assertEqual(resposta.status_code, 400)
+        db.session.refresh(colaborador)
+        self.assertEqual(colaborador.status, "OPERACIONAL")  # nada mudou
+
+    def test_ls_fica_registrado_no_historico_com_setor_e_status(self):
+        colaborador = self._colaborador(nome_completo="Audit1", cargo="Associado", area="INBOUND", turno="BLUE DAY")
+        with self._como():
+            self.client.put(f"/api/hc/{colaborador.id}", json={
+                "status": "LS", "ls_area_destino": "ICQA", "ls_retorno_data": "2026-12-01", "turno": "BLUE DAY",
+            })
+
+        registro = RegistroAtividade.query.filter_by(operador_id=colaborador.id).first()
+        self.assertIsNotNone(registro)
+        self.assertIn("setor: INBOUND → ICQA", registro.descricao)
+        self.assertIn("status: OPERACIONAL → LS", registro.descricao)
 
     def test_mover_area_sem_mandar_turno_apaga_o_turno(self):
         """Documenta um comportamento já existente do PUT genérico (não é bug
@@ -158,18 +204,11 @@ class TreeMoverViaPutTest(TreeTestBase):
             nome_completo="SemTurno", cargo="Associado", area="INBOUND", turno="BLUE DAY", status="OPERACIONAL",
         )
         with self._como():
-            self.client.put(f"/api/hc/{colaborador.id}", json={"area": "OUTBOUND"})
+            self.client.put(f"/api/hc/{colaborador.id}", json={
+                "status": "LS", "ls_area_destino": "OUTBOUND", "ls_retorno_data": "2026-12-01",
+            })
         db.session.refresh(colaborador)
         self.assertIsNone(colaborador.turno)
-
-    def test_mover_area_fica_registrado_no_historico(self):
-        colaborador = self._colaborador(nome_completo="Audit1", cargo="Associado", area="INBOUND", turno="BLUE DAY")
-        with self._como():
-            self.client.put(f"/api/hc/{colaborador.id}", json={"area": "ICQA", "turno": "BLUE DAY"})
-
-        registro = RegistroAtividade.query.filter_by(operador_id=colaborador.id).first()
-        self.assertIsNotNone(registro)
-        self.assertIn("setor: INBOUND → ICQA", registro.descricao)
 
 
 if __name__ == "__main__":
