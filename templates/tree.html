@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+{% block title %}Tree | HC {{ active_fc_label }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('hc.home') }}" class="btn back-btn btn-sm">&#8592; Início</a>
+    <h2 class="page-title">Árvore Operacional</h2>
+</div>
+
+<div class="card" style="margin-bottom:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <label class="field-label" for="treeTurno" style="margin:0;">Turno</label>
+            <select id="treeTurno" style="padding:8px 12px;border-radius:8px;border:1px solid var(--border);">
+                {% for t in turnos %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            </select>
+        </div>
+        <div id="treeResumo" style="color:var(--muted);font-size:13px;"></div>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);">
+            <span><span class="badge operacional">Operacional</span></span>
+            <span><span class="badge treinamento">Treinamento</span></span>
+            <span><span class="badge ausencia">Ausência</span></span>
+        </div>
+    </div>
+    <p id="treeAviso" class="op-info" style="margin:10px 0 0;display:none;"></p>
+</div>
+
+<div id="treeRoot" class="tree-root-wrap">
+    <div class="tree-root-node">🌳 Árvore por Setor</div>
+    <div class="tree-spine"></div>
+    <div id="treeBoard" class="tree-board"></div>
+</div>
+
+<script>
+const treeTurno = document.getElementById('treeTurno');
+const treeBoard = document.getElementById('treeBoard');
+const treeResumo = document.getElementById('treeResumo');
+const treeAviso = document.getElementById('treeAviso');
+
+let podeMover = false;
+let draggedId = null;
+let draggedTurno = null;
+
+const STATUS_BADGE_CLASS = { OPERACIONAL: 'operacional', 'Treinamento': 'treinamento', 'Ausência': 'ausencia' };
+
+function salvarTurnoPreferido(turno) {
+    try { localStorage.setItem('tree_turno', turno); } catch (e) { /* ignore */ }
+}
+function turnoPreferido() {
+    try { return localStorage.getItem('tree_turno'); } catch (e) { return null; }
+}
+
+function cardHtml(item) {
+    const badgeCls = STATUS_BADGE_CLASS[item.status] || 'operacional';
+    const draggableAttr = (podeMover && item.status === 'OPERACIONAL') ? 'true' : 'false';
+    const extras = [];
+    if (item.job) extras.push(`<span class="tree-card-tag">${item.job}</span>`);
+    if (item.agencia) extras.push(`<span class="tree-card-tag">${item.agencia}</span>`);
+    return `
+    <article class="tree-card" draggable="${draggableAttr}" data-id="${item.id}" data-turno="${item.turno || ''}"
+             ondragstart="treeDragStart(event, ${item.id}, '${(item.turno || '').replace(/'/g, "\\'")}')"
+             ondragend="treeDragEnd(event)">
+        <div class="tree-card-top">
+            <strong>${item.nome_completo}</strong>
+            <span class="badge ${badgeCls}">${item.status}</span>
+        </div>
+        <div class="tree-card-meta">${item.cargo_exibicao || ''}${item.login ? ' · ' + item.login : ''}</div>
+        ${extras.length ? `<div class="tree-card-extras">${extras.join('')}</div>` : ''}
+    </article>`;
+}
+
+function areaColHtml(area, itens) {
+    return `
+    <section class="tree-area-col" data-area="${area}"
+             ondragover="treeAllowDrop(event)" ondragleave="treeDragLeave(event)" ondrop="treeDrop(event, '${area.replace(/'/g, "\\'")}')">
+        <div class="tree-area-stem"></div>
+        <h3 class="tree-area-title">${area} <span class="tree-area-count">${itens.length}</span></h3>
+        <div class="tree-area-cards">
+            ${itens.map(cardHtml).join('') || '<p class="tree-area-empty">—</p>'}
+        </div>
+    </section>`;
+}
+
+async function carregarTree() {
+    treeBoard.innerHTML = '<p style="color:var(--muted);padding:20px;">Carregando...</p>';
+    try {
+        const res = await fetch(`/api/hc/tree?turno=${encodeURIComponent(treeTurno.value)}`);
+        const data = await res.json();
+        if (!res.ok) { treeBoard.innerHTML = `<p style="color:red;padding:20px;">${data.erro || 'Erro ao carregar.'}</p>`; return; }
+
+        podeMover = !!data.pode_mover;
+        const areas = data.areas || {};
+        const nomesAreas = Object.keys(areas);
+
+        treeResumo.textContent = `${data.total} colaborador(es) na operação · ${nomesAreas.length} setor(es) com gente`;
+        treeAviso.style.display = podeMover ? 'none' : 'block';
+        if (!podeMover) treeAviso.textContent = 'Seu nível de acesso permite só visualizar a árvore - mover colaboradores exige LC3 ou superior.';
+
+        if (!nomesAreas.length) {
+            treeBoard.innerHTML = '<p style="color:var(--muted);padding:20px;">Ninguém na operação para esse turno.</p>';
+            return;
+        }
+
+        treeBoard.innerHTML = nomesAreas.map(area => areaColHtml(area, areas[area])).join('');
+    } catch (e) {
+        console.error(e);
+        treeBoard.innerHTML = '<p style="color:red;padding:20px;">Erro de comunicação ao carregar a árvore.</p>';
+    }
+}
+
+treeTurno.addEventListener('change', () => { salvarTurnoPreferido(treeTurno.value); carregarTree(); });
+
+function treeDragStart(e, id, turno) {
+    draggedId = id;
+    draggedTurno = turno;
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', String(id)); } catch (err) { /* ignore */ }
+    e.currentTarget.classList.add('dragging');
+}
+function treeDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    draggedId = null;
+    draggedTurno = null;
+}
+function treeAllowDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('dragover');
+}
+function treeDragLeave(e) {
+    e.currentTarget.classList.remove('dragover');
+}
+
+async function treeDrop(e, areaDestino) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('dragover');
+    const id = draggedId || parseInt(e.dataTransfer.getData('text/plain'), 10);
+    const turnoAtual = draggedTurno;
+    if (!id) return;
+
+    const areaParaSalvar = (areaDestino === 'SEM ÁREA') ? '' : areaDestino;
+
+    try {
+        const res = await fetch(`/api/hc/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ area: areaParaSalvar, turno: turnoAtual }),
+        });
+        const data = await res.json();
+        if (!res.ok) { alert(data.erro || 'Erro ao mover colaborador.'); return; }
+        carregarTree();
+    } catch (err) {
+        console.error(err);
+        alert('Erro de comunicação ao mover colaborador.');
+    }
+}
+
+(function iniciar() {
+    const pref = turnoPreferido();
+    if (pref && [...treeTurno.options].some(o => o.value === pref)) treeTurno.value = pref;
+    carregarTree();
+})();
+</script>
+
+<style>
+.tree-root-wrap { display:flex; flex-direction:column; align-items:center; }
+.tree-root-node {
+    background: var(--primary); color: #fff; padding: 10px 26px; border-radius: 10px;
+    font-weight: bold; letter-spacing: .5px; box-shadow: 0 4px 14px rgba(10,76,120,.25);
+}
+.tree-spine { width: 2px; height: 26px; background: var(--border); }
+
+.tree-board {
+    width: 100%;
+    display: flex;
+    gap: 22px;
+    overflow-x: auto;
+    padding: 10px 4px 20px;
+    position: relative;
+}
+.tree-board::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--border);
+}
+
+.tree-area-col {
+    min-width: 260px;
+    max-width: 280px;
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding-top: 18px;
+    border-radius: 12px;
+    transition: .15s;
+}
+.tree-area-stem { width: 2px; height: 18px; background: var(--border); align-self: center; margin-bottom: 8px; }
+.tree-area-title {
+    margin: 0 0 12px; text-align: center; color: var(--primary); font-size: 14px;
+    font-weight: bold; letter-spacing: .5px; text-transform: uppercase;
+    padding-bottom: 8px; border-bottom: 2px solid var(--primary);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.tree-area-count {
+    background: var(--primary); color: #fff; font-size: 11px; font-weight: bold;
+    border-radius: 999px; padding: 1px 8px;
+}
+.tree-area-cards { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+.tree-area-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 14px 0; }
+
+.tree-area-col.dragover {
+    background: #eaf2f8;
+    outline: 2px dashed var(--primary);
+    outline-offset: -2px;
+}
+
+.tree-card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: grab;
+    transition: .15s;
+}
+.tree-card:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,.10); border-color: var(--primary); }
+.tree-card[draggable="false"] { cursor: default; opacity: .92; }
+.tree-card.dragging { opacity: .4; }
+.tree-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.tree-card-top strong { font-size: 13px; color: var(--primary); }
+.tree-card-meta { font-size: 12px; color: var(--muted); }
+.tree-card-extras { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.tree-card-tag {
+    font-size: 11px; color: var(--muted); background: var(--bg-alt, #f3f6f9);
+    border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px;
+}
+
+@media (max-width: 700px) {
+    .tree-area-col { min-width: 220px; }
+}
+</style>
+{% endblock %}

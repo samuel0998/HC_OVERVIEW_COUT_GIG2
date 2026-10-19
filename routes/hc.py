@@ -1499,6 +1499,56 @@ def lc_page():
     return render_template("lc_atual.html")
 
 
+@hc_bp.route("/tree")
+@login_required
+def tree_page():
+    if not current_user.can_dashboard:
+        abort(403)
+    return render_template("tree.html", turnos=TURNOS)
+
+
+@hc_bp.route("/api/hc/tree")
+@login_required
+def tree_data():
+    """Dados pra árvore de drag-and-drop (setor -> colaboradores) de um turno.
+    Só mostra quem está "na operação" nesse momento (OPERACIONAL/Treinamento/
+    Ausência) - Licença, Férias, Desligado, LS, OFF etc. não fazem sentido
+    num board de posicionamento ao vivo."""
+    if not current_user.can_dashboard:
+        return jsonify({"erro": "Acesso negado."}), 403
+
+    turno = (request.args.get("turno") or "BLUE DAY").strip().upper()
+    if turno not in TURNOS:
+        turno = "BLUE DAY"
+
+    colaboradores = HCGig2.query.filter(
+        HCGig2.status.in_(["OPERACIONAL", "Treinamento", "Ausência"]),
+        or_(HCGig2.turno == turno, HCGig2.turno == "ADM"),
+    ).order_by(HCGig2.nome_completo.asc()).all()
+
+    areas = {area: [] for area in AREAS}
+    sem_area = []
+    for colaborador in colaboradores:
+        item = colaborador.to_dict()
+        area_norm = (colaborador.area or "").strip().upper()
+        if area_norm in areas:
+            areas[area_norm].append(item)
+        else:
+            sem_area.append(item)
+
+    # Só manda pro front as áreas com gente - evita colunas vazias poluindo a árvore.
+    areas_com_gente = {area: itens for area, itens in areas.items() if itens}
+    if sem_area:
+        areas_com_gente["SEM ÁREA"] = sem_area
+
+    return jsonify({
+        "turno": turno,
+        "areas": areas_com_gente,
+        "total": len(colaboradores),
+        "pode_mover": bool(current_user.can_edit),
+    })
+
+
 @hc_bp.route("/pendencias")
 @login_required
 def pendencias_page():
