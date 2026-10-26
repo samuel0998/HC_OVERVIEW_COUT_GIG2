@@ -213,12 +213,21 @@ async function migrarPortalTickets() {
         Para <strong>LS e LT</strong>, o prazo é a própria data solicitada, no horário configurado para o shift. Somente depois desse horário o ticket fica <strong>Não conforme</strong>. Os demais tipos mantêm a antecedência atual.
         {% if current_user.is_admin %}Nível EXPERT: acompanhamento de todos os tickets em aberto.
         {% else %}Exibindo apenas os tickets sob sua responsabilidade.{% endif %}
-        {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner), <code>✕</code> para cancelar (exclui o ticket) e, num ticket arquivado, programe dia/hora pra ele voltar sozinho a ficar ativo pro shift.{% endif %}
+        {% if current_user.is_hard_expert %}<br><strong>Planning:</strong> use <code>–</code> para arquivar (some para o owner), <code>✕</code> para cancelar (exclui o ticket) e, num ticket arquivado, programe dia/hora pra ele voltar sozinho a ficar ativo pro shift
+            (sugestão pré-preenchida: 1h antes da entrada do turno, no dia em que o prazo termina).{% endif %}
     </p>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+        <input type="search" id="ticket-busca" placeholder="Buscar por ticket ID, responsável, colaborador, setor..." autocomplete="off"
+               style="flex:1;min-width:220px;max-width:380px;padding:8px 12px;border-radius:8px;border:1px solid var(--border);">
+        <span style="font-size:12px;color:var(--muted);">Turno:</span>
+        <div id="ticket-filtro-turno" class="filter-pills"></div>
+        <button type="button" id="ticket-btn-limpar" class="btn-clear">Limpar filtros</button>
+    </div>
     <div class="table-wrap">
         <table>
             <thead>
                 <tr>
+                    <th>Ticket ID</th>
                     <th>Tipo</th>
                     <th>Origem → Destino</th>
                     <th>Qtd</th>
@@ -232,7 +241,7 @@ async function migrarPortalTickets() {
                 </tr>
             </thead>
             <tbody id="ticket-tbody">
-                <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
+                <tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px;">Carregando...</td></tr>
             </tbody>
         </table>
     </div>
@@ -302,12 +311,40 @@ async function migrarPortalTickets() {
 
 (function () {
     let abaArquivados = false;
+    let ticketsCarregados = [];
+    let podeGerenciarAtual = false;
+    let filtroTurnoTicket = [];   // vazio = todos (BLUE / RED)
+
+    const ticketBusca = document.getElementById('ticket-busca');
+    const ticketBtnLimpar = document.getElementById('ticket-btn-limpar');
 
     function formatarDataHoraBR(isoLocal) {
         if (!isoLocal) return '—';
         const [data, hora] = isoLocal.split('T');
         const [ano, mes, dia] = data.split('-');
         return `${dia}/${mes}/${ano} ${hora || ''}`.trim();
+    }
+
+    function renderFiltroTurno() {
+        const el = document.getElementById('ticket-filtro-turno');
+        el.innerHTML = '';
+        ['BLUE', 'RED'].forEach(v => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'filter-pill' + (filtroTurnoTicket.includes(v) ? ' active' : '');
+            btn.textContent = v;
+            btn.onclick = (e) => {
+                const multi = e.ctrlKey || e.metaKey;
+                const jaSelecionado = filtroTurnoTicket.includes(v);
+                if (multi) {
+                    filtroTurnoTicket = jaSelecionado ? filtroTurnoTicket.filter(x => x !== v) : [...filtroTurnoTicket, v];
+                } else {
+                    filtroTurnoTicket = (jaSelecionado && filtroTurnoTicket.length === 1) ? [] : [v];
+                }
+                renderizarTickets();
+            };
+            el.appendChild(btn);
+        });
     }
 
     async function carregarTickets() {
@@ -322,23 +359,56 @@ async function migrarPortalTickets() {
             document.getElementById('btn-tickets-ativos').className = 'btn btn-sm' + (abaArquivados ? '' : ' primary');
             btnArq.className = 'btn btn-sm' + (abaArquivados ? ' primary' : '');
 
-            const podeGerenciar = !!data.pode_gerenciar;   // LC-HARD-EXPERT (Planning)
-            const tbody = document.getElementById('ticket-tbody');
-
             if (data.integracao_disponivel === false) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
+                ticketsCarregados = [];
+                podeGerenciarAtual = false;
+                document.getElementById('ticket-tbody').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--muted);">Integração de tickets ainda não disponível para este FC.</td></tr>';
                 document.getElementById('ticket-total-label').textContent = '';
                 return;
             }
 
-            if (data.tickets.length === 0) {
-                const vazio = abaArquivados ? 'Nenhum ticket arquivado.' : 'Nenhum ticket de premissa em aberto. Tudo em dia!';
-                tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:32px;color:var(--muted);">${vazio}</td></tr>`;
-                document.getElementById('ticket-total-label').textContent = '';
-                return;
-            }
+            ticketsCarregados = data.tickets || [];
+            podeGerenciarAtual = !!data.pode_gerenciar;   // LC-HARD-EXPERT (Planning)
+            renderFiltroTurno();
+            renderizarTickets();
+        } catch (e) {
+            document.getElementById('ticket-loading').textContent = 'Erro ao carregar.';
+        }
+    }
 
-            tbody.innerHTML = data.tickets.map(t => {
+    function renderizarTickets() {
+        const podeGerenciar = podeGerenciarAtual;
+        const tbody = document.getElementById('ticket-tbody');
+        const busca = ticketBusca.value.trim().toLowerCase();
+
+        const filtrados = ticketsCarregados.filter(t => {
+            if (filtroTurnoTicket.length) {
+                const turnos = [(t.escala || '').toUpperCase(), (t.escala_origem || '').toUpperCase()];
+                if (!filtroTurnoTicket.some(f => turnos.includes(f))) return false;
+            }
+            if (busca) {
+                const alvo = [
+                    t.ticket_id, t.premise_id, t.owner_nome, t.owner_login, t.responsible_name,
+                    t.colaborador, t.colaborador_login, t.sector_key, t.source_sector_key, t.tipo_label,
+                ].filter(Boolean).join(' ').toLowerCase();
+                if (!alvo.includes(busca)) return false;
+            }
+            return true;
+        });
+
+        if (!ticketsCarregados.length) {
+            const vazio = abaArquivados ? 'Nenhum ticket arquivado.' : 'Nenhum ticket de premissa em aberto. Tudo em dia!';
+            tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--muted);">${vazio}</td></tr>`;
+            document.getElementById('ticket-total-label').textContent = '';
+            return;
+        }
+        if (!filtrados.length) {
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:32px;color:var(--muted);">Nenhum ticket encontrado com esses filtros.</td></tr>';
+            document.getElementById('ticket-total-label').textContent = `0 de ${ticketsCarregados.length} ticket(s)`;
+            return;
+        }
+
+            tbody.innerHTML = filtrados.map(t => {
                 const rota = t.is_transferencia
                     ? `${t.source_sector_key || '—'} (${t.origem_escala || '—'}) &rarr; ${t.sector_key || '—'} (${t.destino_escala || '—'})`
                     : `${t.sector_key || '—'} (${t.destino_escala || '—'})`;
@@ -366,14 +436,17 @@ async function migrarPortalTickets() {
 
                     // Programar desarquivamento automático - só faz sentido pra quem já está arquivado.
                     if (t.arquivado) {
+                        const valorInicial = t.desarquivar_em || t.desarquivar_sugestao || '';
                         gestao += `
                             <div style="margin-top:6px;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">
-                                <input type="datetime-local" id="desarq-input-${t.premise_id}" value="${t.desarquivar_em || ''}" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:6px;">
+                                <input type="datetime-local" id="desarq-input-${t.premise_id}" value="${valorInicial}" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:6px;">
                                 <button type="button" class="btn btn-sm" title="Programar desarquivamento automático" onclick="programarDesarquivamento(${t.premise_id})">📅 Programar</button>
                                 ${t.desarquivar_em ? `<button type="button" class="btn btn-sm danger" title="Cancelar agendamento" onclick="cancelarProgramacaoDesarquivamento(${t.premise_id})">✕</button>` : ''}
                             </div>`;
                         if (t.desarquivar_em) {
                             gestao += `<div style="font-size:11px;color:var(--muted);margin-top:4px;">🕐 Desarquivamento agendado para ${formatarDataHoraBR(t.desarquivar_em)}${t.desarquivar_agendado_por ? ' (por ' + t.desarquivar_agendado_por + ')' : ''}</div>`;
+                        } else if (t.desarquivar_sugestao) {
+                            gestao += `<div style="font-size:11px;color:var(--muted);margin-top:4px;">💡 Sugestão: 1h antes da entrada do turno (${formatarDataHoraBR(t.desarquivar_sugestao)}) - ajuste se precisar.</div>`;
                         }
                     }
                 }
@@ -391,6 +464,7 @@ async function migrarPortalTickets() {
                 }
 
                 return `<tr>
+                    <td>${t.ticket_id != null ? '#' + t.ticket_id : '—'}</td>
                     <td>${t.tipo_label}</td>
                     <td style="font-size:13px;">${rota}</td>
                     <td>${t.amount}</td>
@@ -404,12 +478,19 @@ async function migrarPortalTickets() {
                 </tr>`;
             }).join('');
 
-            const label = abaArquivados ? 'ticket(s) arquivado(s)' : 'ticket(s) em aberto';
-            document.getElementById('ticket-total-label').textContent = `${data.total} ${label}`;
-        } catch (e) {
-            document.getElementById('ticket-loading').textContent = 'Erro ao carregar.';
-        }
+        const label = abaArquivados ? 'ticket(s) arquivado(s)' : 'ticket(s) em aberto';
+        document.getElementById('ticket-total-label').textContent = (filtrados.length === ticketsCarregados.length)
+            ? `${ticketsCarregados.length} ${label}`
+            : `${filtrados.length} de ${ticketsCarregados.length} ${label} (filtro aplicado)`;
     }
+
+    ticketBusca.addEventListener('input', renderizarTickets);
+    ticketBtnLimpar.addEventListener('click', () => {
+        filtroTurnoTicket = [];
+        ticketBusca.value = '';
+        renderFiltroTurno();
+        renderizarTickets();
+    });
 
     window.mudarAbaTickets = function (arquivados) {
         abaArquivados = !!arquivados;

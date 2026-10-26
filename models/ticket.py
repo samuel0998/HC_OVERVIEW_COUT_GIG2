@@ -57,6 +57,12 @@ class Ticket(db.Model):
     # porque e' o que o endpoint /resolver e o front usam. SE `premise_id` repetir
     # (1 linha por pessoa), isso precisa virar `id` + ajustar resolver_ticket.
     premise_id = db.Column(db.Integer, primary_key=True)
+    # `id` real do ticket (o que o Maestro usa - SERIAL proprio da tabela
+    # 'tickets', diferente de premise_id). So' leitura: e' o mesmo numero que
+    # vai pra hc_gig2.ls_ticket_id na sincronizacao de retorno do LS. Depois
+    # do ticket validado (hcview_resolvido=TRUE), premise_id vira NULL mas
+    # esta coluna continua valendo - por isso NAO pode ser a PK do model.
+    id = db.Column(db.Integer)
 
     premise_type = db.Column(db.String(20))
     premise_name = db.Column(db.String(100))
@@ -249,6 +255,40 @@ class Ticket(db.Model):
     def vencido(self):
         return self.esta_vencido()
 
+    def _hora_turno_destino(self, hora_padrao="07:00"):
+        """Horário de entrada (Configuração de Shifts) do turno de DESTINO do
+        ticket - independente do tipo (ao contrário de hora_prazo(), que só
+        vale pra LS/LT porque é o que define o prazo deles)."""
+        chave = self._turno_chave_prazo()
+        if not chave:
+            return None
+        try:
+            from models.turno_config import DEFAULT_TURNO_RESET, HCTurnoConfig
+            config = db.session.get(HCTurnoConfig, chave)
+            return (config.hora_reset if config else None) or DEFAULT_TURNO_RESET.get(chave) or hora_padrao
+        except Exception:
+            from models.turno_config import DEFAULT_TURNO_RESET
+            return DEFAULT_TURNO_RESET.get(chave, hora_padrao)
+
+    def desarquivamento_sugerido(self):
+        """Sugestão padrão pra 'Programar desarquivamento': 1h antes do
+        horário de entrada do turno do ticket (Configuração de Shifts, em
+        Usuários), no dia em que o prazo termina. É só uma sugestão pra
+        pré-preencher o campo - Planning pode sempre trocar antes de
+        confirmar. Devolve datetime local (sem timezone) ou None quando não
+        dá pra calcular (sem prazo ou sem turno reconhecido)."""
+        if not self.prazo:
+            return None
+        hora_texto = self._hora_turno_destino()
+        if not hora_texto:
+            return None
+        try:
+            hora, minuto = [int(parte) for parte in hora_texto.split(":", 1)]
+        except (AttributeError, TypeError, ValueError):
+            hora, minuto = 7, 0
+        entrada_turno = datetime.combine(self.prazo, datetime.min.time()).replace(hour=hora, minute=minuto)
+        return entrada_turno - timedelta(hours=1)
+
     @property
     def nao_conforme(self):
         return self.vencido and not self.hcview_resolvido and self.premise_status != "FINALIZADA"
@@ -258,8 +298,10 @@ class Ticket(db.Model):
         prazo_em = self.prazo_em(prazo_hora or None)
         vencido = self.esta_vencido(hora_limite=prazo_hora or None)
         nao_conforme = vencido and not self.hcview_resolvido and self.premise_status != "FINALIZADA"
+        sugestao = self.desarquivamento_sugerido()
         return {
             "premise_id": self.premise_id,
+            "ticket_id": self.id,
             "premise_type": self.premise_type,
             "tipo_label": self.tipo_label,
             "premise_status": self.premise_status or "",
@@ -307,6 +349,7 @@ class Ticket(db.Model):
                 if self.hcview_desarquivar_em else None
             ),
             "desarquivar_agendado_por": self.hcview_desarquivar_agendado_por or "",
+            "desarquivar_sugestao": sugestao.strftime("%Y-%m-%dT%H:%M") if sugestao else None,
             "cancelado": bool(self.hcview_cancelado),
             "nota": self.premise_note_snapshot or "",
         }

@@ -10,6 +10,7 @@ from models import db
 from models.hc_gig2 import HCGig2
 from models.registro_atividade import RegistroAtividade
 from models.ticket import Ticket
+from models.turno_config import HCTurnoConfig
 from routes.hc import hc_bp
 
 SP = ZoneInfo("America/Sao_Paulo")
@@ -32,6 +33,7 @@ class DesarquivamentoProgramadoTest(unittest.TestCase):
         Ticket.__table__.create(db.engine)
         RegistroAtividade.__table__.create(db.engine)
         HCGig2.__table__.create(db.engine)
+        HCTurnoConfig.__table__.create(db.engine)
         self.client = app.test_client()
         self.planning = SimpleNamespace(
             is_authenticated=True, login="planner1", nome="Planner", can_edit=True,
@@ -140,6 +142,43 @@ class DesarquivamentoProgramadoTest(unittest.TestCase):
         db.session.refresh(ticket)
         self.assertTrue(ticket.hcview_arquivado)
         self.assertIsNotNone(ticket.hcview_desarquivar_em)
+
+    def test_ticket_id_real_aparece_na_listagem(self):
+        """tickets.id (SERIAL da tabela, diferente de premise_id) precisa
+        aparecer no relatório - é o número que vai pra hc_gig2.ls_ticket_id."""
+        ticket = self._criar_ticket_arquivado(premise_id=7008, id=55042)
+        response = self.client.get("/api/hc/tickets-pendentes?arquivados=1")
+        self.assertEqual(response.status_code, 200)
+        item = next(t for t in response.get_json()["tickets"] if t["premise_id"] == 7008)
+        self.assertEqual(item["ticket_id"], 55042)
+
+    def test_ticket_sem_id_mapeado_mostra_null(self):
+        ticket = self._criar_ticket_arquivado(premise_id=7009)
+        response = self.client.get("/api/hc/tickets-pendentes?arquivados=1")
+        item = next(t for t in response.get_json()["tickets"] if t["premise_id"] == 7009)
+        self.assertIsNone(item["ticket_id"])
+
+    def test_sugestao_desarquivamento_e_1h_antes_da_entrada_do_turno(self):
+        """Pedido: sugestão padrão = 1h antes do horário de entrada do turno
+        (Configuração de Shifts), no dia em que o prazo termina."""
+        db.session.add(HCTurnoConfig(turno="BLUE NIGHT", hora_reset="20:00"))
+        db.session.commit()
+
+        ticket = self._criar_ticket_arquivado(
+            premise_id=7010, premise_type="LS",
+            setor="OUTBOUND", escala="BLUE", turno="NIGHT",
+            work_date=date(2026, 11, 10),
+        )
+        response = self.client.get("/api/hc/tickets-pendentes?arquivados=1")
+        item = next(t for t in response.get_json()["tickets"] if t["premise_id"] == 7010)
+        # LS: prazo = work_date. Entrada do turno BLUE NIGHT = 20:00 -> sugestão = 19:00.
+        self.assertEqual(item["desarquivar_sugestao"], "2026-11-10T19:00")
+
+    def test_sugestao_fica_nula_sem_turno_reconhecivel(self):
+        ticket = self._criar_ticket_arquivado(premise_id=7011, setor="OUTBOUND", escala="", turno="")
+        response = self.client.get("/api/hc/tickets-pendentes?arquivados=1")
+        item = next(t for t in response.get_json()["tickets"] if t["premise_id"] == 7011)
+        self.assertIsNone(item["desarquivar_sugestao"])
 
     def test_arquivar_de_novo_limpa_agendamento_antigo(self):
         ticket = self._criar_ticket_arquivado(
