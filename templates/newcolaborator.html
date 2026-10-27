@@ -32,5 +32,20 @@
     </form>
 </div>
 
-<script src="{{ url_for('static', filename='js/newcolaborator.js') }}?v=cola-pendencia1"></script>
+<div class="card form-card" style="margin-top:20px;">
+    <h2 style="margin-top:0;">Cadastro em massa</h2>
+    <p style="margin:0 0 12px;font-size:13px;color:var(--muted);">
+        Baixe o template, leia a aba <strong>Instruções</strong> (primeira aba), preencha a aba <strong>Cadastro</strong> e envie.
+        Cargo, Área e Turno são validados contra as listas oficiais — se alguma linha tiver erro, <strong>nada é cadastrado</strong>
+        e você recebe a lista de erros por linha.
+    </p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <a href="{{ url_for('hc.template_cadastro_massa') }}" class="btn">⬇ Baixar template</a>
+        <input type="file" id="arquivoMassa" accept=".xlsx,.csv" style="font-size:13px;">
+        <button type="button" id="btnEnviarMassa" class="btn primary">Enviar planilha</button>
+    </div>
+    <div id="resultadoMassa" style="margin-top:14px;"></div>
+</div>
+
+<script src="{{ url_for('static', filename='js/newcolaborator.js') }}?v=cadastro-massa1"></script>
 {% endblock %}

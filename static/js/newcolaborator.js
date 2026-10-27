@@ -88,3 +88,43 @@ formNovo.addEventListener("submit", async (e) => {
   formNovo.reset();
   showMessage(`${result.mensagem}${ticketMensagem}`);
 });
+
+// ── Cadastro em massa ──────────────────────────────────────────────
+const btnEnviarMassa = document.getElementById("btnEnviarMassa");
+const arquivoMassa = document.getElementById("arquivoMassa");
+const resultadoMassa = document.getElementById("resultadoMassa");
+
+btnEnviarMassa.addEventListener("click", async () => {
+  const arquivo = arquivoMassa.files[0];
+  if (!arquivo) {
+    resultadoMassa.innerHTML = '<p style="color:#b91c1c;">Escolha o arquivo do template antes de enviar.</p>';
+    return;
+  }
+  const fd = new FormData();
+  fd.append("arquivo", arquivo);
+  btnEnviarMassa.disabled = true;
+  resultadoMassa.innerHTML = '<p style="color:var(--muted);">Validando e cadastrando...</p>';
+
+  try {
+    const res = await fetch("/api/hc/cadastro-massa", { method: "POST", body: fd });
+    const data = await res.json();
+    if (res.ok) {
+      resultadoMassa.innerHTML = `<p style="color:#166534;background:#dcfce7;padding:10px 14px;border-radius:8px;">✅ ${_esc(data.mensagem)}</p>`;
+      arquivoMassa.value = "";
+      return;
+    }
+    let html = `<p style="color:#b91c1c;background:#fde2e2;padding:10px 14px;border-radius:8px;">${_esc(data.erro || "Erro ao processar a planilha.")}</p>`;
+    if (data.erros && data.erros.length) {
+      html += `<div class="table-wrap" style="max-height:320px;margin-top:10px;"><table>
+        <thead><tr><th>Linha</th><th>Nome</th><th>Problema(s)</th></tr></thead>
+        <tbody>${data.erros.map(e => `<tr>
+          <td>${e.linha}</td><td>${_esc(e.nome)}</td><td style="color:#b91c1c;">${e.erros.map(_esc).join("<br>")}</td>
+        </tr>`).join("")}</tbody></table></div>`;
+    }
+    resultadoMassa.innerHTML = html;
+  } catch (err) {
+    resultadoMassa.innerHTML = '<p style="color:#b91c1c;">Erro de comunicação ao enviar a planilha.</p>';
+  } finally {
+    btnEnviarMassa.disabled = false;
+  }
+});

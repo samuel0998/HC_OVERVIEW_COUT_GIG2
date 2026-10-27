@@ -1708,6 +1708,302 @@ def novo_colaborador():
     return jsonify({"mensagem": "Colaborador cadastrado com sucesso.", "item": colaborador.to_dict()}), 201
 
 
+# ── Cadastro em massa (planilha) ───────────────────────────────────────
+# Colunas da aba "Cadastro" do template, na ordem. Chave = nome interno.
+CADASTRO_MASSA_COLUNAS = [
+    ("nome_completo", "Nome completo"),
+    ("login", "Login"),
+    ("cargo", "Cargo"),
+    ("area", "Área"),
+    ("turno", "Turno"),
+    ("agencia", "Agência"),
+]
+CADASTRO_MASSA_ABA = "Cadastro"
+CADASTRO_MASSA_MAX_LINHAS = 2000
+
+
+def _valor_lista(valor, lista):
+    """Casa o valor digitado com um item da lista oficial, ignorando
+    maiúsculas/acentos/espaços extras. Devolve o item oficial ou None."""
+    alvo = " ".join(_normalizar(valor).split())
+    for item in lista:
+        if " ".join(_normalizar(item).split()) == alvo:
+            return item
+    return None
+
+
+def _celula_texto(valor):
+    texto = "" if valor is None else str(valor).strip()
+    return "" if texto.lower() in ("nan", "none") else texto
+
+
+@hc_bp.route("/api/hc/cadastro-massa/template", methods=["GET"])
+@login_required
+def template_cadastro_massa():
+    """Template .xlsx: aba 1 = Instruções (como preencher), aba 2 = Cadastro
+    (onde vão os dados, com listas suspensas de Cargo/Área/Turno), aba 3 =
+    Listas (valores aceitos - fonte das listas suspensas)."""
+    if not current_user.can_add_colaborador:
+        abort(403)
+
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    azul = PatternFill("solid", fgColor="0A4C78")
+    branco_negrito = Font(bold=True, color="FFFFFF")
+
+    wb = Workbook()
+
+    # ── Aba 1: Instruções ──
+    ins = wb.active
+    ins.title = "Instruções"
+    ins.column_dimensions["A"].width = 18
+    ins.column_dimensions["B"].width = 14
+    ins.column_dimensions["C"].width = 60
+    ins.column_dimensions["D"].width = 26
+
+    linhas = [
+        ("CADASTRO EM MASSA — HC OVERVIEW", None),
+        (f"Site: {get_current_fc()}  ·  O arquivo cadastra os colaboradores no site em que você está logado.", None),
+        ("", None),
+        ("COMO PREENCHER", "secao"),
+        ("1. Preencha os dados na aba \"Cadastro\" — uma pessoa por linha, a partir da linha 2.", None),
+        ("2. NÃO altere, renomeie nem mude a ordem dos cabeçalhos, e não renomeie a aba \"Cadastro\".", None),
+        ("3. Cargo, Área e Turno têm lista suspensa — use sempre um valor da lista (os aceitos estão também na aba \"Listas\").", None),
+        ("4. Salve como .xlsx e envie em Novo HC → Cadastro em massa.", None),
+        ("", None),
+        ("REGRAS DE VALIDAÇÃO", "secao"),
+        ("• Se QUALQUER linha tiver erro, NADA é cadastrado. O sistema devolve a lista de erros com o número da linha — corrija e envie de novo.", None),
+        ("• Login não pode repetir: nem dentro da planilha, nem com alguém que já existe no sistema.", None),
+        ("• Linhas totalmente vazias são ignoradas.", None),
+        (f"• Máximo de {CADASTRO_MASSA_MAX_LINHAS} linhas por arquivo.", None),
+        ("", None),
+        ("O QUE O SISTEMA FAZ SOZINHO", "secao"),
+        ("• Todo colaborador entra com status Treinamento (vira OPERACIONAL automaticamente: 2 dias AA/Associado, 5 dias PIT).", None),
+        ("• \"PIT Trainee\" é gravado e contado como PIT (só o rótulo muda na tela).", None),
+        ("• Cada cadastro fica registrado no Histórico como Adição, com o seu usuário.", None),
+        ("", None),
+    ]
+    for texto, tipo in linhas:
+        ins.append([texto])
+        celula = ins.cell(row=ins.max_row, column=1)
+        if ins.max_row == 1:
+            celula.font = Font(bold=True, size=14, color="0A4C78")
+        elif tipo == "secao":
+            celula.font = Font(bold=True, color="0A4C78")
+
+    ins.append(["COLUNAS DA ABA \"CADASTRO\""])
+    ins.cell(row=ins.max_row, column=1).font = Font(bold=True, color="0A4C78")
+    ins.append(["Coluna", "Obrigatório", "Valores aceitos", "Exemplo"])
+    for c in range(1, 5):
+        cel = ins.cell(row=ins.max_row, column=c)
+        cel.fill = azul
+        cel.font = branco_negrito
+    detalhes = [
+        ("Nome completo", "SIM", "Nome como no crachá.", "Maria Souza Lima"),
+        ("Login", "não", "Login Amazon. Único — não pode repetir.", "msouzal"),
+        ("Cargo", "SIM", ", ".join(CARGOS_CADASTRO), "Associado"),
+        ("Área", "não", ", ".join(AREAS), "INBOUND"),
+        ("Turno", "não", ", ".join(TURNOS), "BLUE DAY"),
+        ("Agência", "não", "Texto livre (agência de contratação).", "ID LOGISTICS"),
+    ]
+    for linha in detalhes:
+        ins.append(list(linha))
+        for c in range(1, 5):
+            ins.cell(row=ins.max_row, column=c).alignment = Alignment(wrap_text=True, vertical="top")
+
+    # ── Aba 3: Listas (fonte das listas suspensas) ──
+    listas = wb.create_sheet("Listas")
+    listas.append(["Cargo", "Área", "Turno"])
+    for c in range(1, 4):
+        cel = listas.cell(row=1, column=c)
+        cel.fill = azul
+        cel.font = branco_negrito
+        listas.column_dimensions[cel.column_letter].width = 18
+    maior = max(len(CARGOS_CADASTRO), len(AREAS), len(TURNOS))
+    for i in range(maior):
+        listas.append([
+            CARGOS_CADASTRO[i] if i < len(CARGOS_CADASTRO) else None,
+            AREAS[i] if i < len(AREAS) else None,
+            TURNOS[i] if i < len(TURNOS) else None,
+        ])
+
+    # ── Aba 2: Cadastro (inserida entre Instruções e Listas) ──
+    cad = wb.create_sheet(CADASTRO_MASSA_ABA, 1)
+    cad.append([titulo for _, titulo in CADASTRO_MASSA_COLUNAS])
+    larguras = [34, 16, 18, 18, 16, 22]
+    for c, largura in enumerate(larguras, start=1):
+        cel = cad.cell(row=1, column=c)
+        cel.fill = azul
+        cel.font = branco_negrito
+        cad.column_dimensions[cel.column_letter].width = largura
+    cad.freeze_panes = "A2"
+
+    ultima = CADASTRO_MASSA_MAX_LINHAS + 1
+    for coluna, lista_col, tamanho in (("C", "A", len(CARGOS_CADASTRO)), ("D", "B", len(AREAS)), ("E", "C", len(TURNOS))):
+        dv = DataValidation(
+            type="list",
+            formula1=f"=Listas!${lista_col}$2:${lista_col}${tamanho + 1}",
+            allow_blank=True,
+            showErrorMessage=True,
+            errorTitle="Valor inválido",
+            error="Escolha um valor da lista (veja a aba Instruções).",
+        )
+        cad.add_data_validation(dv)
+        dv.add(f"{coluna}2:{coluna}{ultima}")
+
+    wb.active = 0
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"template_cadastro_massa_{_identificador_fc_exportacao()}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@hc_bp.route("/api/hc/cadastro-massa", methods=["POST"])
+@login_required
+def cadastro_massa():
+    """Cadastra vários colaboradores de uma vez a partir do template. Valida
+    TUDO antes de gravar: se uma linha tiver erro, nada é cadastrado e o
+    usuário recebe a lista de erros por linha (mesmo número da planilha)."""
+    if not current_user.can_add_colaborador:
+        return jsonify({"erro": "Sem permissão para cadastrar colaboradores."}), 403
+
+    arquivo = request.files.get("arquivo")
+    if not arquivo:
+        return jsonify({"erro": "Envie o arquivo .xlsx do template."}), 400
+
+    try:
+        if (arquivo.filename or "").lower().endswith(".csv"):
+            df = pd.read_csv(arquivo, dtype=str, sep=None, engine="python", encoding="utf-8-sig")
+        else:
+            abas = pd.read_excel(arquivo, sheet_name=None, dtype=str)
+            df = abas.get(CADASTRO_MASSA_ABA)
+            if df is None:
+                return jsonify({"erro": f"Aba \"{CADASTRO_MASSA_ABA}\" não encontrada. Use o template e não renomeie a aba."}), 400
+    except Exception as e:
+        return jsonify({"erro": f"Erro ao ler o arquivo: {e}"}), 400
+
+    # Casa cabeçalho pelo nome (tolerante a acento/maiúscula).
+    mapa = {}
+    for coluna in df.columns:
+        for chave, titulo in CADASTRO_MASSA_COLUNAS:
+            if _normalizar(coluna) == _normalizar(titulo):
+                mapa[chave] = coluna
+    faltando = [titulo for chave, titulo in CADASTRO_MASSA_COLUNAS if chave in ("nome_completo", "cargo") and chave not in mapa]
+    if faltando:
+        return jsonify({"erro": f"Cabeçalho obrigatório ausente: {', '.join(faltando)}. Use o template sem alterar os cabeçalhos."}), 400
+
+    linhas_validas = []
+    erros = []
+    logins_vistos = {}
+
+    for idx, row in df.iterrows():
+        numero_linha = idx + 2  # linha 1 é o cabeçalho
+        valores = {chave: _celula_texto(row.get(col)) for chave, col in mapa.items()}
+        if not any(valores.values()):
+            continue  # linha vazia
+
+        problemas = []
+        nome = valores.get("nome_completo", "")
+        if not nome:
+            problemas.append("Nome completo vazio")
+
+        cargo_bruto = valores.get("cargo", "")
+        cargo_oficial = _valor_lista(cargo_bruto, CARGOS_CADASTRO) if cargo_bruto else None
+        if not cargo_bruto:
+            problemas.append("Cargo vazio")
+        elif not cargo_oficial:
+            problemas.append(f"Cargo \"{cargo_bruto}\" inválido")
+
+        area_bruta = valores.get("area", "")
+        area_oficial = _valor_lista(area_bruta, AREAS) if area_bruta else None
+        if area_bruta and not area_oficial:
+            problemas.append(f"Área \"{area_bruta}\" inválida")
+
+        turno_bruto = valores.get("turno", "")
+        turno_oficial = _valor_lista(turno_bruto, TURNOS) if turno_bruto else None
+        if turno_bruto and not turno_oficial:
+            problemas.append(f"Turno \"{turno_bruto}\" inválido")
+
+        login = valores.get("login", "")
+        if login:
+            chave_login = login.lower()
+            if chave_login in logins_vistos:
+                problemas.append(f"Login \"{login}\" repetido na planilha (também na linha {logins_vistos[chave_login]})")
+            else:
+                logins_vistos[chave_login] = numero_linha
+                existe = HCGig2.query.filter(db.func.lower(db.func.trim(HCGig2.login)) == chave_login).first()
+                if existe:
+                    problemas.append(f"Login \"{login}\" já cadastrado no sistema ({existe.nome_completo})")
+
+        if problemas:
+            erros.append({"linha": numero_linha, "nome": nome or "—", "erros": problemas})
+            continue
+
+        linhas_validas.append({
+            "nome_completo": nome,
+            "login": login or None,
+            "cargo_bruto": cargo_oficial,
+            "area": area_oficial,
+            "turno": turno_oficial,
+            "agencia": valores.get("agencia") or None,
+        })
+
+    if len(linhas_validas) + len(erros) > CADASTRO_MASSA_MAX_LINHAS:
+        return jsonify({"erro": f"Máximo de {CADASTRO_MASSA_MAX_LINHAS} linhas por arquivo."}), 400
+    if erros:
+        return jsonify({
+            "erro": f"{len(erros)} linha(s) com erro — nada foi cadastrado. Corrija e envie de novo.",
+            "erros": erros,
+            "total_validas": len(linhas_validas),
+        }), 400
+    if not linhas_validas:
+        return jsonify({"erro": "A planilha não tem nenhuma linha preenchida."}), 400
+
+    hoje = date.today()
+    for item in linhas_validas:
+        colaborador = HCGig2(
+            nome_completo=item["nome_completo"],
+            login=item["login"],
+            cargo=_formatar_cargo(item["cargo_bruto"]),
+            pit_trainee=_cargo_normalizado(item["cargo_bruto"]) == "PIT TRAINEE",
+            area=item["area"],
+            turno=_turno_inicial(item["turno"]),
+            agencia=item["agencia"],
+            status="Treinamento",
+            presente_fc=True,
+            treinamento_inicio_em=hoje,
+        )
+        db.session.add(colaborador)
+        db.session.flush()
+        _registrar(
+            "adicao",
+            colaborador,
+            f"Novo colaborador cadastrado (cadastro em massa): {colaborador.nome_completo} ({colaborador.cargo_exibicao()})",
+            dados_nov=json.dumps({
+                "nome_completo": colaborador.nome_completo,
+                "login": colaborador.login or "",
+                "cargo": colaborador.cargo_exibicao(),
+                "area": colaborador.area or "",
+                "turno": colaborador.turno or "",
+                "agencia": colaborador.agencia or "",
+                "status": colaborador.status,
+            }),
+        )
+
+    db.session.commit()
+    return jsonify({
+        "mensagem": f"{len(linhas_validas)} colaborador(es) cadastrado(s) com sucesso.",
+        "cadastrados": len(linhas_validas),
+    }), 201
+
+
 @hc_bp.route("/api/hc/<int:item_id>", methods=["PUT"])
 @login_required
 def atualizar_colaborador(item_id):
