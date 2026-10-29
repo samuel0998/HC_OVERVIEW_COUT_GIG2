@@ -50,6 +50,7 @@ TIPO_ATIVIDADE_LABELS = {
     "transferencia_operacao": "Transferência de Operação",
     "exclusao": "Exclusão",
     "desligamento_automatico": "Desligamento Automático",
+    "ticket_resolvido": "Ticket resolvido",
 }
 PROCESSOS_POR_AREA = {
     "C-RET": ["C-RET PROCESS", "C-RET STOW", "C-RET PS", "C-RET SUPPORT"],
@@ -3031,6 +3032,361 @@ def listar_historico_operacional():
     from models.historico import HistoricoOperacional
     registros = HistoricoOperacional.query.order_by(HistoricoOperacional.data_arquivo.desc()).all()
     return jsonify([r.to_dict() for r in registros])
+
+
+# ── API: Auditoria de Histórico ────────────────────────────────
+
+AUDITORIA_PERIODO_PADRAO_DIAS = 30
+AUDITORIA_MAX_DIAS = 366
+AUDITORIA_AMOSTRA_VALIDACAO = 50
+# Mesmo evento (tipo + colaborador + descrição) gravado de novo dentro desta
+# janela costuma ser clique duplo / reenvio, não uma segunda ação real.
+AUDITORIA_JANELA_DUPLICADO = timedelta(minutes=2)
+# Tipos em que o colaborador some de hc_gig2 de propósito: não é inconsistência
+# o registro apontar pra um id que não existe mais.
+_TIPOS_SAIDA = {"exclusao", "desligamento_automatico", "transferencia_operacao"}
+_TIPOS_SEM_COLABORADOR = {"ticket_resolvido"}
+_SP = ZoneInfo("America/Sao_Paulo")
+_UTC = ZoneInfo("UTC")
+
+
+def _utc_para_sp(dt):
+    return dt.replace(tzinfo=_UTC).astimezone(_SP).replace(tzinfo=None) if dt else None
+
+
+def _periodo_auditoria(args):
+    """Período em dias de São Paulo. Sem datas = últimos 30 dias até hoje.
+    Devolve (data_de, data_ate, inicio_utc, fim_utc) - os limites em UTC
+    porque registro_atividade.timestamp é gravado com utcnow."""
+    hoje = datetime.now(_SP).date()
+    data_ate = _parse_date(args.get("data_ate")) or hoje
+    data_de = _parse_date(args.get("data_de")) or (data_ate - timedelta(days=AUDITORIA_PERIODO_PADRAO_DIAS - 1))
+    if data_de > data_ate:
+        data_de, data_ate = data_ate, data_de
+    if (data_ate - data_de).days + 1 > AUDITORIA_MAX_DIAS:
+        data_de = data_ate - timedelta(days=AUDITORIA_MAX_DIAS - 1)
+
+    def _limite(d):
+        return datetime.combine(d, datetime.min.time(), tzinfo=_SP).astimezone(_UTC).replace(tzinfo=None)
+
+    return data_de, data_ate, _limite(data_de), _limite(data_ate + timedelta(days=1))
+
+
+def _auditoria_query(args, inicio_utc, fim_utc):
+    """Mesmos filtros do Registro de Atividades (tipo e cargo/setor/turno/status
+    atuais), mas com o período já convertido pro fuso de São Paulo."""
+    sem_periodo = {k: v for k, v in args.items() if k not in ("data_de", "data_ate", "q")}
+    return _historico_query(sem_periodo).filter(
+        RegistroAtividade.timestamp >= inicio_utc,
+        RegistroAtividade.timestamp < fim_utc,
+    )
+
+
+def _contar(pares):
+    contagem = {}
+    for chave in pares:
+        contagem[chave] = contagem.get(chave, 0) + 1
+    return sorted(contagem.items(), key=lambda kv: (-kv[1], str(kv[0])))
+
+
+def _item_validacao(reg, motivo=None):
+    ts = _utc_para_sp(reg.timestamp)
+    item = {
+        "id": reg.id,
+        "timestamp": ts.strftime("%d/%m/%Y %H:%M") if ts else "",
+        "tipo": reg.tipo,
+        "tipo_label": TIPO_ATIVIDADE_LABELS.get(reg.tipo, reg.tipo),
+        "operador": reg.operador_nome or "",
+        "login": reg.operador_login or "",
+        "usuario": reg.usuario_nome or reg.usuario_login or "",
+        "descricao": reg.descricao or "",
+    }
+    if motivo:
+        item["motivo"] = motivo
+    return item
+
+
+def _validacoes_auditoria(linhas):
+    """Checagens de qualidade do histórico no período. Cada uma devolve total,
+    severidade e uma amostra dos registros pra conferência."""
+    sem_usuario, sem_colaborador, orfaos, sem_alteracao, duplicados = [], [], [], [], []
+    ultimo_por_chave = {}
+
+    for reg, colaborador in sorted(linhas, key=lambda par: par[0].timestamp):
+        if not (reg.usuario_login or "").strip():
+            sem_usuario.append(reg)
+        if reg.tipo not in _TIPOS_SEM_COLABORADOR:
+            if reg.operador_id is None and not (reg.operador_login or reg.operador_nome):
+                sem_colaborador.append(reg)
+            elif reg.operador_id is not None and colaborador is None and reg.tipo not in _TIPOS_SAIDA:
+                orfaos.append(reg)
+        if reg.tipo in ("edicao", "edicao_status") and (reg.dados_anteriores or reg.dados_novos):
+            if not reg.to_dict()["alteracoes"] and (reg.dados_anteriores or "") == (reg.dados_novos or ""):
+                sem_alteracao.append(reg)
+
+        chave = (reg.tipo, reg.operador_id, reg.operador_login, (reg.descricao or "").strip())
+        anterior = ultimo_por_chave.get(chave)
+        if anterior is not None and reg.timestamp - anterior <= AUDITORIA_JANELA_DUPLICADO:
+            duplicados.append(reg)
+        ultimo_por_chave[chave] = reg.timestamp
+
+    # LS com retorno já vencido e que continua em LS: o retorno automático
+    # deveria ter acontecido e não há "Retorno LS" registrado depois do prazo.
+    agora_utc = datetime.utcnow()
+    hoje_sp = datetime.now(_SP).date()
+    ls_vencidos = []
+    for c in HCGig2.query.filter(HCGig2.status == "LS").all():
+        if c._retorno_ls_no_prazo(hoje_sp, agora_utc):
+            retorno = _utc_para_sp(c.ls_retorno_em)
+            ls_vencidos.append({
+                "id": c.id,
+                "timestamp": retorno.strftime("%d/%m/%Y %H:%M") if retorno else (
+                    c.ls_retorno_data.strftime("%d/%m/%Y") if c.ls_retorno_data else ""),
+                "tipo": "ls",
+                "tipo_label": "LS vencido",
+                "operador": c.nome_completo or "",
+                "login": c.login or "",
+                "usuario": "",
+                "descricao": f"Em LS {c.ls_area_origem or '—'} → {c.area or '—'} com retorno previsto já passado.",
+            })
+
+    def _bloco(chave, titulo, descricao, severidade, itens, ja_formatado=False):
+        amostra = itens[:AUDITORIA_AMOSTRA_VALIDACAO]
+        return {
+            "chave": chave,
+            "titulo": titulo,
+            "descricao": descricao,
+            "severidade": severidade if itens else "ok",
+            "total": len(itens),
+            "itens": amostra if ja_formatado else [_item_validacao(r) for r in amostra],
+        }
+
+    return [
+        _bloco("duplicados", "Possíveis registros duplicados",
+               "Mesmo tipo, colaborador e descrição gravados de novo em até 2 minutos (clique duplo / reenvio).",
+               "alerta", duplicados),
+        _bloco("sem_usuario", "Sem usuário responsável",
+               "Evento sem login de quem fez a ação - não dá pra rastrear o responsável.",
+               "critico", sem_usuario),
+        _bloco("sem_colaborador", "Sem colaborador vinculado",
+               "Evento que deveria estar ligado a um colaborador, mas não tem id, login nem nome.",
+               "critico", sem_colaborador),
+        _bloco("orfaos", "Colaborador não existe mais no HC",
+               "Evento de edição/adição cujo colaborador foi removido da base sem um registro de saída.",
+               "alerta", orfaos),
+        _bloco("sem_alteracao", "Edição sem alteração",
+               "Edição gravada sem nenhuma diferença entre antes e depois.",
+               "info", sem_alteracao),
+        _bloco("ls_vencidos", "LS com retorno vencido",
+               "Colaborador continua em LS mas o horário de retorno já passou (situação atual, independe do período).",
+               "alerta", ls_vencidos, ja_formatado=True),
+    ]
+
+
+def _montar_auditoria(args):
+    data_de, data_ate, inicio_utc, fim_utc = _periodo_auditoria(args)
+    linhas = _auditoria_query(args, inicio_utc, fim_utc).all()
+    dias = (data_ate - data_de).days + 1
+
+    # Período anterior de mesmo tamanho, pra comparação.
+    ant_ate = data_de - timedelta(days=1)
+    ant_de = ant_ate - timedelta(days=dias - 1)
+    _, _, ant_ini_utc, ant_fim_utc = _periodo_auditoria({"data_de": ant_de.isoformat(), "data_ate": ant_ate.isoformat()})
+    total_anterior = _auditoria_query(args, ant_ini_utc, ant_fim_utc).count()
+
+    por_dia = {}
+    por_hora = [0] * 24
+    por_dia_semana = [0] * 7  # segunda = 0
+    tipos_vistos = set()
+    usuarios, colaboradores = set(), set()
+    automaticos = 0
+    for reg, _ in linhas:
+        ts = _utc_para_sp(reg.timestamp)
+        dia = ts.date().isoformat()
+        bucket = por_dia.setdefault(dia, {"total": 0, "por_tipo": {}})
+        bucket["total"] += 1
+        bucket["por_tipo"][reg.tipo] = bucket["por_tipo"].get(reg.tipo, 0) + 1
+        por_hora[ts.hour] += 1
+        por_dia_semana[ts.weekday()] += 1
+        tipos_vistos.add(reg.tipo)
+        if reg.usuario_login:
+            usuarios.add(reg.usuario_login)
+        if reg.usuario_login == "sistema":
+            automaticos += 1
+        if reg.operador_id is not None or reg.operador_login:
+            colaboradores.add(reg.operador_id or reg.operador_login)
+
+    total = len(linhas)
+    pico = max(por_dia.items(), key=lambda kv: kv[1]["total"]) if por_dia else None
+    variacao = None
+    if total_anterior:
+        variacao = round((total - total_anterior) * 100.0 / total_anterior, 1)
+
+    validacoes = _validacoes_auditoria(linhas)
+    return {
+        "periodo": {"data_de": data_de.isoformat(), "data_ate": data_ate.isoformat(), "dias": dias},
+        "periodo_anterior": {"data_de": ant_de.isoformat(), "data_ate": ant_ate.isoformat(), "total": total_anterior},
+        "metricas": {
+            "total": total,
+            "media_dia": round(total / dias, 1) if dias else 0,
+            "dias_com_evento": len(por_dia),
+            "pico_dia": pico[0] if pico else None,
+            "pico_total": pico[1]["total"] if pico else 0,
+            "colaboradores": len(colaboradores),
+            "usuarios": len(usuarios - {"sistema"}),
+            "automaticos": automaticos,
+            "manuais": total - automaticos,
+            "variacao_pct": variacao,
+            "inconsistencias": sum(v["total"] for v in validacoes if v["severidade"] in ("critico", "alerta")),
+        },
+        "tipos": {t: TIPO_ATIVIDADE_LABELS.get(t, t) for t in sorted(tipos_vistos | set(TIPO_ATIVIDADE_LABELS))},
+        "por_tipo": [{"tipo": t, "label": TIPO_ATIVIDADE_LABELS.get(t, t), "total": n}
+                     for t, n in _contar(reg.tipo for reg, _ in linhas)],
+        "por_dia": por_dia,
+        "por_hora": por_hora,
+        "por_dia_semana": por_dia_semana,
+        "por_usuario": [{"login": login, "nome": nome, "total": n} for (login, nome), n in _contar(
+            ((reg.usuario_login or "—"), (reg.usuario_nome or reg.usuario_login or "—")) for reg, _ in linhas)][:15],
+        "por_setor": [{"nome": s, "total": n} for s, n in _contar(
+            ((c.area if c else None) or "Sem setor / fora do HC") for _, c in linhas)],
+        "por_cargo": [{"nome": s, "total": n} for s, n in _contar(
+            ((c.cargo_exibicao() if c else None) or "Fora do HC") for _, c in linhas)],
+        "por_turno": [{"nome": s, "total": n} for s, n in _contar(
+            ((c.turno if c else None) or "Sem turno / fora do HC") for _, c in linhas)],
+        "top_colaboradores": [{"nome": nome, "login": login, "total": n} for (nome, login), n in _contar(
+            ((reg.operador_nome or "—"), (reg.operador_login or "")) for reg, _ in linhas
+            if reg.tipo not in _TIPOS_SEM_COLABORADOR)][:10],
+        "validacoes": validacoes,
+        "_linhas": linhas,
+    }
+
+
+@hc_bp.route("/api/hc/historico/auditoria", methods=["GET"])
+@login_required
+def auditoria_historico():
+    """Dashboard de auditoria do histórico: quantidade por tipo/dia/hora/
+    usuário/setor, métricas do período vs. período anterior e validações de
+    consistência dos registros."""
+    if not current_user.can_historico:
+        return jsonify({"erro": "Sem permissão para ver o histórico."}), 403
+    dados = _montar_auditoria(request.args)
+    dados.pop("_linhas")
+    return jsonify(dados)
+
+
+@hc_bp.route("/api/hc/historico/auditoria/export", methods=["GET"])
+@login_required
+def exportar_auditoria_historico():
+    """Relatório gerencial do histórico em Excel: resumo, quantidade por tipo,
+    matriz dia x tipo, ranking de usuários, setores/cargos, validações e o
+    detalhe completo do período."""
+    if not current_user.can_historico:
+        return jsonify({"erro": "Sem permissão para exportar o histórico."}), 403
+
+    dados = _montar_auditoria(request.args)
+    linhas = dados.pop("_linhas")
+    m = dados["metricas"]
+    per = dados["periodo"]
+
+    def _br(iso):
+        return datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y") if iso else "—"
+
+    filtros = ", ".join(f"{k}={v}" for k, v in request.args.items() if v and k not in ("data_de", "data_ate")) or "nenhum"
+    resumo = pd.DataFrame([
+        ("Site", get_current_fc()),
+        ("Período", f"{_br(per['data_de'])} a {_br(per['data_ate'])} ({per['dias']} dias)"),
+        ("Filtros", filtros),
+        ("Gerado em", datetime.now(_SP).strftime("%d/%m/%Y %H:%M")),
+        ("Gerado por", getattr(current_user, "login", "")),
+        ("Total de eventos", m["total"]),
+        ("Período anterior", f"{m['variacao_pct']:+.1f}% ({dados['periodo_anterior']['total']} eventos)"
+            if m["variacao_pct"] is not None else f"{dados['periodo_anterior']['total']} eventos"),
+        ("Média por dia", m["media_dia"]),
+        ("Dias com evento", m["dias_com_evento"]),
+        ("Dia de pico", f"{_br(m['pico_dia'])} ({m['pico_total']} eventos)" if m["pico_dia"] else "—"),
+        ("Colaboradores impactados", m["colaboradores"]),
+        ("Usuários ativos", m["usuarios"]),
+        ("Ações manuais", m["manuais"]),
+        ("Ações automáticas", m["automaticos"]),
+        ("Inconsistências (crítico + alerta)", m["inconsistencias"]),
+    ], columns=["Indicador", "Valor"])
+
+    por_tipo = pd.DataFrame(
+        [(t["label"], t["total"], round(t["total"] * 100.0 / m["total"], 1) if m["total"] else 0) for t in dados["por_tipo"]],
+        columns=["Tipo", "Quantidade", "% do total"],
+    )
+
+    tipos_ordem = [t["tipo"] for t in dados["por_tipo"]]
+    linhas_dia = []
+    d = datetime.strptime(per["data_de"], "%Y-%m-%d").date()
+    fim = datetime.strptime(per["data_ate"], "%Y-%m-%d").date()
+    while d <= fim:
+        b = dados["por_dia"].get(d.isoformat(), {"total": 0, "por_tipo": {}})
+        linha = {"Data": d.strftime("%d/%m/%Y")}
+        for t in tipos_ordem:
+            linha[TIPO_ATIVIDADE_LABELS.get(t, t)] = b["por_tipo"].get(t, 0)
+        linha["Total"] = b["total"]
+        linhas_dia.append(linha)
+        d += timedelta(days=1)
+    por_dia = pd.DataFrame(linhas_dia)
+
+    por_usuario = pd.DataFrame([(u["nome"], u["login"], u["total"]) for u in dados["por_usuario"]],
+                               columns=["Usuário", "Login", "Eventos"])
+    dimensoes = pd.DataFrame(
+        [("Setor", s["nome"], s["total"]) for s in dados["por_setor"]]
+        + [("Cargo", s["nome"], s["total"]) for s in dados["por_cargo"]]
+        + [("Turno", s["nome"], s["total"]) for s in dados["por_turno"]],
+        columns=["Dimensão (atual)", "Valor", "Eventos"],
+    )
+
+    validacoes_resumo = pd.DataFrame(
+        [(v["titulo"], v["severidade"].upper(), v["total"], v["descricao"]) for v in dados["validacoes"]],
+        columns=["Validação", "Severidade", "Ocorrências", "O que significa"],
+    )
+    validacoes_det = pd.DataFrame(
+        [{"Validação": v["titulo"], "Data/Hora": i["timestamp"], "Tipo": i["tipo_label"],
+          "Colaborador": i["operador"], "Login": i["login"], "Usuário": i["usuario"], "Descrição": i["descricao"]}
+         for v in dados["validacoes"] for i in v["itens"]],
+        columns=["Validação", "Data/Hora", "Tipo", "Colaborador", "Login", "Usuário", "Descrição"],
+    )
+
+    detalhe = pd.DataFrame([{
+        "Data/Hora": _utc_para_sp(reg.timestamp).strftime("%d/%m/%Y %H:%M"),
+        "Tipo": TIPO_ATIVIDADE_LABELS.get(reg.tipo, reg.tipo),
+        "Colaborador": reg.operador_nome or "",
+        "Login": reg.operador_login or "",
+        "Cargo atual": colaborador.cargo_exibicao() if colaborador else "",
+        "Setor atual": (colaborador.area or "") if colaborador else "",
+        "Turno atual": (colaborador.turno or "") if colaborador else "",
+        "Usuário responsável": reg.usuario_nome or "",
+        "Login responsável": reg.usuario_login or "",
+        "Descrição": reg.descricao or "",
+    } for reg, colaborador in sorted(linhas, key=lambda par: par[0].timestamp, reverse=True)],
+        columns=["Data/Hora", "Tipo", "Colaborador", "Login", "Cargo atual", "Setor atual", "Turno atual",
+                 "Usuário responsável", "Login responsável", "Descrição"])
+
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for nome, df in (
+            ("Resumo", resumo), ("Por tipo", por_tipo), ("Por dia", por_dia), ("Por usuário", por_usuario),
+            ("Setor-Cargo-Turno", dimensoes), ("Validações", validacoes_resumo),
+            ("Validações - detalhe", validacoes_det), ("Detalhe", detalhe),
+        ):
+            df.to_excel(writer, index=False, sheet_name=nome)
+            ws = writer.sheets[nome]
+            for col in ws.columns:
+                largura = max((len(str(c.value)) for c in col if c.value is not None), default=8)
+                ws.column_dimensions[col[0].column_letter].width = min(max(largura + 2, 10), 70)
+            ws.freeze_panes = "A2"
+    output.seek(0)
+
+    agora = datetime.now(_SP).strftime("%Y%m%d_%H%M")
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"auditoria_historico_{_identificador_fc_exportacao()}_{agora}.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 # ── API: Admin – trigger status processing ────────────────────

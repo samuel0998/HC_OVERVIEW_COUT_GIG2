@@ -10,6 +10,7 @@
 <div class="hist-tabs">
     <button class="hist-tab active" onclick="showTab('atividades', this)">Registro de Atividades</button>
     <button class="hist-tab" onclick="showTab('operacional', this)">Histórico Operacional</button>
+    <button class="hist-tab" onclick="showTab('auditoria', this)">Auditoria de Histórico</button>
 </div>
 
 <!-- Tab: Registro de Atividades -->
@@ -32,6 +33,7 @@
                     <option value="transferencia_operacao">Transferência de Operação</option>
                     <option value="exclusao">Exclusão</option>
                     <option value="desligamento_automatico">Desligamento Automático</option>
+                    <option value="ticket_resolvido">Ticket resolvido</option>
                 </select>
                 <button class="btn btn-sm" onclick="carregarAtividades()">&#8635; Atualizar</button>
             </div>
@@ -129,6 +131,99 @@
     </div>
 </div>
 
+<!-- Tab: Auditoria de Histórico -->
+<style>
+.aud-filtros { border:1px solid var(--border); border-radius:10px; padding:12px 14px; margin-bottom:16px; background:#f8fafc; }
+.aud-presets { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.aud-preset { border:1px solid var(--border); background:#fff; border-radius:999px; padding:4px 12px; font-size:12px; cursor:pointer; color:var(--muted); }
+.aud-preset.active, .aud-preset:hover { border-color:var(--primary); color:var(--primary); font-weight:bold; }
+.aud-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:16px; }
+.aud-kpi { border:1px solid var(--border); border-radius:10px; padding:12px 14px; background:#fff; }
+.aud-kpi .rotulo { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:bold; }
+.aud-kpi .valor { font-size:26px; font-weight:bold; color:var(--primary); margin-top:4px; line-height:1.1; }
+.aud-kpi .extra { font-size:12px; color:var(--muted); margin-top:4px; }
+.aud-kpi.alerta .valor { color:#b45309; }
+.aud-kpi.critico .valor { color:#b91c1c; }
+.aud-up { color:#166534; font-weight:bold; } .aud-down { color:#b91c1c; font-weight:bold; }
+.aud-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:16px; margin-bottom:16px; }
+.aud-box { border:1px solid var(--border); border-radius:10px; padding:14px; background:#fff; min-width:0; }
+.aud-box h3 { margin:0 0 10px; font-size:15px; color:var(--primary); }
+.aud-box .chart-wrap { position:relative; height:260px; }
+.aud-tabela { width:100%; border-collapse:collapse; font-size:13px; }
+.aud-tabela td, .aud-tabela th { padding:5px 6px; border-bottom:1px solid var(--border); text-align:left; }
+.aud-tabela td.num, .aud-tabela th.num { text-align:right; white-space:nowrap; }
+.aud-barra { height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; margin-top:3px; }
+.aud-barra span { display:block; height:100%; background:var(--primary); }
+.aud-cal-meses { display:flex; gap:18px; flex-wrap:wrap; }
+.aud-cal-mes h4 { margin:0 0 6px; font-size:13px; text-transform:capitalize; }
+.aud-cal { display:grid; grid-template-columns:repeat(7, 34px); gap:4px; }
+.aud-cal .dow { font-size:10px; color:var(--muted); text-align:center; font-weight:bold; }
+.aud-cal .dia { height:34px; border-radius:6px; font-size:11px; display:flex; flex-direction:column; align-items:center; justify-content:center; cursor:pointer; border:1px solid transparent; line-height:1.1; }
+.aud-cal .dia small { font-size:9px; font-weight:bold; }
+.aud-cal .dia.fora { background:transparent; color:#cbd5e1; cursor:default; }
+.aud-cal .dia.sel { border-color:#0f172a; box-shadow:0 0 0 1px #0f172a; }
+.aud-cal-legenda { display:flex; gap:4px; align-items:center; font-size:11px; color:var(--muted); margin-top:10px; }
+.aud-cal-legenda i { width:14px; height:14px; border-radius:3px; display:inline-block; }
+.aud-val { border:1px solid var(--border); border-left-width:5px; border-radius:8px; padding:10px 12px; margin-bottom:8px; background:#fff; }
+.aud-val.ok { border-left-color:#16a34a; } .aud-val.info { border-left-color:#0284c7; }
+.aud-val.alerta { border-left-color:#d97706; } .aud-val.critico { border-left-color:#dc2626; }
+.aud-val summary { cursor:pointer; display:flex; justify-content:space-between; gap:10px; align-items:center; font-weight:bold; font-size:14px; list-style:none; }
+.aud-val summary::-webkit-details-marker { display:none; }
+.aud-val .sev { font-size:11px; padding:2px 8px; border-radius:999px; font-weight:bold; }
+.aud-val.ok .sev { background:#dcfce7; color:#166534; } .aud-val.info .sev { background:#e0f2fe; color:#075985; }
+.aud-val.alerta .sev { background:#fef3c7; color:#92400e; } .aud-val.critico .sev { background:#fee2e2; color:#991b1b; }
+.aud-val p { margin:6px 0 0; font-size:12px; color:var(--muted); font-weight:normal; }
+</style>
+<div id="tab-auditoria" class="hist-panel" style="display:none;">
+    <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <h2 style="margin:0;font-size:18px;">Auditoria de Histórico</h2>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn btn-sm" onclick="carregarAuditoria()">&#8635; Atualizar</button>
+                <button class="btn primary btn-sm" onclick="gerarRelatorioGerencial()">📊 Relatório gerencial (Excel)</button>
+            </div>
+        </div>
+
+        <div class="aud-filtros">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                <input type="date" id="aud-data-de" class="filter-select" onchange="_audPresetAtivo(null);carregarAuditoria()" title="Data inicial" style="min-width:150px;">
+                <span style="color:var(--muted);font-size:13px;">até</span>
+                <input type="date" id="aud-data-ate" class="filter-select" onchange="_audPresetAtivo(null);carregarAuditoria()" title="Data final" style="min-width:150px;">
+                <select id="aud-tipo" class="filter-select" onchange="carregarAuditoria()">
+                    <option value="">Todos os tipos</option>
+                </select>
+                <select id="aud-cargo" class="filter-select" onchange="carregarAuditoria()">
+                    <option value="">Todos os cargos</option>
+                    {% for item in cargos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select id="aud-setor" class="filter-select" onchange="carregarAuditoria()">
+                    <option value="">Todos os setores</option>
+                    {% for item in areas %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <select id="aud-turno" class="filter-select" onchange="carregarAuditoria()">
+                    <option value="">Todos os turnos/escalas</option>
+                    {% for item in turnos %}<option value="{{ item }}">{{ item }}</option>{% endfor %}
+                </select>
+                <button class="btn btn-sm" onclick="limparFiltrosAuditoria()">Limpar filtros</button>
+            </div>
+            <div class="aud-presets">
+                <button class="aud-preset" data-preset="hoje" onclick="aplicarPresetAuditoria('hoje')">Hoje</button>
+                <button class="aud-preset" data-preset="7" onclick="aplicarPresetAuditoria('7')">Últimos 7 dias</button>
+                <button class="aud-preset active" data-preset="30" onclick="aplicarPresetAuditoria('30')">Últimos 30 dias</button>
+                <button class="aud-preset" data-preset="90" onclick="aplicarPresetAuditoria('90')">Últimos 90 dias</button>
+                <button class="aud-preset" data-preset="mes" onclick="aplicarPresetAuditoria('mes')">Mês atual</button>
+                <button class="aud-preset" data-preset="mes_ant" onclick="aplicarPresetAuditoria('mes_ant')">Mês anterior</button>
+            </div>
+            <p style="margin:8px 0 0;font-size:12px;color:var(--muted);">
+                Datas no horário de Brasília. Cargo/setor/turno usam a alocação <strong>atual</strong> do colaborador.
+                O comparativo é contra o período anterior de mesmo tamanho. O relatório gerencial sai com estes mesmos filtros.
+            </p>
+        </div>
+
+        <div id="aud-conteudo"><p style="text-align:center;padding:24px;color:var(--muted);">Carregando...</p></div>
+    </div>
+</div>
+
 <script>
 const TIPO_LABELS = {
     'adicao': 'Adição',
@@ -140,6 +235,7 @@ const TIPO_LABELS = {
     'transferencia_operacao': 'Transferência de Operação',
     'exclusao': 'Exclusão',
     'desligamento_automatico': 'Desligamento Auto.',
+    'ticket_resolvido': 'Ticket resolvido',
 };
 
 const TIPO_CLASSES = {
@@ -164,6 +260,7 @@ function showTab(tab, btn) {
     btn.classList.add('active');
 
     if (tab === 'operacional') carregarHistoricoOp();
+    if (tab === 'auditoria' && !_auditoria) aplicarPresetAuditoria('30');
 }
 
 function escaparHtml(valor) {
@@ -329,6 +426,283 @@ function renderHistoricoOp() {
         ? `${_historicoOp.length} colaborador(es) arquivado(s)`
         : `${lista.length} de ${_historicoOp.length} colaborador(es)`;
     document.getElementById('op-total').textContent = total;
+}
+
+// ── Auditoria de Histórico ─────────────────────────────────────
+const AUD_CORES = ['#0f4c75', '#16a34a', '#d97706', '#7c3aed', '#0284c7', '#dc2626', '#0d9488', '#db2777', '#65a30d', '#475569'];
+const AUD_DOW = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+let _auditoria = null;
+let _audCharts = [];
+let _audDiaSel = null;
+
+function _isoLocal(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function _br(iso) {
+    if (!iso) return '—';
+    const [a, m, d] = iso.split('-');
+    return `${d}/${m}/${a}`;
+}
+function _fmt(n) { return Number(n || 0).toLocaleString('pt-BR'); }
+
+function _audPresetAtivo(preset) {
+    document.querySelectorAll('.aud-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
+}
+
+function aplicarPresetAuditoria(preset) {
+    const hoje = new Date();
+    let de = new Date(hoje), ate = new Date(hoje);
+    if (preset === '7' || preset === '30' || preset === '90') de.setDate(hoje.getDate() - Number(preset) + 1);
+    if (preset === 'mes') de = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    if (preset === 'mes_ant') {
+        de = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1);
+        ate = new Date(hoje.getFullYear(), hoje.getMonth(), 0);
+    }
+    document.getElementById('aud-data-de').value = _isoLocal(de);
+    document.getElementById('aud-data-ate').value = _isoLocal(ate);
+    _audPresetAtivo(preset);
+    carregarAuditoria();
+}
+
+function limparFiltrosAuditoria() {
+    ['aud-tipo', 'aud-cargo', 'aud-setor', 'aud-turno'].forEach(id => document.getElementById(id).value = '');
+    aplicarPresetAuditoria('30');
+}
+
+function _filtrosAuditoria() {
+    const p = new URLSearchParams();
+    const campos = { 'aud-data-de': 'data_de', 'aud-data-ate': 'data_ate', 'aud-tipo': 'tipo', 'aud-cargo': 'cargo', 'aud-setor': 'area', 'aud-turno': 'turno' };
+    Object.entries(campos).forEach(([id, chave]) => {
+        const v = document.getElementById(id).value;
+        if (v) p.set(chave, v);
+    });
+    return p;
+}
+
+function gerarRelatorioGerencial() {
+    window.location.href = `/api/hc/historico/auditoria/export?${_filtrosAuditoria().toString()}`;
+}
+
+async function carregarAuditoria() {
+    const box = document.getElementById('aud-conteudo');
+    box.innerHTML = '<p style="text-align:center;padding:24px;color:var(--muted);">Carregando...</p>';
+    try {
+        const res = await fetch(`/api/hc/historico/auditoria?${_filtrosAuditoria().toString()}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.erro || 'Erro');
+        _auditoria = data;
+        _audDiaSel = null;
+        _preencherTiposAuditoria(data.tipos);
+        renderAuditoria();
+    } catch (e) {
+        box.innerHTML = `<p style="color:#b91c1c;padding:16px;">Erro ao carregar a auditoria: ${escaparHtml(e.message)}</p>`;
+    }
+}
+
+function _preencherTiposAuditoria(tipos) {
+    const sel = document.getElementById('aud-tipo');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todos os tipos</option>' + Object.entries(tipos)
+        .map(([v, l]) => `<option value="${escaparHtml(v)}">${escaparHtml(l)}</option>`).join('');
+    sel.value = atual;
+}
+
+function _corTipo(tipo) {
+    const ordem = Object.keys(_auditoria.tipos);
+    return AUD_CORES[Math.max(0, ordem.indexOf(tipo)) % AUD_CORES.length];
+}
+
+function _tabelaRanking(itens, rotulo, total) {
+    if (!itens.length) return '<p style="color:var(--muted);font-size:13px;">Sem eventos no período.</p>';
+    const max = Math.max(...itens.map(i => i.total));
+    return `<table class="aud-tabela"><thead><tr><th>${rotulo}</th><th class="num">Eventos</th><th class="num">%</th></tr></thead><tbody>
+        ${itens.map(i => `<tr>
+            <td>${escaparHtml(i.label)}${i.sub ? `<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(i.sub)}</span>` : ''}
+                <div class="aud-barra"><span style="width:${(i.total * 100 / max).toFixed(1)}%;${i.cor ? `background:${i.cor};` : ''}"></span></div></td>
+            <td class="num">${_fmt(i.total)}</td>
+            <td class="num">${total ? (i.total * 100 / total).toFixed(1) : '0.0'}%</td>
+        </tr>`).join('')}</tbody></table>`;
+}
+
+function renderAuditoria() {
+    const a = _auditoria, m = a.metricas;
+    _audCharts.forEach(c => c.destroy());
+    _audCharts = [];
+
+    let variacao = '<span>sem dados no período anterior</span>';
+    if (m.variacao_pct !== null) {
+        const cls = m.variacao_pct >= 0 ? 'aud-up' : 'aud-down';
+        variacao = `<span class="${cls}">${m.variacao_pct >= 0 ? '▲' : '▼'} ${Math.abs(m.variacao_pct).toFixed(1)}%</span> vs. ${_fmt(a.periodo_anterior.total)} no período anterior`;
+    }
+    const pctAuto = m.total ? Math.round(m.automaticos * 100 / m.total) : 0;
+    const clsInc = m.inconsistencias ? (a.validacoes.some(v => v.severidade === 'critico') ? 'critico' : 'alerta') : '';
+
+    const kpis = `<div class="aud-kpis">
+        <div class="aud-kpi"><div class="rotulo">Total de eventos</div><div class="valor">${_fmt(m.total)}</div><div class="extra">${variacao}</div></div>
+        <div class="aud-kpi"><div class="rotulo">Média por dia</div><div class="valor">${String(m.media_dia).replace('.', ',')}</div><div class="extra">${m.dias_com_evento} de ${a.periodo.dias} dias com evento</div></div>
+        <div class="aud-kpi"><div class="rotulo">Dia de pico</div><div class="valor">${m.pico_dia ? _br(m.pico_dia).slice(0, 5) : '—'}</div><div class="extra">${_fmt(m.pico_total)} evento(s)</div></div>
+        <div class="aud-kpi"><div class="rotulo">Colaboradores impactados</div><div class="valor">${_fmt(m.colaboradores)}</div><div class="extra">distintos no período</div></div>
+        <div class="aud-kpi"><div class="rotulo">Usuários ativos</div><div class="valor">${_fmt(m.usuarios)}</div><div class="extra">fizeram alguma ação</div></div>
+        <div class="aud-kpi"><div class="rotulo">Manual × Automático</div><div class="valor">${_fmt(m.manuais)} <span style="font-size:15px;color:var(--muted);">/ ${_fmt(m.automaticos)}</span></div><div class="extra">${pctAuto}% feito pela automação</div></div>
+        <div class="aud-kpi ${clsInc}"><div class="rotulo">Inconsistências</div><div class="valor">${_fmt(m.inconsistencias)}</div><div class="extra"><a href="#aud-validacoes">ver validações ↓</a></div></div>
+    </div>`;
+
+    const porTipo = a.por_tipo.map(t => ({ label: t.label, total: t.total, cor: _corTipo(t.tipo) }));
+
+    document.getElementById('aud-conteudo').innerHTML = `
+        <p style="margin:0 0 12px;font-size:13px;color:var(--muted);">Período: <strong>${_br(a.periodo.data_de)}</strong> a <strong>${_br(a.periodo.data_ate)}</strong> (${a.periodo.dias} dias) · anterior: ${_br(a.periodo_anterior.data_de)} a ${_br(a.periodo_anterior.data_ate)}</p>
+        ${kpis}
+        <div class="aud-grid">
+            <div class="aud-box"><h3>Quantidade por tipo</h3>${_tabelaRanking(porTipo, 'Tipo', m.total)}</div>
+            <div class="aud-box"><h3>Distribuição por tipo</h3><div class="chart-wrap"><canvas id="aud-ch-tipo"></canvas></div></div>
+        </div>
+        <div class="aud-box" style="margin-bottom:16px;"><h3>Evolução diária por tipo</h3><div class="chart-wrap" style="height:300px;"><canvas id="aud-ch-dia"></canvas></div></div>
+        <div class="aud-grid">
+            <div class="aud-box"><h3>📅 Calendário de movimentações</h3><div id="aud-calendario"></div></div>
+            <div class="aud-box"><h3 id="aud-dia-titulo">Detalhe do dia</h3><div id="aud-dia-detalhe"><p style="color:var(--muted);font-size:13px;">Clique em um dia do calendário para ver o que aconteceu.</p></div></div>
+        </div>
+        <div class="aud-grid">
+            <div class="aud-box"><h3>Eventos por hora do dia</h3><div class="chart-wrap"><canvas id="aud-ch-hora"></canvas></div></div>
+            <div class="aud-box"><h3>Eventos por dia da semana</h3><div class="chart-wrap"><canvas id="aud-ch-dow"></canvas></div></div>
+        </div>
+        <div class="aud-grid">
+            <div class="aud-box"><h3>Ranking de usuários</h3>${_tabelaRanking(a.por_usuario.map(u => ({ label: u.nome, sub: u.login, total: u.total })), 'Usuário', m.total)}</div>
+            <div class="aud-box"><h3>Colaboradores com mais movimentações</h3>${_tabelaRanking(a.top_colaboradores.map(c => ({ label: c.nome, sub: c.login, total: c.total })), 'Colaborador', m.total)}</div>
+        </div>
+        <div class="aud-grid">
+            <div class="aud-box"><h3>Por setor (atual)</h3>${_tabelaRanking(a.por_setor.map(s => ({ label: s.nome, total: s.total })), 'Setor', m.total)}</div>
+            <div class="aud-box"><h3>Por cargo (atual)</h3>${_tabelaRanking(a.por_cargo.map(s => ({ label: s.nome, total: s.total })), 'Cargo', m.total)}</div>
+            <div class="aud-box"><h3>Por turno (atual)</h3>${_tabelaRanking(a.por_turno.map(s => ({ label: s.nome, total: s.total })), 'Turno', m.total)}</div>
+        </div>
+        <div class="aud-box" id="aud-validacoes"><h3>✅ Validações do histórico</h3>${_renderValidacoes(a.validacoes)}</div>
+    `;
+
+    _renderCalendario();
+    _renderGraficosAuditoria();
+}
+
+function _renderGraficosAuditoria() {
+    if (typeof Chart === 'undefined') return;
+    const a = _auditoria;
+    const base = { responsive: true, maintainAspectRatio: false };
+
+    _audCharts.push(new Chart(document.getElementById('aud-ch-tipo'), {
+        type: 'doughnut',
+        data: { labels: a.por_tipo.map(t => t.label), datasets: [{ data: a.por_tipo.map(t => t.total), backgroundColor: a.por_tipo.map(t => _corTipo(t.tipo)) }] },
+        options: { ...base, plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } },
+    }));
+
+    const dias = [];
+    const d = new Date(a.periodo.data_de + 'T00:00:00');
+    const fim = new Date(a.periodo.data_ate + 'T00:00:00');
+    while (d <= fim) { dias.push(_isoLocal(d)); d.setDate(d.getDate() + 1); }
+    _audCharts.push(new Chart(document.getElementById('aud-ch-dia'), {
+        type: 'bar',
+        data: {
+            labels: dias.map(x => _br(x).slice(0, 5)),
+            datasets: a.por_tipo.map(t => ({
+                label: t.label,
+                data: dias.map(x => (a.por_dia[x] && a.por_dia[x].por_tipo[t.tipo]) || 0),
+                backgroundColor: _corTipo(t.tipo),
+            })),
+        },
+        options: {
+            ...base,
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } },
+            plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
+            onClick: (_, els) => { if (els.length) selecionarDiaAuditoria(dias[els[0].index]); },
+        },
+    }));
+
+    const barra = (id, labels, valores) => _audCharts.push(new Chart(document.getElementById(id), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Eventos', data: valores, backgroundColor: '#0f4c75' }] },
+        options: { ...base, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+    }));
+    barra('aud-ch-hora', a.por_hora.map((_, h) => `${String(h).padStart(2, '0')}h`), a.por_hora);
+    barra('aud-ch-dow', AUD_DOW, a.por_dia_semana);
+}
+
+function _corCalendario(n, max) {
+    if (!n) return '#f1f5f9';
+    const nivel = Math.min(4, Math.ceil((n / max) * 4));
+    return ['#f1f5f9', '#bfdbfe', '#60a5fa', '#2563eb', '#1e3a8a'][nivel];
+}
+
+function _renderCalendario() {
+    const a = _auditoria;
+    const inicio = new Date(a.periodo.data_de + 'T00:00:00');
+    const fim = new Date(a.periodo.data_ate + 'T00:00:00');
+    const max = Math.max(1, ...Object.values(a.por_dia).map(b => b.total));
+    let html = '<div class="aud-cal-meses">';
+    let cursor = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+    let meses = 0;
+    while (cursor <= fim && meses < 13) {
+        const ano = cursor.getFullYear(), mes = cursor.getMonth();
+        const nome = cursor.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+        const offset = (new Date(ano, mes, 1).getDay() + 6) % 7;  // segunda = 0
+        const ultimo = new Date(ano, mes + 1, 0).getDate();
+        let celulas = AUD_DOW.map(x => `<div class="dow">${x[0]}</div>`).join('');
+        celulas += '<div></div>'.repeat(offset);
+        for (let dia = 1; dia <= ultimo; dia++) {
+            const dt = new Date(ano, mes, dia);
+            const iso = _isoLocal(dt);
+            if (dt < inicio || dt > fim) { celulas += `<div class="dia fora">${dia}</div>`; continue; }
+            const n = (a.por_dia[iso] || {}).total || 0;
+            const escuro = n && (n / max) > 0.5;
+            celulas += `<div class="dia${iso === _audDiaSel ? ' sel' : ''}" style="background:${_corCalendario(n, max)};color:${escuro ? '#fff' : '#0f172a'};"
+                title="${_br(iso)}: ${n} evento(s)" onclick="selecionarDiaAuditoria('${iso}')">${dia}${n ? `<small>${n}</small>` : ''}</div>`;
+        }
+        html += `<div class="aud-cal-mes"><h4>${nome}</h4><div class="aud-cal">${celulas}</div></div>`;
+        cursor = new Date(ano, mes + 1, 1);
+        meses++;
+    }
+    html += `</div><div class="aud-cal-legenda">Menos ${[0, 1, 2, 3, 4].map(i => `<i style="background:${['#f1f5f9', '#bfdbfe', '#60a5fa', '#2563eb', '#1e3a8a'][i]};"></i>`).join('')} Mais</div>`;
+    document.getElementById('aud-calendario').innerHTML = html;
+}
+
+function selecionarDiaAuditoria(iso) {
+    _audDiaSel = iso;
+    _renderCalendario();
+    const b = _auditoria.por_dia[iso] || { total: 0, por_tipo: {} };
+    const itens = Object.entries(b.por_tipo).sort((x, y) => y[1] - x[1])
+        .map(([t, n]) => ({ label: _auditoria.tipos[t] || t, total: n, cor: _corTipo(t) }));
+    const dow = AUD_DOW[(new Date(iso + 'T00:00:00').getDay() + 6) % 7];
+    document.getElementById('aud-dia-titulo').textContent = `Detalhe do dia ${_br(iso)} (${dow})`;
+    document.getElementById('aud-dia-detalhe').innerHTML = `
+        <p style="margin:0 0 8px;font-size:13px;"><strong>${_fmt(b.total)}</strong> evento(s) no dia.</p>
+        ${_tabelaRanking(itens, 'Tipo', b.total)}
+        ${b.total ? `<button class="btn btn-sm" style="margin-top:10px;" onclick="verDiaNoRegistro('${iso}')">Ver os eventos no Registro de Atividades →</button>` : ''}`;
+}
+
+function verDiaNoRegistro(iso) {
+    document.getElementById('filtro-data-de').value = iso;
+    document.getElementById('filtro-data-ate').value = iso;
+    document.getElementById('filtro-tipo').value = document.getElementById('aud-tipo').value;
+    ['cargo', 'setor', 'turno'].forEach(k => document.getElementById('filtro-' + k).value = document.getElementById('aud-' + k).value);
+    showTab('atividades', document.querySelector('.hist-tab'));
+    carregarAtividades();
+}
+
+function _renderValidacoes(validacoes) {
+    const SEV = { ok: 'OK', info: 'Info', alerta: 'Alerta', critico: 'Crítico' };
+    return validacoes.map(v => {
+        const tabela = v.itens.length ? `<div class="table-wrap" style="max-height:280px;margin-top:8px;"><table>
+            <thead><tr><th>Data/Hora</th><th>Tipo</th><th>Colaborador</th><th>Usuário</th><th>Descrição</th></tr></thead>
+            <tbody>${v.itens.map(i => `<tr>
+                <td style="white-space:nowrap;font-size:12px;">${escaparHtml(i.timestamp)}</td>
+                <td style="font-size:12px;">${escaparHtml(i.tipo_label)}</td>
+                <td style="font-size:12px;">${escaparHtml(i.operador || '—')}<br><span style="color:var(--muted);font-size:11px;">${escaparHtml(i.login)}</span></td>
+                <td style="font-size:12px;">${escaparHtml(i.usuario || '—')}</td>
+                <td style="font-size:12px;max-width:360px;">${escaparHtml(i.descricao || '—')}</td>
+            </tr>`).join('')}</tbody></table></div>
+            ${v.total > v.itens.length ? `<p>Mostrando os ${v.itens.length} primeiros de ${v.total}.</p>` : ''}` : '';
+        return `<details class="aud-val ${v.severidade}">
+            <summary><span>${escaparHtml(v.titulo)}</span>
+                <span style="display:flex;gap:8px;align-items:center;"><span style="font-size:18px;">${_fmt(v.total)}</span><span class="sev">${SEV[v.severidade]}</span></span></summary>
+            <p>${escaparHtml(v.descricao)}</p>${tabela || '<p>Nenhuma ocorrência. ✔</p>'}
+        </details>`;
+    }).join('');
 }
 
 // Load on page open
