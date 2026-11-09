@@ -12,6 +12,7 @@
     Ative o acesso e defina o nível para que o operador possa entrar no HC Overview usando seu <strong>login</strong>.
 </div>
 
+{% if current_user.is_admin %}
 <div class="card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
         <div>
@@ -25,6 +26,7 @@
         <div style="color:var(--muted);font-size:13px;">Carregando horarios...</div>
     </div>
 </div>
+{% endif %}
 
 <div class="card" style="margin-bottom:16px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;">
@@ -99,11 +101,14 @@
             <div>
                 <label class="field-label">Nível de acesso</label>
                 <select id="p-nivel" style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);">
+                    <option value="LC-LEARNING">LC-LEARNING — Somente Dashboard + Usuários (acessos, níveis, YubiKey)</option>
                     <option value="LC1">LC1 — Somente Dashboard</option>
                     <option value="LC3">LC3 — Dashboard + Novo HC + LIST + Pendências</option>
                     <option value="LC5">LC5 — Tudo exceto Histórico e Excluir</option>
                     <option value="LC-RH-ANALYTICS">LC-RH-ANALYTICS — Como LC5, sem cadastrar e sem excluir</option>
+                    {% if current_user.is_admin %}
                     <option value="EXPERT">EXPERT — Acesso Total</option>
+                    {% endif %}
                     {% if current_user.pode_conceder_hard_expert %}
                     <option value="LC-HARD-EXPERT">LC-HARD-EXPERT — EXPERT + arquivar/cancelar tickets (Planning)</option>
                     {% endif %}
@@ -420,8 +425,8 @@ function renderTabela(lista) {
         const acessoBadge = o.permission_hcview
             ? '<span class="badge operacional">Ativo</span>'
             : '<span class="badge off">Bloqueado</span>';
-        const nivelCls = { LC1: 'ferias', LC3: 'licenca', LC5: 'operacional', 'LC-RH-ANALYTICS': 'treinamento', EXPERT: 'off', 'LC-HARD-EXPERT': 'desligado' }[o.permission_level_hcview] || '';
-        const nivelLabel = { LC1: 'LC1', LC3: 'LC3', LC5: 'LC5', 'LC-RH-ANALYTICS': 'RH-ANALYTICS', EXPERT: 'EXPERT', 'LC-HARD-EXPERT': 'HARD EXPERT' }[o.permission_level_hcview] || '—';
+        const nivelCls = { 'LC-LEARNING': 'licenca', LC1: 'ferias', LC3: 'licenca', LC5: 'operacional', 'LC-RH-ANALYTICS': 'treinamento', EXPERT: 'off', 'LC-HARD-EXPERT': 'desligado' }[o.permission_level_hcview] || '';
+        const nivelLabel = { 'LC-LEARNING': 'LEARNING', LC1: 'LC1', LC3: 'LC3', LC5: 'LC5', 'LC-RH-ANALYTICS': 'RH-ANALYTICS', EXPERT: 'EXPERT', 'LC-HARD-EXPERT': 'HARD EXPERT' }[o.permission_level_hcview] || '—';
         const nivelBadge = o.permission_level_hcview
             ? `<span class="badge ${nivelCls}">${nivelLabel}</span>`
             : '<span style="color:var(--muted);">—</span>';
@@ -461,11 +466,14 @@ function abrirModal(o) {
     const temOpcao = [...nivelSel.options].some(op => op.value === alvo);
     const msg = document.getElementById('msg-perm');
     if (!temOpcao) {
-        // Operador tem LC-HARD-EXPERT e este usuário não pode conceder/remover.
-        const op = new Option(alvo + ' (bloqueado — só Planning altera)', alvo);
+        // Operador tem nível que este usuário não pode conceder/remover
+        // (LC-HARD-EXPERT fora do Planning, ou EXPERT+ para LC-LEARNING).
+        const op = new Option(alvo + ' (bloqueado)', alvo);
         op.disabled = true; nivelSel.add(op, 0);
         msg.style.color = '#b45309';
-        msg.textContent = 'Nível LC-HARD-EXPERT só pode ser alterado pelo login autorizado (Planning).';
+        msg.textContent = alvo === 'LC-HARD-EXPERT'
+            ? 'Nível LC-HARD-EXPERT só pode ser alterado pelo login autorizado (Planning).'
+            : 'Seu nível (LC-LEARNING) não pode alterar usuários EXPERT.';
     } else {
         msg.textContent = '';
     }
@@ -730,7 +738,7 @@ async function revogarChaveFisica(chaveId) {
     }
 }
 
-carregarTurnosConfig();
+{% if current_user.is_admin %}carregarTurnosConfig();{% endif %}
 carregarOperadores();
 carregarAplicacoes();
 </script>

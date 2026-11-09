@@ -201,7 +201,7 @@ def logout():
 @auth_bp.route("/usuarios")
 @login_required
 def usuarios_page():
-    if not current_user.is_admin:
+    if not current_user.can_usuarios:
         return redirect(url_for("hc.home"))
     return render_template("usuarios.html")
 
@@ -209,7 +209,7 @@ def usuarios_page():
 @auth_bp.route("/api/usuarios", methods=["GET"])
 @login_required
 def listar_usuarios():
-    if not current_user.is_admin:
+    if not current_user.can_usuarios:
         return jsonify({"erro": "Acesso negado."}), 403
     return jsonify(_usuarios_operadores_e_hc())
 
@@ -277,7 +277,7 @@ def salvar_turnos_config():
 @auth_bp.route("/api/usuarios/<login_val>", methods=["PUT"])
 @login_required
 def atualizar_permissao(login_val):
-    if not current_user.is_admin:
+    if not current_user.can_usuarios:
         return jsonify({"erro": "Acesso negado."}), 403
 
     try:
@@ -287,16 +287,22 @@ def atualizar_permissao(login_val):
             return jsonify({"erro": "Login nao encontrado no HC nem em operadores."}), 404
         data = request.get_json() or {}
 
+        # LC-LEARNING: não altera EXPERT/HARD-EXPERT nem o próprio cadastro.
+        if not current_user.pode_gerenciar_operador(operador.permission_level_hcview, operador.login):
+            return jsonify({"erro": "Seu nível (LC-LEARNING) não pode alterar este usuário."}), 403
+
         if "permission_hcview" in data:
             if operador.login == current_user.login and not data["permission_hcview"]:
                 return jsonify({"erro": "Voce nao pode revogar seu proprio acesso."}), 400
             operador.permission_hcview = bool(data["permission_hcview"])
 
         if "permission_level_hcview" in data:
-            from models.operadores import NIVELS_HC
+            from models.operadores import NIVEIS_EXPERT, NIVELS_HC
             nivel = (data["permission_level_hcview"] or "").strip()
             if nivel not in (*NIVELS_HC, ""):
                 return jsonify({"erro": "Nivel invalido."}), 400
+            if current_user.is_learning and nivel in NIVEIS_EXPERT:
+                return jsonify({"erro": "LC-LEARNING não pode conceder EXPERT nem LC-HARD-EXPERT."}), 403
             # LC-HARD-EXPERT: só o login autorizado concede (e não pode rebaixar
             # quem já tem, a não ser o próprio login autorizado).
             mexendo_hard = "LC-HARD-EXPERT" in (nivel, operador.permission_level_hcview or "")

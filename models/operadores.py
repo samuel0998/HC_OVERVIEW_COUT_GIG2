@@ -3,6 +3,9 @@ from flask_login import UserMixin
 from models import db
 
 # Permission level hierarchy (lowest to highest)
+#   LC-LEARNING      → SÓ Dashboard + Usuários (liberar/revogar acessos, níveis,
+#                      YubiKey, integrações). Fica ABAIXO de LC1 na hierarquia
+#                      pra não herdar LIST/Pendências/Novo HC via _nivel_gte.
 #   LC1              → Dashboard/LC only
 #   LC3              → + Novo HC, LIST, Pendências
 #   LC5              → tudo, exceto Histórico e Excluir colaborador
@@ -10,9 +13,10 @@ from models import db
 #   EXPERT           → acesso total (Histórico, Excluir, Usuários)
 #   LC-HARD-EXPERT   → EXPERT + gestão de tickets de premissa (arquivar/cancelar).
 #                      Só o time de Planning tem; só o login 'sxmoraes' concede.
-NIVELS_HC = ["LC1", "LC3", "LC5", "LC-RH-ANALYTICS", "EXPERT", "LC-HARD-EXPERT"]
+NIVELS_HC = ["LC-LEARNING", "LC1", "LC3", "LC5", "LC-RH-ANALYTICS", "EXPERT", "LC-HARD-EXPERT"]
 NIVEIS_EXPERT = ("EXPERT", "LC-HARD-EXPERT")
 LOGIN_CONCEDE_HARD_EXPERT = "sxmoraes"
+NIVEL_LEARNING = "LC-LEARNING"
 
 
 def _nivel_gte(nivel_usuario, nivel_minimo):
@@ -80,6 +84,33 @@ class Operadores(db.Model, UserMixin):
     def can_dashboard(self):
         """LC1+ can access Dashboard."""
         return bool(self.permission_hcview) and self.nivel in NIVELS_HC
+
+    @property
+    def is_learning(self):
+        """LC-LEARNING: só Dashboard + Usuários."""
+        return bool(self.permission_hcview) and self.nivel == NIVEL_LEARNING
+
+    @property
+    def can_lc_tree(self):
+        """Páginas LC e Tree: quem vê Dashboard, exceto LC-LEARNING."""
+        return self.can_dashboard and not self.is_learning
+
+    @property
+    def can_usuarios(self):
+        """Aba Usuários (permissões HC, acessos às aplicações integradas,
+        YubiKey, bloqueio): EXPERT+ e LC-LEARNING."""
+        return self.is_admin or self.is_learning
+
+    def pode_gerenciar_operador(self, alvo_nivel, alvo_login=None):
+        """LC-LEARNING não mexe em quem é EXPERT/HARD-EXPERT nem em si mesmo
+        (evita auto-promoção). Admin (EXPERT+) segue as regras de sempre."""
+        if self.is_admin:
+            return True
+        if not self.is_learning:
+            return False
+        if alvo_login and (alvo_login or "").strip().lower() == (self.login or "").strip().lower():
+            return False
+        return (alvo_nivel or "") not in NIVEIS_EXPERT
 
     @property
     def can_edit(self):

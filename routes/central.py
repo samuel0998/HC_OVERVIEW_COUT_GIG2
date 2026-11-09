@@ -204,8 +204,18 @@ def identificar_por_chave():
 
 
 def _exigir_admin():
-    if not current_user.is_authenticated or not current_user.is_admin:
+    # EXPERT+ e LC-LEARNING (gestão de acessos/YubiKey/integrações).
+    if not current_user.is_authenticated or not current_user.can_usuarios:
         return jsonify({"erro": "Acesso negado. Somente administradores da HC Overview."}), 403
+    return None
+
+
+def _exigir_pode_gerenciar(login_norm):
+    """LC-LEARNING não mexe em acessos/bloqueio/YubiKey de EXPERT/HARD-EXPERT
+    nem nos próprios."""
+    alvo = Operadores.query.get(login_norm)
+    if alvo and not current_user.pode_gerenciar_operador(alvo.permission_level_hcview, alvo.login):
+        return jsonify({"erro": "Seu nível (LC-LEARNING) não pode alterar este usuário."}), 403
     return None
 
 
@@ -394,6 +404,9 @@ def liberar_acesso(login_val, aplicacao_id):
     if negado:
         return negado
     login_norm = (login_val or "").strip().lower()
+    negado = _exigir_pode_gerenciar(login_norm)
+    if negado:
+        return negado
     if not Operadores.query.get(login_norm):
         return jsonify({"erro": "Usuário não encontrado em operadores."}), 404
     aplicacao = Aplicacao.query.get_or_404(aplicacao_id)
@@ -438,6 +451,9 @@ def revogar_acesso(login_val, aplicacao_id):
     if negado:
         return negado
     login_norm = (login_val or "").strip().lower()
+    negado = _exigir_pode_gerenciar(login_norm)
+    if negado:
+        return negado
     aplicacao = Aplicacao.query.get_or_404(aplicacao_id)
     acesso = AcessoAplicacao.query.filter_by(usuario_login=login_norm, aplicacao_id=aplicacao.id).first()
     if not acesso:
@@ -458,6 +474,9 @@ def bloquear_usuario(login_val):
     if negado:
         return negado
     login_norm = (login_val or "").strip().lower()
+    negado = _exigir_pode_gerenciar(login_norm)
+    if negado:
+        return negado
     operador = Operadores.query.get(login_norm)
     if not operador:
         return jsonify({"erro": "Usuário não encontrado."}), 404
@@ -526,6 +545,9 @@ def cadastrar_chave_fisica(login_val):
     if negado:
         return negado
     login_norm = (login_val or "").strip().lower()
+    negado = _exigir_pode_gerenciar(login_norm)
+    if negado:
+        return negado
     if not Operadores.query.get(login_norm):
         return jsonify({"erro": "Usuário não encontrado em operadores."}), 404
 
@@ -578,6 +600,9 @@ def revogar_chave_fisica(chave_id):
     if negado:
         return negado
     chave = ChaveFisicaUsuario.query.get_or_404(chave_id)
+    negado = _exigir_pode_gerenciar((chave.usuario_login or "").strip().lower())
+    if negado:
+        return negado
     chave.ativa = False
     chave.revogada_em = datetime.utcnow()
     chave.revogada_por = current_user.login

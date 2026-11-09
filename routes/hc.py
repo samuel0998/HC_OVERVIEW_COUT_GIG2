@@ -1495,7 +1495,7 @@ def dashboard():
 @hc_bp.route("/lc")
 @login_required
 def lc_page():
-    if not current_user.can_dashboard:
+    if not current_user.can_lc_tree:
         abort(403)
     return render_template("lc_atual.html")
 
@@ -1503,7 +1503,7 @@ def lc_page():
 @hc_bp.route("/tree")
 @login_required
 def tree_page():
-    if not current_user.can_dashboard:
+    if not current_user.can_lc_tree:
         abort(403)
     return render_template("tree.html", turnos=TURNOS)
 
@@ -1518,7 +1518,7 @@ def tree_data():
     outro setor cria um empréstimo (ver PUT /api/hc/<id>) - a pessoa precisa
     continuar aparecendo, agora no setor de destino, senão o arrasto "some"
     com ela da árvore."""
-    if not current_user.can_dashboard:
+    if not current_user.can_lc_tree:
         return jsonify({"erro": "Acesso negado."}), 403
 
     turno = (request.args.get("turno") or "BLUE DAY").strip().upper()

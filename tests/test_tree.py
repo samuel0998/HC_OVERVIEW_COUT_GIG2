@@ -54,7 +54,7 @@ class TreeTestBase(unittest.TestCase):
     def _como(self, can_dashboard=True, can_edit=True):
         return patch("routes.hc.current_user", SimpleNamespace(
             is_authenticated=True, login="tester", nome="Testador",
-            can_dashboard=can_dashboard, can_edit=can_edit,
+            can_dashboard=can_dashboard, can_lc_tree=can_dashboard, can_edit=can_edit,
         ))
 
     def _colaborador(self, **kwargs):

@@ -1,0 +1,35 @@
+{
+  "version": "1.0.0",
+  "user_name": "",
+  "chat_language": "pt-BR",
+  "doc_language": "pt-BR",
+  "mode": "fonte",
+  "phase": "triagem",
+  "doc_level": "essencial",
+  "output_folder": "_reverso_sdd",
+  "triage": {
+    "target": "C:\\hc_gig2_project (HC Overview: Flask + PostgreSQL, deploy Railway)",
+    "goal": "Documentar o sistema em specs executaveis (padrao assumido; usuario nao declarou objetivo)",
+    "runtime_allowed": false,
+    "authorization": "Repositorio do proprio usuario"
+  },
+  "specs": {
+    "granularity": "",
+    "custom_folders": []
+  },
+  "completed": ["triagem"],
+  "pending": ["scout", "archaeologist", "detective", "architect", "writer", "reviewer"],
+  "checkpoints": {},
+  "writer_progress": {
+    "total": 0,
+    "done": []
+  },
+  "evidence_counter": 0,
+  "forward": {
+    "active": null,
+    "queue": [],
+    "paused": []
+  },
+  "autonomous": false,
+  "updated_at": "2026-10-30"
+}

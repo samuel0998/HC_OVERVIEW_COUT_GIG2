@@ -60,5 +60,12 @@
         <div class="home-btn-desc">Registros de movimentações</div>
     </a>
     {% endif %}
+    {% if current_user.can_usuarios %}
+    <a href="{{ url_for('auth.usuarios_page') }}" class="home-btn">
+        <div class="home-btn-icon">&#128273;</div>
+        <div class="home-btn-label">Usuários</div>
+        <div class="home-btn-desc">Acessos, níveis e chaves de segurança</div>
+    </a>
+    {% endif %}
 </div>
 {% endblock %}
